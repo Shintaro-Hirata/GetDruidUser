@@ -43,7 +43,7 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
     st.pyplot(fig, clear_figure=True)
 
 
-def show_query3(df3_hist: pd.DataFrame):
+def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
     st.markdown("### クエリ3: 横G（ヒストグラム：自動/手動 重ね表示）")
     if df3_hist is None or df3_hist.empty:
         st.info("結果0件")
@@ -74,6 +74,15 @@ def show_query3(df3_hist: pd.DataFrame):
     # ※色はmatplotlibデフォルト任せ（指定しない）
     plt.plot(x, y_auto_smooth, marker="o", linewidth=1.5, label="自動運転", color="tab:orange")
     plt.plot(x, y_manual_smooth, marker="o", linewidth=1.5, label="手動運転", color="tab:blue")
+
+    # ★追加：レンジ指定（Noneなら何もしない）
+    ax = fig.axes[0] if fig.axes else None
+    if ax is not None:
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
 
     # 凡例の外出し
     plt.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0, frameon=True)
@@ -139,7 +148,7 @@ def show_scatter_compare(
 
 
 
-def show_query3_compare(series: list[tuple[str, pd.DataFrame]]):
+def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, ylim=None):
     """
     series: [(期間ラベル, df3_hist), ...]
     色は状態で固定：
@@ -208,6 +217,16 @@ def show_query3_compare(series: list[tuple[str, pd.DataFrame]]):
         borderaxespad=0.0,
         frameon=True,
     )
+
+    # ★追加：レンジ指定（Noneなら何もしない）
+    ax = fig.axes[0] if fig.axes else None
+    if ax is not None:
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
+
     fig.tight_layout(rect=[0, 0, 0.78, 1])
 
     st.pyplot(fig, clear_figure=True)

@@ -54,6 +54,9 @@ xlim = ui["xlim"]
 ylim_q1 = ui["ylim_q1"]
 ylim_q2 = ui["ylim_q2"]
 
+xlim_q3 = ui["xlim_q3"]
+ylim_q3 = ui["ylim_q3"]
+
 # =========================
 # 実行ボタンが押されたときだけクエリ実行→キャッシュ更新
 # =========================
@@ -127,6 +130,9 @@ render_period_tabs_from_cache(
     xlim=xlim,
     ylim_q1=ylim_q1,
     ylim_q2=ylim_q2,
+    # ★追加
+    xlim_q3=xlim_q3,
+    ylim_q3=ylim_q3,
 )
 
 
@@ -139,6 +145,9 @@ render_compare_tab(
     xlim=xlim,
     ylim_q1=ylim_q1,
     ylim_q2=ylim_q2,
+    # ★追加
+    xlim_q3=xlim_q3,
+    ylim_q3=ylim_q3,
 )
 
 # Excelはキャッシュから生成（レンジ変更では再クエリしない）

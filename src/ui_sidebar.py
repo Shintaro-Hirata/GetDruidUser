@@ -55,11 +55,21 @@ def render_sidebar() -> dict:
         y2_min = st.number_input("Y最小（accel）", value=0.0)
         y2_max = st.number_input("Y最大（accel）", value=0.0)
 
+        st.markdown("#### クエリ3（横G）用")
+
+        q3_x_min = st.number_input("Q3 X最小（横G）", value=0.0)
+        q3_x_max = st.number_input("Q3 X最大（横G）", value=0.0)
+
+        q3_y_min = st.number_input("Q3 Y最小（発生頻度）", value=0.0)
+        q3_y_max = st.number_input("Q3 Y最大（発生頻度）", value=0.0)
+
         run = st.button("実行", type="primary")
 
     xlim = None if x_min >= x_max else (x_min, x_max)
     ylim_q1 = None if y1_min >= y1_max else (y1_min, y1_max)
     ylim_q2 = None if y2_min >= y2_max else (y2_min, y2_max)
+    xlim_q3 = None if q3_x_min >= q3_x_max else (q3_x_min, q3_x_max)
+    ylim_q3 = None if q3_y_min >= q3_y_max else (q3_y_min, q3_y_max)
 
     return {
         "vehicle_id": vehicle_id,
@@ -68,5 +78,8 @@ def render_sidebar() -> dict:
         "xlim": xlim,
         "ylim_q1": ylim_q1,
         "ylim_q2": ylim_q2,
+        
+        "xlim_q3": xlim_q3,
+        "ylim_q3": ylim_q3,
         "suggested_split": int(suggested_split),
     }
