@@ -9,3 +9,17 @@ DEFAULT_RANGES_TEXT = (
 
 # 自動分割の最小幅（data_serviceで使っているならここに寄せるのが定石）
 MIN_SPLIT_MINUTES = 10
+
+# =========================
+# Streamlit session_state keys
+# =========================
+SS_CACHE_READY = "cache_ready"
+SS_CACHE_VEHICLE_ID = "cache_vehicle_id"
+SS_CACHE_SPLIT_MINUTES = "cache_split_minutes"
+SS_CACHE_RANGES = "cache_ranges"
+SS_CACHE_EXCEL_SHEETS = "cache_excel_sheets"
+SS_CACHE_COMPARE_Q1 = "cache_compare_q1"
+SS_CACHE_COMPARE_Q2 = "cache_compare_q2"
+SS_CACHE_COMPARE_Q3 = "cache_compare_q3"
+
+SS_TEST_DROP_COLUMNS = "test_drop_columns"

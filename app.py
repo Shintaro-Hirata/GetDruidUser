@@ -5,7 +5,19 @@ from src.druid_client import DruidClient
 from src.export_excel import to_excel_bytes
 from src.time_ranges import parse_ranges
 
-from src.config import DRUID_SQL_URL, DEFAULT_RANGES_TEXT
+from src.config import (
+    DRUID_SQL_URL,
+    DEFAULT_RANGES_TEXT,
+    SS_CACHE_READY,
+    SS_CACHE_VEHICLE_ID,
+    SS_CACHE_SPLIT_MINUTES,
+    SS_CACHE_RANGES,
+    SS_CACHE_EXCEL_SHEETS,
+    SS_CACHE_COMPARE_Q1,
+    SS_CACHE_COMPARE_Q2,
+    SS_CACHE_COMPARE_Q3,
+)
+
 from src.suggestions import suggested_split_minutes_from_ranges_text
 
 from src.ui_sidebar import render_sidebar
@@ -20,6 +32,24 @@ st.title("Druid: 期間（複数ペア）×（基本は非分割）× 可視化 
 
 client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
 
+def ensure_cache_state():
+    """session_state にキャッシュ用キーが無ければ初期化する。"""
+    ss = st.session_state
+
+    # 既に初期化済みなら何もしない
+    if ss.get(SS_CACHE_READY, None) is not None:
+        return
+
+    ss[SS_CACHE_READY] = False
+    ss[SS_CACHE_VEHICLE_ID] = ""
+    ss[SS_CACHE_SPLIT_MINUTES] = 0
+    ss[SS_CACHE_RANGES] = []
+    ss[SS_CACHE_EXCEL_SHEETS] = {}
+    ss[SS_CACHE_COMPARE_Q1] = []
+    ss[SS_CACHE_COMPARE_Q2] = []
+    ss[SS_CACHE_COMPARE_Q3] = []
+
+
 # =========================
 # 初回デフォルト
 # =========================
@@ -32,15 +62,8 @@ if "split_minutes" not in st.session_state:
 # =========================
 # 実行結果キャッシュ
 # =========================
-if "cache_ready" not in st.session_state:
-    st.session_state["cache_ready"] = False
-    st.session_state["cache_vehicle_id"] = ""
-    st.session_state["cache_split_minutes"] = 0
-    st.session_state["cache_ranges"] = []
-    st.session_state["cache_excel_sheets"] = {}
-    st.session_state["cache_compare_q1"] = []
-    st.session_state["cache_compare_q2"] = []
-    st.session_state["cache_compare_q3"] = []
+if SS_CACHE_READY not in st.session_state:
+    ensure_cache_state()
 
 # =========================
 # UI（サイドバー）
@@ -75,15 +98,14 @@ if run:
         split_minutes=split_minutes,
     )
 
-    st.session_state["cache_ready"] = True
-    st.session_state["cache_vehicle_id"] = vehicle_id
-    st.session_state["cache_split_minutes"] = int(split_minutes)
-    st.session_state["cache_ranges"] = results.ranges
-    st.session_state["cache_excel_sheets"] = results.all_excel_sheets
-    st.session_state["cache_compare_q1"] = results.compare_q1
-    st.session_state["cache_compare_q2"] = results.compare_q2
-    st.session_state["cache_compare_q3"] = results.compare_q3
-
+    st.session_state[SS_CACHE_READY] = True
+    st.session_state[SS_CACHE_VEHICLE_ID] = vehicle_id
+    st.session_state[SS_CACHE_SPLIT_MINUTES] = int(split_minutes)
+    st.session_state[SS_CACHE_RANGES] = results.ranges
+    st.session_state[SS_CACHE_EXCEL_SHEETS] = results.all_excel_sheets
+    st.session_state[SS_CACHE_COMPARE_Q1] = results.compare_q1
+    st.session_state[SS_CACHE_COMPARE_Q2] = results.compare_q2
+    st.session_state[SS_CACHE_COMPARE_Q3] = results.compare_q3
 
     # ★ これが効く：run直後に再描画して「キャッシュ描画側のtabs」だけ表示される
     st.rerun()
@@ -91,26 +113,26 @@ if run:
 # =========================
 # キャッシュがない場合は案内して終了
 # =========================
-if not st.session_state["cache_ready"]:
+if not st.session_state[SS_CACHE_READY]:
     st.info("左のサイドバーで時間帯（開始,終了,ラベル）を複数行で入力して「実行」を押してください。")
     st.stop()
 
 # =========================
 # ここからは「描画だけ」（レンジ変更で再クエリしない）
 # =========================
-ranges = st.session_state["cache_ranges"]
-all_excel_sheets: dict[str, pd.DataFrame] = st.session_state["cache_excel_sheets"]
-compare_q1 = st.session_state["cache_compare_q1"]
-compare_q2 = st.session_state["cache_compare_q2"]
-compare_q3 = st.session_state["cache_compare_q3"]
+ranges = st.session_state[SS_CACHE_RANGES]
+all_excel_sheets = st.session_state[SS_CACHE_EXCEL_SHEETS]
+compare_q1 = st.session_state[SS_CACHE_COMPARE_Q1]
+compare_q2 = st.session_state[SS_CACHE_COMPARE_Q2]
+compare_q3 = st.session_state[SS_CACHE_COMPARE_Q3]
 
 st.caption(
-    f"表示中の結果：vehicle_id={st.session_state['cache_vehicle_id']} / split={st.session_state['cache_split_minutes']}分"
+    f"表示中の結果：vehicle_id={st.session_state[SS_CACHE_VEHICLE_ID]} / split={st.session_state[SS_CACHE_SPLIT_MINUTES]}分"
 )
 
-if vehicle_id != st.session_state["cache_vehicle_id"]:
+if vehicle_id != st.session_state[SS_CACHE_VEHICLE_ID]:
     st.warning("vehicle_id が変更されています。反映するには『実行』が必要です。")
-if int(split_minutes) != int(st.session_state["cache_split_minutes"]):
+if int(split_minutes) != int(st.session_state[SS_CACHE_SPLIT_MINUTES]):
     st.warning("分割幅が変更されています。反映するには『実行』が必要です。")
 
 # タブ（描画用）：比較 + 各テスト

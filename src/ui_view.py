@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 from src.plots import scatter, hist_ratio
 from src.mpl_jp import setup_japanese_font
+from src.config import SS_TEST_DROP_COLUMNS
 
 setup_japanese_font()
 
@@ -23,6 +24,15 @@ def _require_columns(df: pd.DataFrame, cols: list[str], *, context: str = "") ->
         return False
     return True
 
+def _apply_limits(ax, *, xlim=None, ylim=None):
+    """x/y の表示レンジを適用する（Noneなら何もしない）"""
+    if ax is None:
+        return
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+
 
 def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None):
     st.markdown("### クエリ1: lateral error（散布図）")
@@ -30,7 +40,7 @@ def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None):
         st.info("結果0件")
         return
 
-    if st.session_state.get("test_drop_columns", False):
+    if st.session_state.get(SS_TEST_DROP_COLUMNS, False):
         # テスト用：必要列をわざと落とす
         df1 = df1.drop(columns=["lateral_error"], errors="ignore")
 
@@ -41,11 +51,7 @@ def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None):
 
     # ★レンジ指定（期間タブにも効いている前提ならこのまま）
     ax = fig.axes[0] if fig.axes else None
-    if ax is not None:
-        if xlim is not None:
-            ax.set_xlim(*xlim)
-        if ylim is not None:
-            ax.set_ylim(*ylim)
+    _apply_limits(ax, xlim=xlim, ylim=ylim)
 
     st.pyplot(fig, clear_figure=True)
     st.dataframe(df1, use_container_width=True)
@@ -57,7 +63,7 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
         st.info("結果0件")
         return
     
-    if st.session_state.get("test_drop_columns", False):
+    if st.session_state.get(SS_TEST_DROP_COLUMNS, False):
         df2 = df2.drop(columns=["acceleration"], errors="ignore")
 
 
@@ -67,11 +73,7 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
     fig = scatter(df2, "cum_dist_km", "acceleration", "移動距離[km]", "加速度[m/s^2]")
 
     ax = fig.axes[0] if fig.axes else None
-    if ax is not None:
-        if xlim is not None:
-            ax.set_xlim(*xlim)
-        if ylim is not None:
-            ax.set_ylim(*ylim)
+    _apply_limits(ax, xlim=xlim, ylim=ylim)
 
     st.pyplot(fig, clear_figure=True)
     st.dataframe(df2, use_container_width=True)
@@ -83,7 +85,7 @@ def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
         st.info("結果0件")
         return
     
-    if st.session_state.get("test_drop_columns", False):
+    if st.session_state.get(SS_TEST_DROP_COLUMNS, False):
         df3_hist = df3_hist.drop(columns=["ratio_auto"], errors="ignore")
 
     if not _require_columns(df3_hist, ["bin_start", "ratio_auto", "ratio_manual"], context="クエリ3"):
@@ -111,11 +113,7 @@ def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
 
     # ★追加：レンジ指定（Noneなら何もしない）
     ax = fig.axes[0] if fig.axes else None
-    if ax is not None:
-        if xlim is not None:
-            ax.set_xlim(*xlim)
-        if ylim is not None:
-            ax.set_ylim(*ylim)
+    _apply_limits(ax, xlim=xlim, ylim=ylim)
 
 
     # 凡例の外出し
@@ -164,10 +162,8 @@ def show_scatter_compare(
     ax.set_ylabel(y_label)
 
     # ★ 軸レンジ指定（指定があれば）
-    if xlim is not None:
-        ax.set_xlim(xlim)
-    if ylim is not None:
-        ax.set_ylim(ylim)
+    _apply_limits(ax, xlim=xlim, ylim=ylim)
+
 
     # ★ 凡例を右外へ
     ax.legend(
@@ -260,10 +256,7 @@ def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, yl
     )
 
     # ★追加：レンジ指定（Noneなら何もしない）
-    if xlim is not None:
-        ax.set_xlim(*xlim)
-    if ylim is not None:
-        ax.set_ylim(*ylim)
+    _apply_limits(ax, xlim=xlim, ylim=ylim)
 
     fig.tight_layout(rect=[0, 0, 0.78, 1])
 

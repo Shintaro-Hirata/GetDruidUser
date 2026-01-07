@@ -4,7 +4,7 @@ import streamlit as st
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
 from src.types import SidebarState
-
+from src.config import SS_TEST_DROP_COLUMNS
 
 def _on_ranges_text_change():
     """開始/終了（＋ラベル）入力が変わったら、自動で推奨分割幅に戻す。"""
@@ -67,10 +67,10 @@ def render_sidebar() -> SidebarState:
         st.markdown("---")
         st.subheader("開発用テスト（任意）")
 
-        st.session_state["test_drop_columns"] = st.checkbox(
-        "テスト: 列欠損を擬似発生させる（開発用）",
-        value=st.session_state.get("test_drop_columns", False),
-        help="ONにすると、描画直前に一部列を意図的に削除して、列不足時のエラー表示を確認できます。",
+        st.session_state[SS_TEST_DROP_COLUMNS] = st.checkbox(
+            "テスト: 列欠損を擬似発生させる（開発用）",
+            value=st.session_state.get(SS_TEST_DROP_COLUMNS, False),
+            help="ONにすると、描画直前に一部列を意図的に削除して、列不足時のエラー表示を確認できます。",
         )
 
         run = st.button("実行", type="primary")
