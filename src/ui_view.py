@@ -8,22 +8,47 @@ from src.mpl_jp import setup_japanese_font
 
 setup_japanese_font()
 
+def _require_columns(df: pd.DataFrame, cols: list[str], *, context: str = "") -> bool:
+    """df に cols が揃っているかチェック。無ければ streamlit にエラー表示して False。"""
+    if df is None:
+        st.error(f"{context} データが None です")
+        return False
+    if df.empty:
+        return True  # 空は「0件」として扱うのでここではOK（呼び出し元で0件表示）
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        prefix = f"{context} " if context else ""
+        st.error(f"{prefix}表示に必要な列がありません: {missing}")
+        st.caption(f"現在の列: {list(df.columns)}")
+        return False
+    return True
+
 
 def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None):
     st.markdown("### クエリ1: lateral error（散布図）")
     if df1 is None or df1.empty:
         st.info("結果0件")
         return
-    fig = scatter(df1, "cum_dist_km", "lateral_error", "cum_dist_km", "lateral_error")
 
-# ★追加：レンジ指定（Noneなら何もしない）
+    if st.session_state.get("test_drop_columns", False):
+        # テスト用：必要列をわざと落とす
+        df1 = df1.drop(columns=["lateral_error"], errors="ignore")
+
+    if not _require_columns(df1, ["cum_dist_km", "lateral_error"], context="クエリ1"):
+        return
+
+    fig = scatter(df1, "cum_dist_km", "lateral_error", "移動距離[km]", "lateral error[m]")
+
+    # ★レンジ指定（期間タブにも効いている前提ならこのまま）
     ax = fig.axes[0] if fig.axes else None
     if ax is not None:
         if xlim is not None:
             ax.set_xlim(*xlim)
         if ylim is not None:
             ax.set_ylim(*ylim)
+
     st.pyplot(fig, clear_figure=True)
+    st.dataframe(df1, use_container_width=True)
 
 
 def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
@@ -31,7 +56,15 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
     if df2 is None or df2.empty:
         st.info("結果0件")
         return
-    fig = scatter(df2, "cum_dist_km", "acceleration", "cum_dist_km", "acceleration")
+    
+    if st.session_state.get("test_drop_columns", False):
+        df2 = df2.drop(columns=["acceleration"], errors="ignore")
+
+
+    if not _require_columns(df2, ["cum_dist_km", "acceleration"], context="クエリ2"):
+        return
+
+    fig = scatter(df2, "cum_dist_km", "acceleration", "移動距離[km]", "加速度[m/s^2]")
 
     ax = fig.axes[0] if fig.axes else None
     if ax is not None:
@@ -41,6 +74,7 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
             ax.set_ylim(*ylim)
 
     st.pyplot(fig, clear_figure=True)
+    st.dataframe(df2, use_container_width=True)
 
 
 def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
@@ -48,13 +82,13 @@ def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
     if df3_hist is None or df3_hist.empty:
         st.info("結果0件")
         return
+    
+    if st.session_state.get("test_drop_columns", False):
+        df3_hist = df3_hist.drop(columns=["ratio_auto"], errors="ignore")
 
-    # 安全策：必要列が無い場合は0埋め
-    for c in ["bin_start", "ratio_auto", "ratio_manual"]:
-        if c not in df3_hist.columns:
-            st.error(f"表示に必要な列がありません: {c}")
-            return
-
+    if not _require_columns(df3_hist, ["bin_start", "ratio_auto", "ratio_manual"], context="クエリ3"):
+        return
+    
     df = df3_hist.sort_values("bin_start").copy()
     x = df["bin_start"]
 
@@ -163,13 +197,20 @@ def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, yl
 
     fig, ax = plt.subplots()
     any_plotted = False
+    missing_warned = False
 
     for i, (label, df3_hist) in enumerate(series):
         if df3_hist is None or df3_hist.empty:
             continue
         needed = {"bin_start", "ratio_auto", "ratio_manual"}
-        if not needed.issubset(df3_hist.columns):
+        missing = needed - set(df3_hist.columns)
+        if missing:
+            if not missing_warned:
+                st.warning(f"Query3比較: 必要列が足りないデータがありスキップしました: {sorted(missing)}")
+                st.caption(f"例: {label} の列={list(df3_hist.columns)}")
+                missing_warned = True
             continue
+
 
         df = df3_hist.sort_values("bin_start").copy()
         x = df["bin_start"]
@@ -219,13 +260,10 @@ def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, yl
     )
 
     # ★追加：レンジ指定（Noneなら何もしない）
-    ax = fig.axes[0] if fig.axes else None
-    if ax is not None:
-        if xlim is not None:
-            ax.set_xlim(*xlim)
-        if ylim is not None:
-            ax.set_ylim(*ylim)
-
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
 
     fig.tight_layout(rect=[0, 0, 0.78, 1])
 

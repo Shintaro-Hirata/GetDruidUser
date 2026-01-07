@@ -64,6 +64,15 @@ def render_sidebar() -> SidebarState:
         q3_y_min = st.number_input("Q3 Y最小（発生頻度）", value=0.0)
         q3_y_max = st.number_input("Q3 Y最大（発生頻度）", value=0.0)
 
+        st.markdown("---")
+        st.subheader("開発用テスト（任意）")
+
+        st.session_state["test_drop_columns"] = st.checkbox(
+        "テスト: 列欠損を擬似発生させる（開発用）",
+        value=st.session_state.get("test_drop_columns", False),
+        help="ONにすると、描画直前に一部列を意図的に削除して、列不足時のエラー表示を確認できます。",
+        )
+
         run = st.button("実行", type="primary")
 
     xlim = None if x_min >= x_max else (x_min, x_max)
