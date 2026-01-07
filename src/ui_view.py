@@ -81,6 +81,8 @@ def show_scatter_compare(
     y_col: str,
     x_label: str,
     y_label: str,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
 ):
     st.markdown(f"### {title}")
 
@@ -100,10 +102,17 @@ def show_scatter_compare(
         st.info("比較対象のデータがありません（全期間0件 or 列が不足）")
         return
 
-    # ★ 表示用ラベルを使う
+    # ★ 表示用ラベル
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
 
+    # ★ 軸レンジ指定（指定があれば）
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
+    # ★ 凡例を右外へ
     ax.legend(
         loc="upper left",
         bbox_to_anchor=(1.02, 1.0),
@@ -113,6 +122,7 @@ def show_scatter_compare(
 
     fig.tight_layout(rect=[0, 0, 0.78, 1])
     st.pyplot(fig, clear_figure=True)
+
 
 
 def show_query3_compare(series: list[tuple[str, pd.DataFrame]]):

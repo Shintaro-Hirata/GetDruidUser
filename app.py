@@ -59,6 +59,19 @@ with st.sidebar:
         help="開始/終了入力を変更すると、自動で推奨値に戻ります。",
     )
 
+    st.markdown("---")
+    st.subheader("表示レンジ（比較タブ用・任意）")
+
+    x_min = st.number_input("X最小（km）", value=0.0)
+    x_max = st.number_input("X最大（km）", value=0.0)
+
+    y1_min = st.number_input("Y最小（lateral）", value=0.0)
+    y1_max = st.number_input("Y最大（lateral）", value=0.0)
+
+    y2_min = st.number_input("Y最小（accel）", value=0.0)
+    y2_max = st.number_input("Y最大（accel）", value=0.0)
+
+
     run = st.button("実行", type="primary")
 
 
@@ -132,6 +145,11 @@ for pair_idx, r in enumerate(ranges):
         compare_q1.append((lab1, df1))
         compare_q2.append((lab2, df2))
 
+    
+xlim = None if x_min >= x_max else (x_min, x_max)
+ylim_q1 = None if y1_min >= y1_max else (y1_min, y1_max)
+ylim_q2 = None if y2_min >= y2_max else (y2_min, y2_max)
+
 if compare_tab is not None:
     with compare_tab:
         st.subheader("比較（全期間）")
@@ -139,11 +157,25 @@ if compare_tab is not None:
 
         colA, colB = st.columns(2)
         with colA:
-            show_scatter_compare("クエリ1: lateral error（比較）", compare_q1, x_col="cum_dist_km", y_col="lateral_error", x_label="移動距離[km]",
-    y_label="lateral error[m]")
+            show_scatter_compare(
+                "クエリ1: lateral error（比較）", 
+                compare_q1, x_col="cum_dist_km", 
+                y_col="lateral_error", 
+                x_label="移動距離[km]",
+                y_label="lateral error[m]",
+                xlim=xlim,
+                ylim=ylim_q1,
+                )
         with colB:
-            show_scatter_compare("クエリ2: acceleration（比較）", compare_q2, x_col="cum_dist_km", y_col="acceleration", x_label="移動距離[km]",
-    y_label="加速度[m/s^2]")
+            show_scatter_compare(
+                "クエリ2: acceleration（比較）", 
+                compare_q2, x_col="cum_dist_km", 
+                y_col="acceleration", 
+                x_label="移動距離[km]",
+                y_label="加速度[m/s^2]",
+                xlim=xlim,
+                ylim=ylim_q2,
+                )
 
         st.markdown("---")
         from src.ui_view import show_query3_compare
