@@ -120,11 +120,15 @@ offset = 1 if len(ranges) >= 2 else 0
 
 # ★ 各期間タブ描画（キャッシュから）
 render_period_tabs_from_cache(
+    ranges=ranges,
     tabs=tabs,
     offset=offset,
-    ranges=ranges,
     all_excel_sheets=all_excel_sheets,
+    xlim=xlim,
+    ylim_q1=ylim_q1,
+    ylim_q2=ylim_q2,
 )
+
 
 # ★ 比較タブ描画（レンジ変更が効く）
 render_compare_tab(

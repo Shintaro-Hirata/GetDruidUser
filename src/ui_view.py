@@ -9,24 +9,38 @@ from src.mpl_jp import setup_japanese_font
 setup_japanese_font()
 
 
-def show_query1(df1: pd.DataFrame):
+def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None):
     st.markdown("### クエリ1: lateral error（散布図）")
     if df1 is None or df1.empty:
         st.info("結果0件")
         return
-    fig = scatter(df1, "cum_dist_km", "lateral_error", "移動距離[km]", "lateral error[m]")
+    fig = scatter(df1, "cum_dist_km", "lateral_error", "cum_dist_km", "lateral_error")
+
+# ★追加：レンジ指定（Noneなら何もしない）
+    ax = fig.axes[0] if fig.axes else None
+    if ax is not None:
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
     st.pyplot(fig, clear_figure=True)
-    st.dataframe(df1, use_container_width=True)
 
 
-def show_query2(df2: pd.DataFrame):
+def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
     st.markdown("### クエリ2: acceleration（散布図）")
     if df2 is None or df2.empty:
         st.info("結果0件")
         return
-    fig = scatter(df2, "cum_dist_km", "acceleration", "移動距離[km]", "加速度[m/s^2]")
+    fig = scatter(df2, "cum_dist_km", "acceleration", "cum_dist_km", "acceleration")
+
+    ax = fig.axes[0] if fig.axes else None
+    if ax is not None:
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
     st.pyplot(fig, clear_figure=True)
-    st.dataframe(df2, use_container_width=True)
 
 
 def show_query3(df3_hist: pd.DataFrame):

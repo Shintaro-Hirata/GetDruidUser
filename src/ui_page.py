@@ -8,11 +8,15 @@ from src.ui_view import show_scatter_compare, show_query3_compare
 
 def render_period_tabs_from_cache(
     *,
+    ranges,
     tabs,
     offset: int,
-    ranges,
-    all_excel_sheets: dict[str, pd.DataFrame],
+    all_excel_sheets,
+    xlim=None,
+    ylim_q1=None,
+    ylim_q2=None,
 ):
+
     """
     各期間タブ：キャッシュ（Excel格納DF）から描画する（再クエリなし）
     - T{period}_C{chunk}_Q{1..3} を復元して表示
@@ -48,9 +52,9 @@ def render_period_tabs_from_cache(
 
                 colA, colB = st.columns(2)
                 with colA:
-                    show_query1(df1)
+                    show_query1(df1, xlim=xlim, ylim=ylim_q1)
                 with colB:
-                    show_query2(df2)
+                    show_query2(df2, xlim=xlim, ylim=ylim_q2)
                     st.markdown("---")
                     show_query3(df3)
 
@@ -64,9 +68,9 @@ def render_period_tabs_from_cache(
 
                         colA, colB = st.columns(2)
                         with colA:
-                            show_query1(df1)
+                            show_query1(df1, xlim=xlim, ylim=ylim_q1)
                         with colB:
-                            show_query2(df2)
+                            show_query2(df2, xlim=xlim, ylim=ylim_q2)
                             st.markdown("---")
                             show_query3(df3)
 
