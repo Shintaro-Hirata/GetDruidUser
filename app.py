@@ -86,16 +86,35 @@ if run:
 
     all_excel_sheets: dict[str, pd.DataFrame] = {}
 
-    pair_tabs = st.tabs([f"テスト{idx+1}" for idx in range(len(ranges))])
+    # ★ 比較用：各期間（=テスト）ごとの集計箱
+    compare_q1: list[tuple[str, pd.DataFrame]] = []
+    compare_q2: list[tuple[str, pd.DataFrame]] = []
 
+    # ★ タブ：比較 + 各テスト
+    tab_names = []
+    if len(ranges) >= 2:
+        tab_names.append("比較（全期間）")
+    tab_names += [f"テスト{idx+1}" for idx in range(len(ranges))]
+
+    tabs = st.tabs(tab_names)
+
+    # --- 比較タブ（中身は後で描く） ---
+    compare_tab = tabs[0] if len(ranges) >= 2 else None
+    offset = 1 if len(ranges) >= 2 else 0
+
+    # --- 各テストタブ ---
     for pair_idx, (pair_start, pair_end) in enumerate(ranges):
-        with pair_tabs[pair_idx]:
+        with tabs[pair_idx + offset]:
             st.subheader(f"テスト{pair_idx+1}: {pair_start.isoformat()} 〜 {pair_end.isoformat()}")
 
             chunks = split_range(pair_start, pair_end, int(split_minutes))
 
+            # 期間名（比較タブの凡例に使う）
+            label = f"テスト{pair_idx+1}"
+
             if len(chunks) == 1:
                 cs, ce = chunks[0]
+                # 通常表示 + Excel
                 render_chunk(
                     client=client,
                     vehicle_id=vehicle_id,
@@ -105,8 +124,20 @@ if run:
                     chunk_idx=0,
                     all_excel_sheets=all_excel_sheets,
                 )
+
+                # ★ 比較用データの取得（再実行はしない：Excelに入ったdfを流用）
+                df1 = all_excel_sheets.get(f"T{pair_idx+1}_C1_Q1", pd.DataFrame())
+                df2 = all_excel_sheets.get(f"T{pair_idx+1}_C1_Q2", pd.DataFrame())
+                compare_q1.append((label, df1))
+                compare_q2.append((label, df2))
+
             else:
                 chunk_tabs = st.tabs([f"区間{j+1}/{len(chunks)}" for j in range(len(chunks))])
+
+                # 分割ありの場合：比較タブには “全チャンク結合” を使う
+                q1_all = []
+                q2_all = []
+
                 for chunk_idx, (cs, ce) in enumerate(chunks):
                     with chunk_tabs[chunk_idx]:
                         render_chunk(
@@ -119,6 +150,43 @@ if run:
                             all_excel_sheets=all_excel_sheets,
                         )
 
+                    q1_all.append(all_excel_sheets.get(f"T{pair_idx+1}_C{chunk_idx+1}_Q1", pd.DataFrame()))
+                    q2_all.append(all_excel_sheets.get(f"T{pair_idx+1}_C{chunk_idx+1}_Q2", pd.DataFrame()))
+
+                # ★ 比較用：全チャンク結合（空は除外）
+                df1 = pd.concat([d for d in q1_all if d is not None and not d.empty], ignore_index=True) if any(d is not None and not d.empty for d in q1_all) else pd.DataFrame()
+                df2 = pd.concat([d for d in q2_all if d is not None and not d.empty], ignore_index=True) if any(d is not None and not d.empty for d in q2_all) else pd.DataFrame()
+
+                compare_q1.append((label, df1))
+                compare_q2.append((label, df2))
+
+    # --- 比較タブの描画（最後にまとめて） ---
+    if compare_tab is not None:
+        with compare_tab:
+            st.subheader("比較（全期間）")
+            st.caption("各テスト期間の結果を同じグラフ上に重ねて表示します。")
+
+            from src.ui_view import show_scatter_compare
+
+            colA, colB = st.columns(2)
+
+            with colA:
+                show_scatter_compare(
+                    "クエリ1: lateral error（比較）",
+                    compare_q1,
+                    x_col="cum_dist_km",
+                    y_col="lateral_error",
+                )
+
+            with colB:
+                show_scatter_compare(
+                    "クエリ2: acceleration（比較）",
+                    compare_q2,
+                    x_col="cum_dist_km",
+                    y_col="acceleration",
+                )
+
+    # --- Excel一括DL ---
     st.markdown("## Excel一括ダウンロード")
     xlsx = to_excel_bytes(all_excel_sheets)
     st.download_button(
@@ -127,6 +195,7 @@ if run:
         file_name="druid_results.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 else:
     st.info("左のサイドバーで時間帯（開始,終了）を複数行で入力して「実行」を押してください。")

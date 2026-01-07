@@ -70,4 +70,32 @@ def show_query3(df3_hist: pd.DataFrame):
     st.pyplot(fig, clear_figure=True)
     st.dataframe(df3_hist, use_container_width=True)
 
+def show_scatter_compare(title: str, series: list[tuple[str, pd.DataFrame]], x_col: str, y_col: str):
+    """
+    複数期間の散布図を重ねて比較表示する。
+    series: [(ラベル, df), ...]
+    """
+    st.markdown(f"### {title}")
+
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure()
+
+    any_plotted = False
+    for label, df in series:
+        if df is None or df.empty:
+            continue
+        if x_col not in df.columns or y_col not in df.columns:
+            continue
+        plt.scatter(df[x_col], df[y_col], label=label, s=18)  # sは点の大きさ
+        any_plotted = True
+
+    if not any_plotted:
+        st.info("比較対象のデータがありません（全期間0件 or 列が不足）")
+        return
+
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.legend()
+    st.pyplot(fig, clear_figure=True)
 
