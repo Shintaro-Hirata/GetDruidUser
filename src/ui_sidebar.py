@@ -3,6 +3,7 @@
 import streamlit as st
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
+from src.types import SidebarState
 
 
 def _on_ranges_text_change():
@@ -10,7 +11,7 @@ def _on_ranges_text_change():
     st.session_state["split_minutes"] = suggested_split_minutes_from_ranges_text(st.session_state["ranges_text"])
 
 
-def render_sidebar() -> dict:
+def render_sidebar() -> SidebarState:
     """
     サイドバーUIを描いて、入力値を辞書で返す。
     - ranges_text は session_state["ranges_text"]
@@ -71,15 +72,14 @@ def render_sidebar() -> dict:
     xlim_q3 = None if q3_x_min >= q3_x_max else (q3_x_min, q3_x_max)
     ylim_q3 = None if q3_y_min >= q3_y_max else (q3_y_min, q3_y_max)
 
-    return {
-        "vehicle_id": vehicle_id,
-        "split_minutes": int(split_minutes),
-        "run": run,
-        "xlim": xlim,
-        "ylim_q1": ylim_q1,
-        "ylim_q2": ylim_q2,
-        
-        "xlim_q3": xlim_q3,
-        "ylim_q3": ylim_q3,
-        "suggested_split": int(suggested_split),
-    }
+    return SidebarState(
+    vehicle_id=vehicle_id,
+    split_minutes=int(split_minutes),
+    run=run,
+    xlim=xlim,
+    ylim_q1=ylim_q1,
+    ylim_q2=ylim_q2,
+    xlim_q3=xlim_q3,
+    ylim_q3=ylim_q3,
+)
+

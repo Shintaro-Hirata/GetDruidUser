@@ -46,16 +46,16 @@ if "cache_ready" not in st.session_state:
 # UI（サイドバー）
 # =========================
 ui = render_sidebar()
-vehicle_id = ui["vehicle_id"]
-split_minutes = ui["split_minutes"]
-run = ui["run"]
+vehicle_id = ui.vehicle_id
+split_minutes = ui.split_minutes
+run = ui.run
 
-xlim = ui["xlim"]
-ylim_q1 = ui["ylim_q1"]
-ylim_q2 = ui["ylim_q2"]
+xlim = ui.xlim
+ylim_q1 = ui.ylim_q1
+ylim_q2 = ui.ylim_q2
 
-xlim_q3 = ui["xlim_q3"]
-ylim_q3 = ui["ylim_q3"]
+xlim_q3 = ui.xlim_q3
+ylim_q3 = ui.ylim_q3
 
 # =========================
 # 実行ボタンが押されたときだけクエリ実行→キャッシュ更新
@@ -78,11 +78,12 @@ if run:
     st.session_state["cache_ready"] = True
     st.session_state["cache_vehicle_id"] = vehicle_id
     st.session_state["cache_split_minutes"] = int(split_minutes)
-    st.session_state["cache_ranges"] = results["ranges"]
-    st.session_state["cache_excel_sheets"] = results["all_excel_sheets"]
-    st.session_state["cache_compare_q1"] = results["compare_q1"]
-    st.session_state["cache_compare_q2"] = results["compare_q2"]
-    st.session_state["cache_compare_q3"] = results["compare_q3"]
+    st.session_state["cache_ranges"] = results.ranges
+    st.session_state["cache_excel_sheets"] = results.all_excel_sheets
+    st.session_state["cache_compare_q1"] = results.compare_q1
+    st.session_state["cache_compare_q2"] = results.compare_q2
+    st.session_state["cache_compare_q3"] = results.compare_q3
+
 
     # ★ これが効く：run直後に再描画して「キャッシュ描画側のtabs」だけ表示される
     st.rerun()

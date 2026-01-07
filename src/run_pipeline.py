@@ -6,6 +6,7 @@ from src.druid_client import DruidClient
 from src.time_ranges import split_range
 from src.ui_render import render_chunk
 from src.compare import collect_compare_series_from_excel_sheets
+from src.types import PipelineResults
 
 
 def run_and_build_results(
@@ -14,7 +15,7 @@ def run_and_build_results(
     vehicle_id: str,
     ranges,        # parse_ranges の戻り（各要素が start/end/label を持つ想定）
     split_minutes: int,
-) -> dict:
+) -> PipelineResults:
     """
     実行時に Druid クエリを回して、結果をまとめて返す（UIは作らない）。
     run時の「タブや表示」は app.py 側で制御する。
@@ -76,10 +77,11 @@ def run_and_build_results(
         compare_q1.append((lab1, df1))
         compare_q2.append((lab2, df2))
 
-    return {
-        "all_excel_sheets": all_excel_sheets,
-        "compare_q1": compare_q1,
-        "compare_q2": compare_q2,
-        "compare_q3": compare_q3,
-        "ranges": ranges,
-    }
+    return PipelineResults(
+        ranges=ranges,
+        all_excel_sheets=all_excel_sheets,
+        compare_q1=compare_q1,
+        compare_q2=compare_q2,
+        compare_q3=compare_q3,
+    )
+
