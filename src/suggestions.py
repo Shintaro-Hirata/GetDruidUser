@@ -17,8 +17,8 @@ def suggested_split_minutes_from_ranges_text(ranges_text: str) -> int:
             return 60
 
         max_minutes = 0.0
-        for s, e in ranges:
-            minutes = (e - s).total_seconds() / 60.0
+        for r in ranges:
+            minutes = (r.end - r.start).total_seconds() / 60.0
             if minutes > max_minutes:
                 max_minutes = minutes
 

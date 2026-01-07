@@ -1,6 +1,7 @@
 # src/ui_view.py
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from src.plots import scatter, hist_ratio
 from src.mpl_jp import setup_japanese_font
@@ -13,7 +14,7 @@ def show_query1(df1: pd.DataFrame):
     if df1 is None or df1.empty:
         st.info("結果0件")
         return
-    fig = scatter(df1, "cum_dist_km", "lateral_error", "cum_dist_km", "lateral_error")
+    fig = scatter(df1, "cum_dist_km", "lateral_error", "移動距離[km]", "lateral error[m]")
     st.pyplot(fig, clear_figure=True)
     st.dataframe(df1, use_container_width=True)
 
@@ -23,7 +24,7 @@ def show_query2(df2: pd.DataFrame):
     if df2 is None or df2.empty:
         st.info("結果0件")
         return
-    fig = scatter(df2, "cum_dist_km", "acceleration", "cum_dist_km", "acceleration")
+    fig = scatter(df2, "cum_dist_km", "acceleration", "移動距離[km]", "加速度[m/s^2]")
     st.pyplot(fig, clear_figure=True)
     st.dataframe(df2, use_container_width=True)
 
@@ -33,8 +34,6 @@ def show_query3(df3_hist: pd.DataFrame):
     if df3_hist is None or df3_hist.empty:
         st.info("結果0件")
         return
-
-    import matplotlib.pyplot as plt
 
     # 安全策：必要列が無い場合は0埋め
     for c in ["bin_start", "ratio_auto", "ratio_manual"]:
@@ -59,8 +58,12 @@ def show_query3(df3_hist: pd.DataFrame):
 
     # 点（散布図）＋ 平滑線（線）
     # ※色はmatplotlibデフォルト任せ（指定しない）
-    plt.plot(x, y_auto_smooth, marker="o", linewidth=1.5, label="自動運転")
-    plt.plot(x, y_manual_smooth, marker="o", linewidth=1.5, label="手動運転")
+    plt.plot(x, y_auto_smooth, marker="o", linewidth=1.5, label="自動運転", color="tab:orange")
+    plt.plot(x, y_manual_smooth, marker="o", linewidth=1.5, label="手動運転", color="tab:blue")
+
+    # 凡例の外出し
+    plt.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0, frameon=True)
+    plt.tight_layout(rect=[0, 0, 0.78, 1])
 
     # ラベル（添付の雰囲気に合わせて）
     plt.xlabel("横G [m/s^2]")
@@ -70,16 +73,18 @@ def show_query3(df3_hist: pd.DataFrame):
     st.pyplot(fig, clear_figure=True)
     st.dataframe(df3_hist, use_container_width=True)
 
-def show_scatter_compare(title: str, series: list[tuple[str, pd.DataFrame]], x_col: str, y_col: str):
-    """
-    複数期間の散布図を重ねて比較表示する。
-    series: [(ラベル, df), ...]
-    """
+def show_scatter_compare(
+    title: str,
+    series: list[tuple[str, pd.DataFrame]],
+    *,
+    x_col: str,
+    y_col: str,
+    x_label: str,
+    y_label: str,
+):
     st.markdown(f"### {title}")
 
-    import matplotlib.pyplot as plt
-
-    fig = plt.figure()
+    fig, ax = plt.subplots()
 
     any_plotted = False
     for label, df in series:
@@ -87,15 +92,100 @@ def show_scatter_compare(title: str, series: list[tuple[str, pd.DataFrame]], x_c
             continue
         if x_col not in df.columns or y_col not in df.columns:
             continue
-        plt.scatter(df[x_col], df[y_col], label=label, s=18)  # sは点の大きさ
+
+        ax.scatter(df[x_col], df[y_col], label=label, s=18)
         any_plotted = True
 
     if not any_plotted:
         st.info("比較対象のデータがありません（全期間0件 or 列が不足）")
         return
 
-    plt.xlabel(x_col)
-    plt.ylabel(y_col)
-    plt.legend()
+    # ★ 表示用ラベルを使う
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
+        frameon=True,
+    )
+
+    fig.tight_layout(rect=[0, 0, 0.78, 1])
     st.pyplot(fig, clear_figure=True)
+
+
+def show_query3_compare(series: list[tuple[str, pd.DataFrame]]):
+    """
+    series: [(期間ラベル, df3_hist), ...]
+    色は状態で固定：
+      自動=オレンジ、手動=青
+    期間ごとに線種/マーカーを変える
+    """
+    st.markdown("### クエリ3: 横G（比較：自動/手動）")
+
+    # スタイル定義（必要なら増やせます）
+    line_styles = ["-", "--", ":", "-."]  # 期間ごとに変える
+    markers = ["o", "s", "^", "D", "x", "+", "v", "P", "*"]  # 期間ごとに変える
+
+    fig, ax = plt.subplots()
+    any_plotted = False
+
+    for i, (label, df3_hist) in enumerate(series):
+        if df3_hist is None or df3_hist.empty:
+            continue
+        needed = {"bin_start", "ratio_auto", "ratio_manual"}
+        if not needed.issubset(df3_hist.columns):
+            continue
+
+        df = df3_hist.sort_values("bin_start").copy()
+        x = df["bin_start"]
+        y_auto = pd.to_numeric(df["ratio_auto"], errors="coerce").fillna(0.0)
+        y_manual = pd.to_numeric(df["ratio_manual"], errors="coerce").fillna(0.0)
+
+        # 平滑化（単体表示と同じ見た目に寄せる）
+        window = 5
+        y_auto_smooth = y_auto.rolling(window=window, center=True, min_periods=1).mean()
+        y_manual_smooth = y_manual.rolling(window=window, center=True, min_periods=1).mean()
+
+        ls = line_styles[i % len(line_styles)]
+        mk = markers[i % len(markers)]
+
+        # 色は状態で固定、線種/マーカーは期間で変える
+        ax.plot(
+            x, y_auto_smooth,
+            color="tab:orange",
+            linestyle=ls,
+            marker=mk,
+            linewidth=1.5,
+            label=f"{label}_自動運転",
+        )
+        ax.plot(
+            x, y_manual_smooth,
+            color="tab:blue",
+            linestyle=ls,
+            marker=mk,
+            linewidth=1.5,
+            label=f"{label}_手動運転",
+        )
+        any_plotted = True
+
+    if not any_plotted:
+        st.info("比較対象のデータがありません（全期間0件 or 列不足）")
+        return
+
+    ax.set_xlabel("横G [m/s^2]")
+    ax.set_ylabel("発生頻度")
+
+    # 凡例は外に出す（ラベルが多い前提）
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
+        frameon=True,
+    )
+    fig.tight_layout(rect=[0, 0, 0.78, 1])
+
+    st.pyplot(fig, clear_figure=True)
+
 
