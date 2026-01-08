@@ -18,6 +18,7 @@ def render_period_tabs_from_cache(
     # ★追加
     xlim_q3=None,
     ylim_q3=None,
+    smooth_window_q3: int = 1,  # ★追加（デフォルト=1）
 ):
 
     """
@@ -59,7 +60,7 @@ def render_period_tabs_from_cache(
                 with colB:
                     show_query2(df2, xlim=xlim, ylim=ylim_q2)
                     st.markdown("---")
-                    show_query3(df3, xlim=xlim_q3, ylim=ylim_q3)
+                    show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3)
 
             else:
                 chunk_tabs = st.tabs([f"区間{c}/{len(chunk_keys)}" for c in chunk_keys])
@@ -75,7 +76,7 @@ def render_period_tabs_from_cache(
                         with colB:
                             show_query2(df2, xlim=xlim, ylim=ylim_q2)
                             st.markdown("---")
-                            show_query3(df3, xlim=xlim_q3, ylim=ylim_q3)
+                            show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3)
 
 def render_compare_tab(
     *,
@@ -89,6 +90,7 @@ def render_compare_tab(
     # ★追加
     xlim_q3=None,
     ylim_q3=None,
+    smooth_window_q3: int = 1,  # ★追加（デフォルト=1）
 ):
     """
     比較タブ：レンジ変更が効く（再クエリなし）
@@ -125,4 +127,10 @@ def render_compare_tab(
             )
 
         st.markdown("---")
-        show_query3_compare(compare_q3, xlim=xlim_q3, ylim=ylim_q3)
+        show_query3_compare(
+            compare_q3,
+            xlim=xlim_q3,
+            ylim=ylim_q3,
+            smooth_window=smooth_window_q3,
+        )
+

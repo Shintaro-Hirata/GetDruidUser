@@ -65,6 +65,19 @@ def render_sidebar() -> SidebarState:
         q3_y_max = st.number_input("Q3 Y最大（発生頻度）", value=0.0)
 
         st.markdown("---")
+        st.subheader("Query3 表示（任意）")
+        smooth_window_q3 = st.number_input(
+            "Q3 平滑度（移動平均ウィンドウ幅）",
+            min_value=1,
+            max_value=101,
+            value=int(st.session_state.get("smooth_window_q3", 1)),  # ★デフォルト=1
+            step=2,
+            help="1=平滑化なし（Excelで見た目に近い）。大きいほど滑らかになります。",
+        )
+        st.session_state["smooth_window_q3"] = int(smooth_window_q3)
+
+
+        st.markdown("---")
         st.subheader("開発用テスト（任意）")
 
         st.session_state[SS_TEST_DROP_COLUMNS] = st.checkbox(

@@ -79,7 +79,7 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None):
     st.dataframe(df2, use_container_width=True)
 
 
-def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
+def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None, smooth_window: int = 1):
     st.markdown("### クエリ3: 横G（ヒストグラム：自動/手動 重ね表示）")
     if df3_hist is None or df3_hist.empty:
         st.info("結果0件")
@@ -100,7 +100,7 @@ def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None):
     # ---- 平滑化（移動平均）----
     # 見た目が近くなるように、端も落ちにくい center=True を使う
     # window は奇数が見やすい（例：5,7,9）。必要ならUI化も可能。
-    window = 5
+    window = max(1, int(smooth_window))
     y_auto_smooth = y_auto.rolling(window=window, center=True, min_periods=1).mean()
     y_manual_smooth = y_manual.rolling(window=window, center=True, min_periods=1).mean()
 
@@ -178,7 +178,7 @@ def show_scatter_compare(
 
 
 
-def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, ylim=None):
+def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, ylim=None, smooth_window: int = 1):
     """
     series: [(期間ラベル, df3_hist), ...]
     色は状態で固定：
@@ -214,7 +214,7 @@ def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, yl
         y_manual = pd.to_numeric(df["ratio_manual"], errors="coerce").fillna(0.0)
 
         # 平滑化（単体表示と同じ見た目に寄せる）
-        window = 5
+        window = max(1, int(smooth_window))
         y_auto_smooth = y_auto.rolling(window=window, center=True, min_periods=1).mean()
         y_manual_smooth = y_manual.rolling(window=window, center=True, min_periods=1).mean()
 

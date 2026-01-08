@@ -80,6 +80,8 @@ ylim_q2 = ui.ylim_q2
 xlim_q3 = ui.xlim_q3
 ylim_q3 = ui.ylim_q3
 
+smooth_window_q3 = int(st.session_state.get("smooth_window_q3", 1))  # ★デフォルト=1
+
 # =========================
 # 実行ボタンが押されたときだけクエリ実行→キャッシュ更新
 # =========================
@@ -156,6 +158,7 @@ render_period_tabs_from_cache(
     # ★追加
     xlim_q3=xlim_q3,
     ylim_q3=ylim_q3,
+    smooth_window_q3=smooth_window_q3,
 )
 
 
@@ -171,6 +174,7 @@ render_compare_tab(
     # ★追加
     xlim_q3=xlim_q3,
     ylim_q3=ylim_q3,
+    smooth_window_q3=smooth_window_q3,
 )
 
 # Excelはキャッシュから生成（レンジ変更では再クエリしない）
