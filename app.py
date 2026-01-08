@@ -28,11 +28,15 @@ from src.run_pipeline import run_and_build_results
 # ★ 追加：ページ描画を切り出し
 from src.ui_page import render_period_tabs_from_cache, render_compare_tab
 
+# ★ 追加：RunConfig
+from src.types import RunConfig
+
 
 st.set_page_config(page_title="Druid Query Runner", layout="wide")
 st.title("Druid: 期間（複数ペア）×（基本は非分割）× 可視化 × Excel一括DL")
 
 client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
+
 
 def ensure_cache_state():
     """session_state にキャッシュ用キーが無ければ初期化する。"""
@@ -99,21 +103,26 @@ if run:
         st.error(f"時間帯入力エラー: {ex}")
         st.stop()
 
+    # ★ Run条件は RunConfig に束ねる
+    config = RunConfig(
+        vehicle_id=vehicle_id,
+        split_minutes=int(split_minutes),
+        thr_lat=float(thr_lat),
+        thr_acc=float(thr_acc),
+    )
+
     # ★ run時は「結果作成だけ」して、表示はこの後のキャッシュ描画に任せる
     results = run_and_build_results(
         client=client,
-        vehicle_id=vehicle_id,
+        config=config,
         ranges=ranges,
-        split_minutes=split_minutes,
-        thr_lat=thr_lat,
-        thr_acc=thr_acc,
     )
 
     st.session_state[SS_CACHE_READY] = True
-    st.session_state[SS_CACHE_VEHICLE_ID] = vehicle_id
-    st.session_state[SS_CACHE_SPLIT_MINUTES] = int(split_minutes)
-    st.session_state[SS_CACHE_THR_LAT] = float(thr_lat)
-    st.session_state[SS_CACHE_THR_ACC] = float(thr_acc)
+    st.session_state[SS_CACHE_VEHICLE_ID] = config.vehicle_id
+    st.session_state[SS_CACHE_SPLIT_MINUTES] = int(config.split_minutes)
+    st.session_state[SS_CACHE_THR_LAT] = float(config.thr_lat)
+    st.session_state[SS_CACHE_THR_ACC] = float(config.thr_acc)
 
     st.session_state[SS_CACHE_RANGES] = results.ranges
     st.session_state[SS_CACHE_EXCEL_SHEETS] = results.all_excel_sheets
@@ -156,7 +165,6 @@ if float(thr_lat) != float(st.session_state[SS_CACHE_THR_LAT]):
 if float(thr_acc) != float(st.session_state[SS_CACHE_THR_ACC]):
     st.warning("Q2 閾値（|acceleration|）が変更されています。反映するには『実行』が必要です。")
 
-
 # タブ（描画用）：比較 + 各テスト
 tab_names = (["比較（全期間）"] if len(ranges) >= 2 else []) + [
     (r.label if r.label else f"テスト{idx+1}") for idx, r in enumerate(ranges)
@@ -180,7 +188,6 @@ render_period_tabs_from_cache(
     ylim_q3=ylim_q3,
     smooth_window_q3=smooth_window_q3,
 )
-
 
 # ★ 比較タブ描画（レンジ変更が効く）
 render_compare_tab(

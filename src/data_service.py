@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Optional, Any
 
 import pandas as pd
+import string
 
 from src.druid_client import DruidClient
 from src.queries import QUERY1_TEMPLATE, QUERY2_TEMPLATE, QUERY3_TEMPLATE
@@ -24,14 +25,58 @@ class ChunkData:
 # =========================
 # SQL組み立て
 # =========================
-def build_query(tpl: str, vehicle_id: str, start: datetime, end: datetime, **kwargs) -> str:
-    return tpl.format(
+def build_query(
+    tpl: str,
+    vehicle_id: str,
+    start: datetime,
+    end: datetime,
+    **kwargs,
+) -> str:
+    """
+    SQLテンプレを format() する。
+    - テンプレに含まれる {xxx} がすべて渡されているか事前検査する
+    - 不足していたら ValueError を出す（0件で静かに失敗しない）
+    """
+    values = dict(
         vehicle_id=vehicle_id,
         start_time=start.isoformat(),
         end_time=end.isoformat(),
         **kwargs,
     )
 
+    # テンプレに必要なキーを検査
+    required = _required_format_keys(tpl)
+    missing = sorted(k for k in required if k not in values)
+
+    if missing:
+        raise ValueError(
+            "build_query(): SQLテンプレの format キーが不足しています: "
+            f"{missing}. 渡されたキー={sorted(values.keys())}"
+        )
+
+    try:
+        return tpl.format(**values)
+    except KeyError as ex:
+        # 念のため（理論上は上の検査で防げる）
+        raise ValueError(
+            f"build_query(): SQLテンプレ format 失敗: missing={ex}"
+        ) from ex
+# =========================
+
+def _required_format_keys(tpl: str) -> set[str]:
+    """
+    str.format() テンプレ内の {key} を抽出する。
+    例: "... {vehicle_id} ... {thr_lat} ..." -> {"vehicle_id","thr_lat"}
+    """
+    keys: set[str] = set()
+    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(tpl):
+        if not field_name:
+            continue
+        # field_name は "a.b" や "a[0]" などになり得るので、先頭トークンだけを見る
+        base = field_name.split(".")[0].split("[")[0]
+        if base:
+            keys.add(base)
+    return keys
 # =========================
 # エラー判定（上限系か？）
 # =========================
@@ -206,6 +251,10 @@ def fetch_chunk_data(
     # ---- Query1（adaptive split + cum_dist連続化） ----
     def q1_builder(s: datetime, e: datetime) -> str:
         return build_query(QUERY1_TEMPLATE, vehicle_id, s, e, thr_lat=float(thr_lat))
+    #def q1_builder(s: datetime, e: datetime) -> str:
+    # ★ thr_lat を渡さない（＝テンプレに {thr_lat} があるなら build_query が ValueError を出すはず）
+    #    return build_query(QUERY1_TEMPLATE, vehicle_id, s, e)
+
 
     q1_dfs = _run_sql_adaptive_split(
         client=client,

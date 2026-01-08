@@ -25,3 +25,4 @@ SS_CACHE_THR_LAT = "cache_thr_lat"
 SS_CACHE_THR_ACC = "cache_thr_acc"
 
 SS_TEST_DROP_COLUMNS = "test_drop_columns"
+SS_DEV_RAISE_ON_ERROR = "dev_raise_on_error"

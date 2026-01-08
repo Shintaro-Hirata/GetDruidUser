@@ -25,7 +25,13 @@ class SidebarState:
     thr_lat: float = 0.2
     thr_acc: float = 1.0
 
-
+# ★追加：run_pipeline に渡す「再実行が必要な条件」を束ねる
+@dataclass(frozen=True)
+class RunConfig:
+    vehicle_id: str
+    split_minutes: int
+    thr_lat: float = 0.2
+    thr_acc: float = 1.0
 
 @dataclass(frozen=True)
 class PipelineResults:

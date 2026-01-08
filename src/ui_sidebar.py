@@ -4,7 +4,7 @@ import streamlit as st
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
 from src.types import SidebarState
-from src.config import SS_TEST_DROP_COLUMNS
+from src.config import SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR
 
 def _on_ranges_text_change():
     """開始/終了（＋ラベル）入力が変わったら、自動で推奨分割幅に戻す。"""
@@ -94,7 +94,7 @@ def render_sidebar() -> SidebarState:
             "Q3 平滑度（移動平均ウィンドウ幅）",
             min_value=1,
             max_value=101,
-            value=int(st.session_state.get("smooth_window_q3", 1)),  # ★デフォルト=1
+            value=int(st.session_state.get("smooth_window_q3", 3)),  # ★デフォルト=3
             step=2,
             help="1=平滑化なし（Excelで見た目に近い）。大きいほど滑らかになります。",
         )
@@ -109,6 +109,13 @@ def render_sidebar() -> SidebarState:
             value=st.session_state.get(SS_TEST_DROP_COLUMNS, False),
             help="ONにすると、描画直前に一部列を意図的に削除して、列不足時のエラー表示を確認できます。",
         )
+
+        st.session_state[SS_DEV_RAISE_ON_ERROR] = st.checkbox(
+            "開発用: 例外が出たら止める（握りつぶさずにraise）",
+            value=st.session_state.get(SS_DEV_RAISE_ON_ERROR, False),
+            help="ONにすると、SQL組み立てミスやDruidエラーをその場で例外として停止させます（原因特定用）。",
+        )
+
 
         run = st.button("実行", type="primary")
 
