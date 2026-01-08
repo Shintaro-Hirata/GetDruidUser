@@ -21,5 +21,7 @@ SS_CACHE_EXCEL_SHEETS = "cache_excel_sheets"
 SS_CACHE_COMPARE_Q1 = "cache_compare_q1"
 SS_CACHE_COMPARE_Q2 = "cache_compare_q2"
 SS_CACHE_COMPARE_Q3 = "cache_compare_q3"
+SS_CACHE_THR_LAT = "cache_thr_lat"
+SS_CACHE_THR_ACC = "cache_thr_acc"
 
 SS_TEST_DROP_COLUMNS = "test_drop_columns"

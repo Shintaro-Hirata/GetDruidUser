@@ -16,6 +16,8 @@ from src.config import (
     SS_CACHE_COMPARE_Q1,
     SS_CACHE_COMPARE_Q2,
     SS_CACHE_COMPARE_Q3,
+    SS_CACHE_THR_LAT,
+    SS_CACHE_THR_ACC,
 )
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
@@ -48,6 +50,8 @@ def ensure_cache_state():
     ss[SS_CACHE_COMPARE_Q1] = []
     ss[SS_CACHE_COMPARE_Q2] = []
     ss[SS_CACHE_COMPARE_Q3] = []
+    ss[SS_CACHE_THR_LAT] = 0.2
+    ss[SS_CACHE_THR_ACC] = 1.0
 
 
 # =========================
@@ -80,6 +84,9 @@ ylim_q2 = ui.ylim_q2
 xlim_q3 = ui.xlim_q3
 ylim_q3 = ui.ylim_q3
 
+thr_lat = ui.thr_lat
+thr_acc = ui.thr_acc
+
 smooth_window_q3 = int(st.session_state.get("smooth_window_q3", 1))  # ★デフォルト=1
 
 # =========================
@@ -98,11 +105,16 @@ if run:
         vehicle_id=vehicle_id,
         ranges=ranges,
         split_minutes=split_minutes,
+        thr_lat=thr_lat,
+        thr_acc=thr_acc,
     )
 
     st.session_state[SS_CACHE_READY] = True
     st.session_state[SS_CACHE_VEHICLE_ID] = vehicle_id
     st.session_state[SS_CACHE_SPLIT_MINUTES] = int(split_minutes)
+    st.session_state[SS_CACHE_THR_LAT] = float(thr_lat)
+    st.session_state[SS_CACHE_THR_ACC] = float(thr_acc)
+
     st.session_state[SS_CACHE_RANGES] = results.ranges
     st.session_state[SS_CACHE_EXCEL_SHEETS] = results.all_excel_sheets
     st.session_state[SS_CACHE_COMPARE_Q1] = results.compare_q1
@@ -136,6 +148,14 @@ if vehicle_id != st.session_state[SS_CACHE_VEHICLE_ID]:
     st.warning("vehicle_id が変更されています。反映するには『実行』が必要です。")
 if int(split_minutes) != int(st.session_state[SS_CACHE_SPLIT_MINUTES]):
     st.warning("分割幅が変更されています。反映するには『実行』が必要です。")
+
+# ★追加：閾値の変更は再実行が必要
+if float(thr_lat) != float(st.session_state[SS_CACHE_THR_LAT]):
+    st.warning("Q1 閾値（|lateral_error|）が変更されています。反映するには『実行』が必要です。")
+
+if float(thr_acc) != float(st.session_state[SS_CACHE_THR_ACC]):
+    st.warning("Q2 閾値（|acceleration|）が変更されています。反映するには『実行』が必要です。")
+
 
 # タブ（描画用）：比較 + 各テスト
 tab_names = (["比較（全期間）"] if len(ranges) >= 2 else []) + [

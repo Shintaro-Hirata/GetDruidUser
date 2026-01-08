@@ -46,6 +46,30 @@ def render_sidebar() -> SidebarState:
             help="開始/終了入力を変更すると、自動で推奨値に戻ります。",
         )
 
+        st.markdown("---")
+        st.subheader("クエリ条件（再実行が必要）")
+
+        thr_lat = st.number_input(
+            "Q1 閾値 |lateral_error| >= ",
+            min_value=0.0,
+            value=float(st.session_state.get("thr_lat", 0.2)),
+            step=0.1,
+            format="%.3f",
+            help="散布図に載せる lateral_error の絶対値しきい値",
+        )
+        st.session_state["thr_lat"] = float(thr_lat)
+
+        thr_acc = st.number_input(
+            "Q2 閾値 |acceleration| >= ",
+            min_value=0.0,
+            value=float(st.session_state.get("thr_acc", 1.0)),
+            step=0.1,
+            format="%.3f",
+            help="散布図に載せる acceleration の絶対値しきい値",
+        )
+        st.session_state["thr_acc"] = float(thr_acc)
+
+
         # （今は自動/手動はやめる、という方針なのでレンジ入力は残すか任意）
         st.markdown("---")
         st.subheader("表示レンジ（比較タブ用・任意）")
@@ -95,13 +119,15 @@ def render_sidebar() -> SidebarState:
     ylim_q3 = None if q3_y_min >= q3_y_max else (q3_y_min, q3_y_max)
 
     return SidebarState(
-    vehicle_id=vehicle_id,
-    split_minutes=int(split_minutes),
-    run=run,
-    xlim=xlim,
-    ylim_q1=ylim_q1,
-    ylim_q2=ylim_q2,
-    xlim_q3=xlim_q3,
-    ylim_q3=ylim_q3,
-)
+        vehicle_id=vehicle_id,
+        split_minutes=int(split_minutes),
+        run=run,
+        xlim=xlim,
+        ylim_q1=ylim_q1,
+        ylim_q2=ylim_q2,
+        xlim_q3=xlim_q3,
+        ylim_q3=ylim_q3,
+        thr_lat=float(thr_lat),
+        thr_acc=float(thr_acc),
+    )
 

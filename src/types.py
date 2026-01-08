@@ -22,6 +22,10 @@ class SidebarState:
     xlim_q3: Optional[Range2]
     ylim_q3: Optional[Range2]
 
+    thr_lat: float = 0.2
+    thr_acc: float = 1.0
+
+
 
 @dataclass(frozen=True)
 class PipelineResults:

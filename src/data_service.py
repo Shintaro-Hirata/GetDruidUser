@@ -189,6 +189,8 @@ def fetch_chunk_data(
     cs: datetime,
     ce: datetime,
     min_split_minutes: int = 10,  # ★ここを好みで(例: 5 or 10)
+    thr_lat: float = 0.2,
+    thr_acc: float = 1.0,
 ) -> ChunkData:
     """
     1チャンク(cs,ce)のデータ取得。
@@ -203,7 +205,7 @@ def fetch_chunk_data(
 
     # ---- Query1（adaptive split + cum_dist連続化） ----
     def q1_builder(s: datetime, e: datetime) -> str:
-        return build_query(QUERY1_TEMPLATE, vehicle_id, s, e)
+        return build_query(QUERY1_TEMPLATE, vehicle_id, s, e, thr_lat=float(thr_lat))
 
     q1_dfs = _run_sql_adaptive_split(
         client=client,
@@ -217,7 +219,7 @@ def fetch_chunk_data(
 
     # ---- Query2（adaptive split + cum_dist連続化） ----
     def q2_builder(s: datetime, e: datetime) -> str:
-        return build_query(QUERY2_TEMPLATE, vehicle_id, s, e)
+        return build_query(QUERY2_TEMPLATE, vehicle_id, s, e, thr_acc=float(thr_acc))
 
     q2_dfs = _run_sql_adaptive_split(
         client=client,

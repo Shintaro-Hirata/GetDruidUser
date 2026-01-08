@@ -19,7 +19,7 @@ WITH per_sec AS (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
-    AND ABS(".debug_for_mcap.lateral_error") >= 0.2
+    AND ABS(".debug_for_mcap.lateral_error") >= {thr_lat}
 ),
 
 sec_pick AS (
@@ -129,7 +129,7 @@ WITH per_sec AS (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
-    AND ABS(".debug_for_mcap.acceleration") >= 1.0
+    AND ABS(".debug_for_mcap.acceleration") >= {thr_acc}
 ),
 
 sec_pick AS (

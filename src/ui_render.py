@@ -16,6 +16,8 @@ def render_chunk(
     pair_idx: int,
     chunk_idx: int,
     all_excel_sheets: dict[str, pd.DataFrame],
+    thr_lat: float = 0.2,
+    thr_acc: float = 1.0,
 ):
     """
     1チャンクの制御：
@@ -29,7 +31,7 @@ def render_chunk(
 
     # Model：データ取得（UIに依存しない）
     try:
-        data = fetch_chunk_data(client=client, vehicle_id=vehicle_id, cs=cs, ce=ce)
+        data = fetch_chunk_data(client=client, vehicle_id=vehicle_id, cs=cs, ce=ce, thr_lat=thr_lat, thr_acc=thr_acc)
     except Exception as ex:
         st.error(f"クエリ実行失敗: {ex}")
         # Excelにも空を入れておく（シート欠落防止）

@@ -15,6 +15,8 @@ def run_and_build_results(
     vehicle_id: str,
     ranges,        # parse_ranges の戻り（各要素が start/end/label を持つ想定）
     split_minutes: int,
+    thr_lat: float = 0.2,
+    thr_acc: float = 1.0,
 ) -> PipelineResults:
     """
     実行時に Druid クエリを回して、結果をまとめて返す（UIは作らない）。
@@ -51,6 +53,8 @@ def run_and_build_results(
                 pair_idx=pair_idx,
                 chunk_idx=0,
                 all_excel_sheets=all_excel_sheets,
+                thr_lat=thr_lat,
+                thr_acc=thr_acc,
             )
             # ★ Query3比較用（非分割のみ）
             df3 = all_excel_sheets.get(f"T{pair_idx+1}_C1_Q3", pd.DataFrame())
@@ -65,6 +69,8 @@ def run_and_build_results(
                     pair_idx=pair_idx,
                     chunk_idx=chunk_idx,
                     all_excel_sheets=all_excel_sheets,
+                    thr_lat=thr_lat,
+                    thr_acc=thr_acc,
                 )
 
         # 比較用シリーズ収集（Excel格納dfを再利用）
