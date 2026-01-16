@@ -117,6 +117,12 @@ if run:
     status = st.empty()
     details = st.empty()
 
+    # ★詳細ログ（普段は閉じておく）
+    log_lines: list[str] = []
+    failed = {"any": False}   # 可変にしてコールバック内で更新可能にする
+    log_holder = st.empty()  # expander を描画する場所
+    log_state = {"open": False}         # 失敗が出たら True にする
+
     def on_progress(ev: dict) -> None:
         t = ev.get("type")
 
@@ -149,17 +155,37 @@ if run:
             chunk_idx = int(ev.get("chunk_idx", 0)) + 1
             if ok:
                 status.info(f"完了：{done}/{total}（{label} / chunk {chunk_idx}）")
-            else:
-                status.warning(f"失敗：{done}/{total}（{label} / chunk {chunk_idx}）")
-                # 失敗理由は出しすぎると邪魔なので詳細側に
-                details.write(f"[WARN] {ev.get('error', '')}")
+                return
+            
+
+            # ★ここから「失敗確定」：ログにだけ残す
+            failed["any"] = True
+
+            err = str(ev.get("error", "")).strip()
+            if not err:
+                err = "(error message not provided)"
+
+            cs = ev.get("cs")
+            ce = ev.get("ce")
+            cs_s = cs.isoformat() if cs is not None else "?"
+            ce_s = ce.isoformat() if ce is not None else "?"
+
+            log_lines.append(f"- {label} / chunk {chunk_idx} [{cs_s} 〜 {ce_s}] : {err}")
+
+            status.warning(f"失敗：{done}/{total}（{label} / chunk {chunk_idx}）")
 
         elif t == "end":
             done = int(ev.get("done_chunks", 0))
             total = max(1, int(ev.get("total_chunks", 1)))
             progress.progress(1.0)
             status.success(f"Run完了：{done}/{total}")
-            details.write("")   
+            details.write("")
+
+        # ★expanderの描画（失敗が出たら表示）
+        if log_state["open"]:
+            with log_holder.container():
+                with st.expander("詳細ログ（失敗したチャンク）", expanded=False):
+                    st.write("\n".join(log_lines))   
 
     # ★ run時は「結果作成だけ」して、表示はこの後のキャッシュ描画に任せる
     results = run_and_build_results(
@@ -168,6 +194,15 @@ if run:
         ranges=ranges,
         progress_callback=on_progress,
     )
+
+    # ★Run完了後：失敗があったときだけ詳細ログを表示
+    if failed["any"]:
+        with log_holder.container():
+            with st.expander("詳細ログ（失敗したチャンク）", expanded=False):
+                st.code("\n".join(log_lines), language="text")
+    else:
+        log_holder.empty()
+
 
     st.session_state[SS_CACHE_READY] = True
     st.session_state[SS_CACHE_VEHICLE_ID] = config.vehicle_id
