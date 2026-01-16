@@ -18,6 +18,7 @@ from src.config import (
     SS_CACHE_COMPARE_Q3,
     SS_CACHE_THR_LAT,
     SS_CACHE_THR_ACC,
+    SS_DEV_RAISE_ON_ERROR
 )
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
@@ -109,13 +110,63 @@ if run:
         split_minutes=int(split_minutes),
         thr_lat=float(thr_lat),
         thr_acc=float(thr_acc),
+        raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
     )
+
+    progress = st.progress(0.0)
+    status = st.empty()
+    details = st.empty()
+
+    def on_progress(ev: dict) -> None:
+        t = ev.get("type")
+
+        if t == "start":
+            total = max(1, int(ev.get("total_chunks", 1)))
+            status.info(f"Run開始：全 {total} チャンク")
+            progress.progress(0.0)
+            details.write("")
+
+        elif t == "chunk_start":
+            label = ev.get("label", "")
+            chunk_idx = int(ev.get("chunk_idx", 0)) + 1
+            cs = ev.get("cs")
+            ce = ev.get("ce")
+            done = int(ev.get("done_chunks", 0))
+            total = max(1, int(ev.get("total_chunks", 1)))
+            ratio = done / total
+            progress.progress(min(1.0, ratio))
+            status.info(f"取得中：{done}/{total}  （{label} / chunk {chunk_idx}）")
+            details.write(f"{cs.isoformat()} 〜 {ce.isoformat()}")
+
+        elif t == "chunk_end":
+            done = int(ev.get("done_chunks", 0))
+            total = max(1, int(ev.get("total_chunks", 1)))
+            ratio = done / total
+            progress.progress(min(1.0, ratio))
+
+            ok = bool(ev.get("ok", False))
+            label = ev.get("label", "")
+            chunk_idx = int(ev.get("chunk_idx", 0)) + 1
+            if ok:
+                status.info(f"完了：{done}/{total}（{label} / chunk {chunk_idx}）")
+            else:
+                status.warning(f"失敗：{done}/{total}（{label} / chunk {chunk_idx}）")
+                # 失敗理由は出しすぎると邪魔なので詳細側に
+                details.write(f"[WARN] {ev.get('error', '')}")
+
+        elif t == "end":
+            done = int(ev.get("done_chunks", 0))
+            total = max(1, int(ev.get("total_chunks", 1)))
+            progress.progress(1.0)
+            status.success(f"Run完了：{done}/{total}")
+            details.write("")   
 
     # ★ run時は「結果作成だけ」して、表示はこの後のキャッシュ描画に任せる
     results = run_and_build_results(
         client=client,
         config=config,
         ranges=ranges,
+        progress_callback=on_progress,
     )
 
     st.session_state[SS_CACHE_READY] = True

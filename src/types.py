@@ -32,6 +32,7 @@ class RunConfig:
     split_minutes: int
     thr_lat: float = 0.2
     thr_acc: float = 1.0
+    raise_on_error: bool = False
 
 @dataclass(frozen=True)
 class PipelineResults:
