@@ -270,6 +270,7 @@ def fetch_chunk_data(
     def q2_builder(s: datetime, e: datetime) -> str:
         return build_query(QUERY2_TEMPLATE, vehicle_id, s, e, thr_acc=float(thr_acc))
 
+
     q2_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q2_builder,

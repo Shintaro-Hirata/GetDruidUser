@@ -73,25 +73,56 @@ ranked AS (
   FROM filtered
 ),
 
-speed_1m AS (
+/* =========================
+   距離計算（1秒 lat/lon → Haversine → cum_dist_km）
+   - 閾値フィルタ無しで 1秒ごとの位置を作る
+   - 秒間移動距離を計算して累積する
+   ========================= */
+pos_1s AS (
   SELECT
-    TIME_FLOOR(__time, 'PT1M') AS win_1m,
-    AVG(".pose.poslv_speed") AS avg_speed_mps
-  FROM "t2_localization_compositor_pose"
+    FLOOR(__time TO SECOND) AS sec_time,
+    AVG("#latitude")  AS lat,
+    AVG("#longitude") AS lon
+  FROM "t2_control_debug"
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
-  GROUP BY TIME_FLOOR(__time, 'PT1M')
+  GROUP BY FLOOR(__time TO SECOND)
 ),
 
-dist_1m AS (
+seg AS (
   SELECT
-    win_1m,
-    avg_speed_mps,
-    (avg_speed_mps * 60.0) AS delta_dist_m,
-    SUM(avg_speed_mps * 60.0) OVER (ORDER BY win_1m) AS cum_dist_m,
-    SUM(avg_speed_mps * 60.0) OVER (ORDER BY win_1m) / 1000.0 AS cum_dist_km
-  FROM speed_1m
+    sec_time,
+    lat,
+    lon,
+    LAG(lat) OVER (ORDER BY sec_time) AS prev_lat,
+    LAG(lon) OVER (ORDER BY sec_time) AS prev_lon
+  FROM pos_1s
+),
+
+dist_1s AS (
+  SELECT
+    sec_time,
+    CASE
+      WHEN prev_lat IS NULL OR prev_lon IS NULL THEN 0.0
+      ELSE
+        2.0 * 6371000.0 * ASIN(
+          SQRT(
+            POWER(SIN((RADIANS(lat - prev_lat)) / 2.0), 2.0)
+            + COS(RADIANS(prev_lat)) * COS(RADIANS(lat))
+            * POWER(SIN((RADIANS(lon - prev_lon)) / 2.0), 2.0)
+          )
+        )
+    END AS delta_m
+  FROM seg
+),
+
+cum AS (
+  SELECT
+    sec_time,
+    SUM(delta_m) OVER (ORDER BY sec_time) AS cum_dist_m,
+    SUM(delta_m) OVER (ORDER BY sec_time) / 1000.0 AS cum_dist_km
+  FROM dist_1s
 )
 
 SELECT
@@ -101,11 +132,11 @@ SELECT
   r.longitude,
   r.lateral_error,
   r.abs_lateral_error,
-  d.cum_dist_m,
-  d.cum_dist_km
+  c.cum_dist_m,
+  c.cum_dist_km
 FROM ranked r
-LEFT JOIN dist_1m d
-  ON r.win_1m = d.win_1m
+LEFT JOIN cum c
+  ON r.sec_time = c.sec_time
 WHERE r.rn = 1
 ORDER BY r.win_1m
 """
@@ -183,22 +214,53 @@ ranked AS (
   FROM filtered
 ),
 
-speed_1m AS (
+/* =========================
+   距離計算（1秒 lat/lon → Haversine → cum_dist_km）
+   ========================= */
+pos_1s AS (
   SELECT
-    TIME_FLOOR(__time, 'PT1M') AS win_1m,
-    AVG(".pose.poslv_speed") AS avg_speed_mps
-  FROM "t2_localization_compositor_pose"
+    FLOOR(__time TO SECOND) AS sec_time,
+    AVG("#latitude")  AS lat,
+    AVG("#longitude") AS lon
+  FROM "t2_control_debug"
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
-  GROUP BY TIME_FLOOR(__time, 'PT1M')
+  GROUP BY FLOOR(__time TO SECOND)
 ),
 
-dist_1m AS (
+seg AS (
   SELECT
-    win_1m,
-    SUM(avg_speed_mps * 60.0) OVER (ORDER BY win_1m) / 1000.0 AS cum_dist_km
-  FROM speed_1m
+    sec_time,
+    lat,
+    lon,
+    LAG(lat) OVER (ORDER BY sec_time) AS prev_lat,
+    LAG(lon) OVER (ORDER BY sec_time) AS prev_lon
+  FROM pos_1s
+),
+
+dist_1s AS (
+  SELECT
+    sec_time,
+    CASE
+      WHEN prev_lat IS NULL OR prev_lon IS NULL THEN 0.0
+      ELSE
+        2.0 * 6371000.0 * ASIN(
+          SQRT(
+            POWER(SIN((RADIANS(lat - prev_lat)) / 2.0), 2.0)
+            + COS(RADIANS(prev_lat)) * COS(RADIANS(lat))
+            * POWER(SIN((RADIANS(lon - prev_lon)) / 2.0), 2.0)
+          )
+        )
+    END AS delta_m
+  FROM seg
+),
+
+cum AS (
+  SELECT
+    sec_time,
+    SUM(delta_m) OVER (ORDER BY sec_time) / 1000.0 AS cum_dist_km
+  FROM dist_1s
 )
 
 SELECT
@@ -208,10 +270,10 @@ SELECT
   r.longitude,
   r.acceleration,
   r.abs_acceleration,
-  d.cum_dist_km
+  c.cum_dist_km
 FROM ranked r
-LEFT JOIN dist_1m d
-  ON r.win_1m = d.win_1m
+LEFT JOIN cum c
+  ON r.sec_time = c.sec_time
 WHERE r.rn = 1
 ORDER BY r.win_1m
 """

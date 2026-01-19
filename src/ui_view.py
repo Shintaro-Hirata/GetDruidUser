@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from src.plots import scatter, hist_ratio
-from src.mpl_jp import setup_japanese_font
+from src.plots import setup_japanese_font
 from src.config import SS_TEST_DROP_COLUMNS
 
 setup_japanese_font()
