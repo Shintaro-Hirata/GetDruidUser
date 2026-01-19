@@ -33,6 +33,7 @@ class RunConfig:
     thr_lat: float = 0.2
     thr_acc: float = 1.0
     raise_on_error: bool = False
+    max_workers: int = 1    # 並列実行数
 
 @dataclass(frozen=True)
 class PipelineResults:

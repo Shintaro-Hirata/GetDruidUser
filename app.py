@@ -32,31 +32,15 @@ from src.ui_page import render_period_tabs_from_cache, render_compare_tab
 # ★ 追加：RunConfig
 from src.types import RunConfig
 
+from src.ui_run import create_run_ui, make_progress_callback, finalize_run_log
+from src.ui_state import ensure_cache_state, save_cache, load_cache
+
 
 st.set_page_config(page_title="Druid Query Runner", layout="wide")
 st.title("Druid: 期間（複数ペア）×（基本は非分割）× 可視化 × Excel一括DL")
 
 client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
 
-
-def ensure_cache_state():
-    """session_state にキャッシュ用キーが無ければ初期化する。"""
-    ss = st.session_state
-
-    # 既に初期化済みなら何もしない
-    if ss.get(SS_CACHE_READY, None) is not None:
-        return
-
-    ss[SS_CACHE_READY] = False
-    ss[SS_CACHE_VEHICLE_ID] = ""
-    ss[SS_CACHE_SPLIT_MINUTES] = 0
-    ss[SS_CACHE_RANGES] = []
-    ss[SS_CACHE_EXCEL_SHEETS] = {}
-    ss[SS_CACHE_COMPARE_Q1] = []
-    ss[SS_CACHE_COMPARE_Q2] = []
-    ss[SS_CACHE_COMPARE_Q3] = []
-    ss[SS_CACHE_THR_LAT] = 0.2
-    ss[SS_CACHE_THR_ACC] = 1.0
 
 
 # =========================
@@ -111,97 +95,37 @@ if run:
         thr_lat=float(thr_lat),
         thr_acc=float(thr_acc),
         raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
+        max_workers=2,  # まずは2並列
     )
 
-    progress = st.progress(0.0)
-    status = st.empty()
-    details = st.empty()
+        # ★ Run条件は RunConfig に束ねる
+    config = RunConfig(
+        vehicle_id=vehicle_id,
+        split_minutes=int(split_minutes),
+        thr_lat=float(thr_lat),
+        thr_acc=float(thr_acc),
+        raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
+    )
 
-    # ★詳細ログ（普段は閉じておく）
-    log_lines: list[str] = []
-    failed = {"any": False}   # 可変にしてコールバック内で更新可能にする
-    log_holder = st.empty()  # expander を描画する場所
-    log_state = {"open": False}         # 失敗が出たら True にする
+    # ★ Run中UI（進捗＋ログ）を外出し
+    run_ui = create_run_ui()
+    progress_cb = make_progress_callback(run_ui)
 
-    def on_progress(ev: dict) -> None:
-        t = ev.get("type")
-
-        if t == "start":
-            total = max(1, int(ev.get("total_chunks", 1)))
-            status.info(f"Run開始：全 {total} チャンク")
-            progress.progress(0.0)
-            details.write("")
-
-        elif t == "chunk_start":
-            label = ev.get("label", "")
-            chunk_idx = int(ev.get("chunk_idx", 0)) + 1
-            cs = ev.get("cs")
-            ce = ev.get("ce")
-            done = int(ev.get("done_chunks", 0))
-            total = max(1, int(ev.get("total_chunks", 1)))
-            ratio = done / total
-            progress.progress(min(1.0, ratio))
-            status.info(f"取得中：{done}/{total}  （{label} / chunk {chunk_idx}）")
-            details.write(f"{cs.isoformat()} 〜 {ce.isoformat()}")
-
-        elif t == "chunk_end":
-            done = int(ev.get("done_chunks", 0))
-            total = max(1, int(ev.get("total_chunks", 1)))
-            ratio = done / total
-            progress.progress(min(1.0, ratio))
-
-            ok = bool(ev.get("ok", False))
-            label = ev.get("label", "")
-            chunk_idx = int(ev.get("chunk_idx", 0)) + 1
-            if ok:
-                status.info(f"完了：{done}/{total}（{label} / chunk {chunk_idx}）")
-                return
-            
-
-            # ★ここから「失敗確定」：ログにだけ残す
-            failed["any"] = True
-
-            err = str(ev.get("error", "")).strip()
-            if not err:
-                err = "(error message not provided)"
-
-            cs = ev.get("cs")
-            ce = ev.get("ce")
-            cs_s = cs.isoformat() if cs is not None else "?"
-            ce_s = ce.isoformat() if ce is not None else "?"
-
-            log_lines.append(f"- {label} / chunk {chunk_idx} [{cs_s} 〜 {ce_s}] : {err}")
-
-            status.warning(f"失敗：{done}/{total}（{label} / chunk {chunk_idx}）")
-
-        elif t == "end":
-            done = int(ev.get("done_chunks", 0))
-            total = max(1, int(ev.get("total_chunks", 1)))
-            progress.progress(1.0)
-            status.success(f"Run完了：{done}/{total}")
-            details.write("")
-
-        # ★expanderの描画（失敗が出たら表示）
-        if log_state["open"]:
-            with log_holder.container():
-                with st.expander("詳細ログ（失敗したチャンク）", expanded=False):
-                    st.write("\n".join(log_lines))   
-
-    # ★ run時は「結果作成だけ」して、表示はこの後のキャッシュ描画に任せる
     results = run_and_build_results(
         client=client,
         config=config,
         ranges=ranges,
-        progress_callback=on_progress,
+        progress_callback=progress_cb,
     )
 
-    # ★Run完了後：失敗があったときだけ詳細ログを表示
-    if failed["any"]:
-        with log_holder.container():
-            with st.expander("詳細ログ（失敗したチャンク）", expanded=False):
-                st.code("\n".join(log_lines), language="text")
-    else:
-        log_holder.empty()
+    # ★ Run完了後：失敗があった時だけ詳細ログを表示
+    finalize_run_log(run_ui)
+
+    # ★キャッシュ保存も外出し
+    save_cache(config=config, results=results)
+
+    st.rerun()
+
 
 
     st.session_state[SS_CACHE_READY] = True
@@ -229,11 +153,7 @@ if not st.session_state[SS_CACHE_READY]:
 # =========================
 # ここからは「描画だけ」（レンジ変更で再クエリしない）
 # =========================
-ranges = st.session_state[SS_CACHE_RANGES]
-all_excel_sheets = st.session_state[SS_CACHE_EXCEL_SHEETS]
-compare_q1 = st.session_state[SS_CACHE_COMPARE_Q1]
-compare_q2 = st.session_state[SS_CACHE_COMPARE_Q2]
-compare_q3 = st.session_state[SS_CACHE_COMPARE_Q3]
+ranges, all_excel_sheets, compare_q1, compare_q2, compare_q3 = load_cache()
 
 st.caption(
     f"表示中の結果：vehicle_id={st.session_state[SS_CACHE_VEHICLE_ID]} / split={st.session_state[SS_CACHE_SPLIT_MINUTES]}分"
