@@ -26,3 +26,20 @@ SS_CACHE_THR_ACC = "cache_thr_acc"
 
 SS_TEST_DROP_COLUMNS = "test_drop_columns"
 SS_DEV_RAISE_ON_ERROR = "dev_raise_on_error"
+
+# 図サイズ（インチ）
+SS_PLOT_W = "plot_w"
+SS_PLOT_H = "plot_h"
+SS_PLOT_W_COMPARE = "plot_w_compare"
+SS_PLOT_H_COMPARE = "plot_h_compare"
+
+SS_PLOT_EDIT_W = "plot_edit_w"
+SS_PLOT_EDIT_H = "plot_edit_h"
+SS_PLOT_EDIT_WC = "plot_edit_w_compare"
+SS_PLOT_EDIT_HC = "plot_edit_h_compare"
+
+SS_PLOT_APPLY_REQ = "plot_apply_requested"   # 適用ボタン押下フラグ
+SS_PLOT_LOCK = "plot_ui_locked"              # 反映中は True（スライダーdisabled）
+
+# 距離の算出方式
+SS_DIST_MODE = "dist_mode"  # "latlon" or "speed"

@@ -1,30 +1,35 @@
 # src/queries.py
+from __future__ import annotations
+
+from typing import Literal
 
 
-def make_distance_cte(
+# ============================================================
+# 距離CTE生成
+# ============================================================
+
+# ★ UI/RunConfig 側の値に合わせる（"latlon" / "speed"）
+DistanceMode = Literal["latlon", "speed"]
+
+
+def make_distance_cte_latlon(
     *,
     src_table: str = "t2_control_debug",
     lat_col: str = "#latitude",
     lon_col: str = "#longitude",
     earth_radius_m: float = 6_371_000.0,
 ) -> str:
-    """
-    距離計算 CTE（1秒 lat/lon → Haversine → cum_dist_km）を生成する。
-    - src_table / lat_col / lon_col / earth_radius_m を差し替え可能にする
-    - build_query() が format() するため、{vehicle_id},{start_time},{end_time} は文字列として残す
-    """
-    # ※ src_table / lat_col / lon_col は SQL文字列として埋め込む（外部入力にしない前提）
-    # ※ {vehicle_id} などは build_query 側で埋めるので、ここでは "二重波括弧" を使って残す
-    return f"""
+    # ★ f-stringを使わず、{vehicle_id}などは「後段format用の穴」として残す
+    return r"""
 /* =========================
    距離計算（1秒 lat/lon → Haversine → cum_dist_km）
-   src_table={src_table}, R={earth_radius_m}m
+   mode=latlon
    ========================= */
 pos_1s AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
     AVG("{lat_col}")  AS lat,
-    AVG("{lon_col}") AS lon
+    AVG("{lon_col}")  AS lon
   FROM "{src_table}"
   WHERE "#vehicle_id" = '{{vehicle_id}}'
     AND __time >= '{{start_time}}'
@@ -65,12 +70,82 @@ cum AS (
     SUM(delta_m) OVER (ORDER BY sec_time) / 1000.0 AS cum_dist_km
   FROM dist_1s
 )
-""".strip()
+""".format(
+        src_table=src_table,
+        lat_col=lat_col,
+        lon_col=lon_col,
+        earth_radius_m=earth_radius_m,
+    ).strip()
+
+
+def make_distance_cte_speed(
+    *,
+    speed_table: str = "t2_localization_compositor_pose",
+    speed_col: str = ".pose.poslv_speed",
+) -> str:
+    return r"""
+/* =========================
+   距離計算（1秒 avg_speed → cum_dist_km）
+   mode=speed
+   ========================= */
+speed_1s AS (
+  SELECT
+    FLOOR(__time TO SECOND) AS sec_time,
+    AVG("{speed_col}") AS avg_speed_mps
+  FROM "{speed_table}"
+  WHERE "#vehicle_id" = '{{vehicle_id}}'
+    AND __time >= '{{start_time}}'
+    AND __time <  '{{end_time}}'
+  GROUP BY FLOOR(__time TO SECOND)
+),
+
+dist_1s AS (
+  SELECT
+    sec_time,
+    (avg_speed_mps * 1.0) AS delta_m
+  FROM speed_1s
+),
+
+cum AS (
+  SELECT
+    sec_time,
+    SUM(delta_m) OVER (ORDER BY sec_time) / 1000.0 AS cum_dist_km
+  FROM dist_1s
+)
+""".format(
+        speed_table=speed_table,
+        speed_col=speed_col,
+    ).strip()
 
 
 
-QUERY1_TEMPLATE = (
-    r"""
+def pick_distance_cte(*, dist_mode: DistanceMode) -> str:
+    """
+    distance_cte を mode に応じて返す。
+    QUERY1/2 には {distance_cte} として埋め込まれる想定。
+    """
+    if dist_mode == "latlon":
+        return make_distance_cte_latlon(
+            src_table="t2_control_debug",
+            lat_col="#latitude",
+            lon_col="#longitude",
+            earth_radius_m=6_371_000.0,
+        )
+    if dist_mode == "speed":
+        return make_distance_cte_speed(
+            speed_table="t2_localization_compositor_pose",
+            speed_col=".pose.poslv_speed",
+        )
+    # Literal なので通常来ないが保険
+    raise ValueError(f"Unknown dist_mode: {dist_mode}")
+
+
+# ============================================================
+# Query テンプレ（distance_cte を差し込む）
+# - ★距離は必ず sec_time JOIN に統一（latlon / speed とも cum は sec_time）
+# ============================================================
+
+QUERY1_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
@@ -142,14 +217,8 @@ ranked AS (
     ) AS rn
   FROM filtered
 ),
-"""
-    + make_distance_cte(
-        src_table="t2_control_debug",
-        lat_col="#latitude",
-        lon_col="#longitude",
-        earth_radius_m=6_371_000.0,
-      )
-    + r"""
+
+{distance_cte}
 
 SELECT
   r.win_1m,
@@ -165,11 +234,9 @@ LEFT JOIN cum c
 WHERE r.rn = 1
 ORDER BY r.win_1m
 """
-)
 
 
-QUERY2_TEMPLATE = (
-    r"""
+QUERY2_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
@@ -241,14 +308,8 @@ ranked AS (
     ) AS rn
   FROM filtered
 ),
-"""
-    + make_distance_cte(
-        src_table="t2_control_debug",
-        lat_col="#latitude",
-        lon_col="#longitude",
-        earth_radius_m=6_371_000.0,
-      )
-    + r"""
+
+{distance_cte}
 
 SELECT
   r.win_1m,
@@ -264,7 +325,6 @@ LEFT JOIN cum c
 WHERE r.rn = 1
 ORDER BY r.win_1m
 """
-)
 
 
 QUERY3_TEMPLATE = r"""
@@ -291,3 +351,65 @@ WHERE p."#vehicle_id" = '{vehicle_id}'
 GROUP BY 1, 2
 ORDER BY 1
 """
+
+
+# ============================================================
+# Build functions（呼び出し側はこれを使う）
+# ============================================================
+
+def build_query1(
+    *,
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
+    thr_lat: float,
+    dist_mode: DistanceMode = "latlon",
+) -> str:
+    distance_cte = pick_distance_cte(dist_mode=dist_mode)
+
+    # ★重要：distance_cte を “値” として渡さず、テンプレに埋め込んでから format する
+    tpl = QUERY1_TEMPLATE.replace("{distance_cte}", distance_cte)
+
+    return tpl.format(
+        vehicle_id=vehicle_id,
+        start_time=start_time,
+        end_time=end_time,
+        thr_lat=float(thr_lat),
+    )
+
+
+def build_query2(
+    *,
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
+    thr_acc: float,
+    dist_mode: DistanceMode = "latlon",
+) -> str:
+    distance_cte = pick_distance_cte(dist_mode=dist_mode)
+
+    # ★重要：distance_cte を “値” として渡さず、テンプレに埋め込んでから format する
+    tpl = QUERY2_TEMPLATE.replace("{distance_cte}", distance_cte)
+
+    return tpl.format(
+        vehicle_id=vehicle_id,
+        start_time=start_time,
+        end_time=end_time,
+        thr_acc=float(thr_acc),
+    )
+
+
+
+def build_query3(
+    *,
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
+    state_condition: str,
+) -> str:
+    return QUERY3_TEMPLATE.format(
+        vehicle_id=vehicle_id,
+        start_time=start_time,
+        end_time=end_time,
+        state_condition=state_condition,
+    )

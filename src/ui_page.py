@@ -5,6 +5,8 @@ import pandas as pd
 from src.ui_view import show_query1, show_query2, show_query3
 from src.ui_view import show_scatter_compare, show_query3_compare
 
+from src.config import SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE
+
 
 def render_period_tabs_from_cache(
     *,
@@ -20,11 +22,17 @@ def render_period_tabs_from_cache(
     ylim_q3=None,
     smooth_window_q3: int = 1,  # ★追加（デフォルト=1）
 ):
-
     """
     各期間タブ：キャッシュ（Excel格納DF）から描画する（再クエリなし）
     - T{period}_C{chunk}_Q{1..3} を復元して表示
     """
+
+    # ★追加：単体図サイズ（session_state から読む）
+    fig_size = (
+        float(st.session_state.get(SS_PLOT_W, 7.0)),
+        float(st.session_state.get(SS_PLOT_H, 4.0)),
+    )
+
     for i, r in enumerate(ranges):
         label = r.label if getattr(r, "label", None) else f"期間{i+1}"
 
@@ -56,11 +64,11 @@ def render_period_tabs_from_cache(
 
                 colA, colB = st.columns(2)
                 with colA:
-                    show_query1(df1, xlim=xlim, ylim=ylim_q1)
+                    show_query1(df1, xlim=xlim, ylim=ylim_q1, fig_size=fig_size)
                 with colB:
-                    show_query2(df2, xlim=xlim, ylim=ylim_q2)
+                    show_query2(df2, xlim=xlim, ylim=ylim_q2, fig_size=fig_size)
                     st.markdown("---")
-                    show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3)
+                    show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3, fig_size=fig_size)
 
             else:
                 chunk_tabs = st.tabs([f"区間{c}/{len(chunk_keys)}" for c in chunk_keys])
@@ -72,11 +80,12 @@ def render_period_tabs_from_cache(
 
                         colA, colB = st.columns(2)
                         with colA:
-                            show_query1(df1, xlim=xlim, ylim=ylim_q1)
+                            show_query1(df1, xlim=xlim, ylim=ylim_q1, fig_size=fig_size)
                         with colB:
-                            show_query2(df2, xlim=xlim, ylim=ylim_q2)
+                            show_query2(df2, xlim=xlim, ylim=ylim_q2, fig_size=fig_size)
                             st.markdown("---")
-                            show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3)
+                            show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3, fig_size=fig_size)
+
 
 def render_compare_tab(
     *,
@@ -98,6 +107,12 @@ def render_compare_tab(
     if compare_tab is None:
         return
 
+    # ★追加：比較図サイズ（session_state から読む）
+    fig_size_cmp = (
+        float(st.session_state.get(SS_PLOT_W_COMPARE, 9.0)),
+        float(st.session_state.get(SS_PLOT_H_COMPARE, 4.5)),
+    )
+
     with compare_tab:
         st.subheader("比較（全期間）")
         st.caption("各テスト期間の結果を同じグラフ上に重ねて表示します。")
@@ -113,6 +128,7 @@ def render_compare_tab(
                 y_label="lateral error[m]",
                 xlim=xlim,
                 ylim=ylim_q1,
+                fig_size=fig_size_cmp,  # ★追加
             )
         with colB:
             show_scatter_compare(
@@ -124,6 +140,7 @@ def render_compare_tab(
                 y_label="加速度[m/s^2]",
                 xlim=xlim,
                 ylim=ylim_q2,
+                fig_size=fig_size_cmp,  # ★追加
             )
 
         st.markdown("---")
@@ -132,5 +149,5 @@ def render_compare_tab(
             xlim=xlim_q3,
             ylim=ylim_q3,
             smooth_window=smooth_window_q3,
+            fig_size=fig_size_cmp,  # ★追加
         )
-

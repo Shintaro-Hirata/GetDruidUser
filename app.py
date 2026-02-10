@@ -18,7 +18,17 @@ from src.config import (
     SS_CACHE_COMPARE_Q3,
     SS_CACHE_THR_LAT,
     SS_CACHE_THR_ACC,
-    SS_DEV_RAISE_ON_ERROR
+    SS_DEV_RAISE_ON_ERROR,
+    SS_PLOT_W,
+    SS_PLOT_H,
+    SS_PLOT_W_COMPARE,
+    SS_PLOT_H_COMPARE,
+    SS_PLOT_EDIT_W,
+    SS_PLOT_EDIT_H,
+    SS_PLOT_EDIT_WC,
+    SS_PLOT_EDIT_HC,
+    SS_PLOT_APPLY_REQ,
+    SS_DIST_MODE,
 )
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
@@ -62,6 +72,14 @@ if SS_CACHE_READY not in st.session_state:
 # UI（サイドバー）
 # =========================
 ui = render_sidebar()
+if st.session_state.get(SS_PLOT_APPLY_REQ, False):
+    st.session_state[SS_PLOT_W] = float(st.session_state[SS_PLOT_EDIT_W])
+    st.session_state[SS_PLOT_H] = float(st.session_state[SS_PLOT_EDIT_H])
+    st.session_state[SS_PLOT_W_COMPARE] = float(st.session_state[SS_PLOT_EDIT_WC])
+    st.session_state[SS_PLOT_H_COMPARE] = float(st.session_state[SS_PLOT_EDIT_HC])
+    st.session_state[SS_PLOT_APPLY_REQ] = False
+
+
 vehicle_id = ui.vehicle_id
 split_minutes = ui.split_minutes
 run = ui.run
@@ -96,17 +114,9 @@ if run:
         thr_acc=float(thr_acc),
         raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
         max_workers=2,  # まずは2並列
+        dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")), 
     )
-
-        # ★ Run条件は RunConfig に束ねる
-    config = RunConfig(
-        vehicle_id=vehicle_id,
-        split_minutes=int(split_minutes),
-        thr_lat=float(thr_lat),
-        thr_acc=float(thr_acc),
-        raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
-    )
-
+     
     # ★ Run中UI（進捗＋ログ）を外出し
     run_ui = create_run_ui()
     progress_cb = make_progress_callback(run_ui)
@@ -126,22 +136,6 @@ if run:
 
     st.rerun()
 
-
-
-    st.session_state[SS_CACHE_READY] = True
-    st.session_state[SS_CACHE_VEHICLE_ID] = config.vehicle_id
-    st.session_state[SS_CACHE_SPLIT_MINUTES] = int(config.split_minutes)
-    st.session_state[SS_CACHE_THR_LAT] = float(config.thr_lat)
-    st.session_state[SS_CACHE_THR_ACC] = float(config.thr_acc)
-
-    st.session_state[SS_CACHE_RANGES] = results.ranges
-    st.session_state[SS_CACHE_EXCEL_SHEETS] = results.all_excel_sheets
-    st.session_state[SS_CACHE_COMPARE_Q1] = results.compare_q1
-    st.session_state[SS_CACHE_COMPARE_Q2] = results.compare_q2
-    st.session_state[SS_CACHE_COMPARE_Q3] = results.compare_q3
-
-    # ★ これが効く：run直後に再描画して「キャッシュ描画側のtabs」だけ表示される
-    st.rerun()
 
 # =========================
 # キャッシュがない場合は案内して終了
@@ -219,3 +213,4 @@ st.download_button(
     file_name="druid_results.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+

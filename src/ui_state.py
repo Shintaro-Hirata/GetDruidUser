@@ -14,7 +14,18 @@ from src.config import (
     SS_CACHE_COMPARE_Q3,
     SS_CACHE_THR_LAT,
     SS_CACHE_THR_ACC,
+    SS_PLOT_W,
+    SS_PLOT_H,
+    SS_PLOT_W_COMPARE,
+    SS_PLOT_H_COMPARE,
+    SS_PLOT_EDIT_W,
+    SS_PLOT_EDIT_H,
+    SS_PLOT_EDIT_WC,
+    SS_PLOT_EDIT_HC,
+    SS_PLOT_APPLY_REQ,
+    SS_PLOT_LOCK,
 )
+   
 from src.types import PipelineResults, RunConfig
 
 
@@ -64,3 +75,21 @@ def load_cache():
         ss[SS_CACHE_COMPARE_Q2],
         ss[SS_CACHE_COMPARE_Q3],
     )
+
+def ensure_plot_state_defaults():
+    ss = st.session_state
+
+    # 本値（描画側が読む値）
+    ss.setdefault(SS_PLOT_W, 7.0)
+    ss.setdefault(SS_PLOT_H, 4.0)
+    ss.setdefault(SS_PLOT_W_COMPARE, 10.5)
+    ss.setdefault(SS_PLOT_H_COMPARE, 6.0)
+
+    # 編集値（UIが動かす値）
+    ss.setdefault(SS_PLOT_EDIT_W, ss[SS_PLOT_W])
+    ss.setdefault(SS_PLOT_EDIT_H, ss[SS_PLOT_H])
+    ss.setdefault(SS_PLOT_EDIT_WC, ss[SS_PLOT_W_COMPARE])
+    ss.setdefault(SS_PLOT_EDIT_HC, ss[SS_PLOT_H_COMPARE])
+
+    ss.setdefault(SS_PLOT_APPLY_REQ, False)
+    ss.setdefault(SS_PLOT_LOCK, False)

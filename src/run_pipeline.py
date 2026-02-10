@@ -22,7 +22,6 @@ def _make_thread_client(base: DruidClient) -> DruidClient:
     )
 
 
-
 def run_and_build_results(
     *,
     client: DruidClient,
@@ -43,7 +42,7 @@ def run_and_build_results(
     compare_q2: list[tuple[str, pd.DataFrame]] = []
     compare_q3: list[tuple[str, pd.DataFrame]] = []
 
-    # 進捗用：総チャンク数を先に数える（あなたの現状のまま）
+    # 進捗用：総チャンク数を先に数える
     total_chunks = 0
     chunks_list: list[tuple[int, str, list[tuple]]] = []
     for pair_idx, r in enumerate(ranges):
@@ -62,17 +61,17 @@ def run_and_build_results(
 
     max_workers = max(1, int(getattr(config, "max_workers", 1)))
 
+    # ★追加：距離算出モード（RunConfigにあればそれを使い、無ければ latlon）
+    dist_mode = getattr(config, "dist_mode", "latlon")
+
     # ---- 期間ごとに並列実行（最小改修） ----
     for pair_idx, label, chunks in chunks_list:
         emit({"type": "period_start", "pair_idx": pair_idx, "label": label, "num_chunks": len(chunks)})
 
-        # tasks: future -> (chunk_idx, cs, ce)
         futures = {}
 
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            # 先に全部投げる（2並列なので過剰にはならない）
             for chunk_idx, (cs, ce) in enumerate(chunks):
-                # ★ chunk_start は「投入した」タイミングで出す（厳密なstartではない）
                 emit(
                     {
                         "type": "chunk_start",
@@ -86,7 +85,6 @@ def run_and_build_results(
                     }
                 )
 
-                # ★安全寄り：スレッド側で client をコピーして使う
                 th_client = _make_thread_client(client)
 
                 fut = ex.submit(
@@ -97,10 +95,11 @@ def run_and_build_results(
                     ce=ce,
                     thr_lat=float(config.thr_lat),
                     thr_acc=float(config.thr_acc),
+                    # ★追加：距離算出モードを渡す
+                    dist_mode=dist_mode,
                 )
                 futures[fut] = (chunk_idx, cs, ce)
 
-            # 完了したものから回収
             for fut in as_completed(futures):
                 chunk_idx, cs, ce = futures[fut]
 
@@ -131,7 +130,6 @@ def run_and_build_results(
                     )
                     continue
 
-                # 正常：Excel格納
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q1"] = data.df1
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q2"] = data.df2
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q3"] = data.df3_hist

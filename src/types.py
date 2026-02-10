@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Literal
 import pandas as pd
 
 
 Range2 = Tuple[float, float]
-
+DistanceMode = Literal["latlon", "speed"]
 
 @dataclass(frozen=True)
 class SidebarState:
@@ -34,6 +34,7 @@ class RunConfig:
     thr_acc: float = 1.0
     raise_on_error: bool = False
     max_workers: int = 1    # 並列実行数
+    dist_mode: DistanceMode = "latlon"
 
 @dataclass(frozen=True)
 class PipelineResults:

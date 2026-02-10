@@ -4,12 +4,32 @@ import streamlit as st
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
 from src.types import SidebarState
-from src.config import SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR
+from src.config import SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR, SS_DIST_MODE
+
+# --- 追加 import（ファイル先頭の import 群に追加） ---
+from src.config import (
+    SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE,
+    SS_PLOT_EDIT_W, SS_PLOT_EDIT_H, SS_PLOT_EDIT_WC, SS_PLOT_EDIT_HC,
+    SS_PLOT_APPLY_REQ, SS_PLOT_LOCK,
+)
+
 
 def _on_ranges_text_change():
     """開始/終了（＋ラベル）入力が変わったら、自動で推奨分割幅に戻す。"""
     st.session_state["split_minutes"] = suggested_split_minutes_from_ranges_text(st.session_state["ranges_text"])
 
+
+def _plot_size_apply():
+    st.session_state[SS_PLOT_APPLY_REQ] = True
+
+def _plot_size_reset():
+    # 編集値をデフォルトへ（ここは「次のrerunの冒頭」で実行されるので安全）
+    st.session_state[SS_PLOT_EDIT_W] = 7.0
+    st.session_state[SS_PLOT_EDIT_H] = 4.0
+    st.session_state[SS_PLOT_EDIT_WC] = 9.0
+    st.session_state[SS_PLOT_EDIT_HC] = 4.5
+
+    st.session_state[SS_PLOT_APPLY_REQ] = True
 
 def render_sidebar() -> SidebarState:
     """
@@ -68,6 +88,19 @@ def render_sidebar() -> SidebarState:
             help="散布図に載せる acceleration の絶対値しきい値",
         )
         st.session_state["thr_acc"] = float(thr_acc)
+        # -------------------------
+        # 距離算出方式（再実行が必要）
+        # -------------------------
+        st.session_state.setdefault(SS_DIST_MODE, "latlon")
+
+        st.radio(
+            "移動距離（cum_dist_km）の算出方式",
+            options=["latlon", "speed"],
+            format_func=lambda v: "緯度・経度（Haversine）" if v == "latlon" else "速度平均（1分近似）",
+            key=SS_DIST_MODE,
+            help="緯度・経度が欠損/異常な日がある場合は速度平均に切り替えてください（再実行が必要）。",
+        )
+
 
 
         # （今は自動/手動はやめる、という方針なのでレンジ入力は残すか任意）
@@ -124,6 +157,92 @@ def render_sidebar() -> SidebarState:
     ylim_q2 = None if y2_min >= y2_max else (y2_min, y2_max)
     xlim_q3 = None if q3_x_min >= q3_x_max else (q3_x_min, q3_x_max)
     ylim_q3 = None if q3_y_min >= q3_y_max else (q3_y_min, q3_y_max)
+
+    # =========================
+    # 図サイズ（任意）
+    # - スライダー操作だけでは rerun しない（form）
+    # - 「適用」時だけ本値へ反映
+    # - 反映中はロックして二重操作を防ぐ
+    # =========================
+    st.markdown("---")
+    st.subheader("図サイズ（任意）")
+
+    locked = bool(st.session_state.get(SS_PLOT_LOCK, False))
+
+    # --- 本値の初期化（無ければ作る） ---
+    st.session_state.setdefault(SS_PLOT_W, 7.0)
+    st.session_state.setdefault(SS_PLOT_H, 4.0)
+    st.session_state.setdefault(SS_PLOT_W_COMPARE, 9.0)
+    st.session_state.setdefault(SS_PLOT_H_COMPARE, 4.5)
+
+    # --- 編集値の初期化（無ければ本値で作る） ---
+    st.session_state.setdefault(SS_PLOT_EDIT_W, float(st.session_state[SS_PLOT_W]))
+    st.session_state.setdefault(SS_PLOT_EDIT_H, float(st.session_state[SS_PLOT_H]))
+    st.session_state.setdefault(SS_PLOT_EDIT_WC, float(st.session_state[SS_PLOT_W_COMPARE]))
+    st.session_state.setdefault(SS_PLOT_EDIT_HC, float(st.session_state[SS_PLOT_H_COMPARE]))
+
+    # ロック中は案内を出す（任意）
+    if locked:
+        st.info("図サイズを適用中です。描画完了まで操作できません…")
+
+    with st.form("plot_size_form", clear_on_submit=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.slider(
+                "単体 幅(inch)",
+                4.0, 16.0,
+                step=0.5,
+                key=SS_PLOT_EDIT_W,
+                disabled=locked,
+            )
+            st.slider(
+                "比較 幅(inch)",
+                5.0, 20.0,
+                step=0.5,
+                key=SS_PLOT_EDIT_WC,
+                disabled=locked,
+            )
+        with col2:
+            st.slider(
+                "単体 高さ(inch)",
+                3.0, 12.0,
+                step=0.5,
+                key=SS_PLOT_EDIT_H,
+                disabled=locked,
+            )
+            st.slider(
+                "比較 高さ(inch)",
+                3.0, 14.0,
+                step=0.5,
+                key=SS_PLOT_EDIT_HC,
+                disabled=locked,
+            )
+
+        c3, c4 = st.columns(2)
+        with c3:
+            st.form_submit_button("適用", disabled=locked, on_click=_plot_size_apply)
+        with c4:
+            st.form_submit_button("デフォルトに戻す", disabled=locked, on_click=_plot_size_reset)
+
+    # # --- デフォルトに戻す（編集値だけ更新） ---
+    # if reset_clicked:
+    #     st.session_state[SS_PLOT_EDIT_W] = 7.0
+    #     st.session_state[SS_PLOT_EDIT_H] = 4.0
+    #     st.session_state[SS_PLOT_EDIT_WC] = 9.0
+    #     st.session_state[SS_PLOT_EDIT_HC] = 4.5
+    #     st.session_state[SS_PLOT_APPLY_REQ] = True
+    #     st.session_state[SS_PLOT_LOCK] = True
+
+    #     # そのまま適用要求を立てて rerun（本値反映は app 側）
+    #     st.session_state[SS_PLOT_APPLY_REQ] = True
+    #     st.session_state[SS_PLOT_LOCK] = True
+        
+
+    # # --- 適用（本値への反映は app.py で行う） ---
+    # if apply_clicked:
+    #     st.session_state[SS_PLOT_APPLY_REQ] = True
+    #     st.session_state[SS_PLOT_LOCK] = True
+        
 
     return SidebarState(
         vehicle_id=vehicle_id,
