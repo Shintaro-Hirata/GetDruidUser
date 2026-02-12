@@ -1,8 +1,8 @@
 # src/run_pipeline.py
-# run時の「クエリ実行＋比較データ作成＋Excel格納」担当
 import pandas as pd
 from typing import Callable, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 from src.druid_client import DruidClient
 from src.time_ranges import split_range
@@ -10,11 +10,10 @@ from src.data_service import fetch_chunk_data
 from src.compare import collect_compare_series_from_excel_sheets
 from src.types import PipelineResults, RunConfig
 
+from src.queries import ExcludeRange
+
 
 def _make_thread_client(base: DruidClient) -> DruidClient:
-    """
-    スレッド専用 client（= Session も専用）
-    """
     return DruidClient(
         url=base.url,
         timeout_sec=base.timeout_sec,
@@ -22,27 +21,61 @@ def _make_thread_client(base: DruidClient) -> DruidClient:
     )
 
 
+def _parse_exclude_ranges_text(text: str) -> list[ExcludeRange]:
+    """
+    1行=1範囲:
+      2025-12-15T08:00:00+09:00,2025-12-15T08:10:00+09:00
+    または空白区切り/ハイフン区切りも許容:
+      2025-12-15T08:00:00+09:00 - 2025-12-15T08:10:00+09:00
+
+    ※ ISO8601 を datetime.fromisoformat で読む前提
+    """
+    if not text:
+        return []
+
+    out: list[ExcludeRange] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if "," in line:
+            a, b = [x.strip() for x in line.split(",", 1)]
+        elif " - " in line:
+            a, b = [x.strip() for x in line.split(" - ", 1)]
+        else:
+            # 最後の手段：空白2トークン
+            toks = line.split()
+            if len(toks) != 2:
+                raise ValueError(f"exclude_ranges_text: 解析できない行: {line}")
+            a, b = toks[0], toks[1]
+
+        s = datetime.fromisoformat(a)
+        e = datetime.fromisoformat(b)
+        if e <= s:
+            raise ValueError(f"exclude_ranges_text: end <= start: {line}")
+        out.append(ExcludeRange(start=s, end=e))
+
+    # start順に整列
+    out.sort(key=lambda r: r.start)
+    return out
+
+
 def run_and_build_results(
     *,
     client: DruidClient,
     config: RunConfig,
-    ranges,  # parse_ranges の戻り（各要素が start/end/label を持つ想定）
+    ranges,
     progress_callback: Optional[Callable[[dict], None]] = None,
 ) -> PipelineResults:
-    """
-    Run中は「データ取得とExcel格納だけ」を行い、描画は一切しない。
-    進捗は progress_callback(event_dict) で通知する（UI依存しない）。
-
-    ★並列化（max_workers）対応
-    - fetch_chunk_data を並列実行
-    - all_excel_sheets への格納と emit はメインスレッドで行う（競合回避）
-    """
     all_excel_sheets: dict[str, pd.DataFrame] = {}
     compare_q1: list[tuple[str, pd.DataFrame]] = []
     compare_q2: list[tuple[str, pd.DataFrame]] = []
     compare_q3: list[tuple[str, pd.DataFrame]] = []
 
-    # 進捗用：総チャンク数を先に数える
+    # ★除外時間帯をここで一回だけパースして全チャンク共通で使う
+    excludes = _parse_exclude_ranges_text(getattr(config, "exclude_ranges_text", "") or "")
+
     total_chunks = 0
     chunks_list: list[tuple[int, str, list[tuple]]] = []
     for pair_idx, r in enumerate(ranges):
@@ -61,10 +94,6 @@ def run_and_build_results(
 
     max_workers = max(1, int(getattr(config, "max_workers", 1)))
 
-    # ★追加：距離算出モード（RunConfigにあればそれを使い、無ければ latlon）
-    dist_mode = getattr(config, "dist_mode", "latlon")
-
-    # ---- 期間ごとに並列実行（最小改修） ----
     for pair_idx, label, chunks in chunks_list:
         emit({"type": "period_start", "pair_idx": pair_idx, "label": label, "num_chunks": len(chunks)})
 
@@ -95,8 +124,8 @@ def run_and_build_results(
                     ce=ce,
                     thr_lat=float(config.thr_lat),
                     thr_acc=float(config.thr_acc),
-                    # ★追加：距離算出モードを渡す
-                    dist_mode=dist_mode,
+                    dist_mode=getattr(config, "dist_mode", "latlon"),
+                    excludes=excludes,  # ★追加
                 )
                 futures[fut] = (chunk_idx, cs, ce)
 
@@ -149,7 +178,6 @@ def run_and_build_results(
                     }
                 )
 
-        # ---- periodごとの比較データ作成（従来通り） ----
         (lab1, df1), (lab2, df2) = collect_compare_series_from_excel_sheets(
             all_excel_sheets=all_excel_sheets,
             pair_idx=pair_idx,
@@ -159,7 +187,6 @@ def run_and_build_results(
         compare_q1.append((lab1, df1))
         compare_q2.append((lab2, df2))
 
-        # Query3の比較用（従来通り：非分割のみ）
         if len(chunks) == 1:
             df3 = all_excel_sheets.get(f"T{pair_idx+1}_C1_Q3", pd.DataFrame())
             compare_q3.append((label, df3))

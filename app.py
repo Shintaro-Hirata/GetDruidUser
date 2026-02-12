@@ -115,6 +115,7 @@ if run:
         raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
         max_workers=2,  # まずは2並列
         dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")), 
+        exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
     )
      
     # ★ Run中UI（進捗＋ログ）を外出し

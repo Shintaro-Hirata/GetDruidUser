@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable, Optional, Any
-import string
+from typing import Callable, Optional, Any, Sequence
 
 import pandas as pd
 
 from src.druid_client import DruidClient
-from src.queries import build_query1, build_query2, build_query3, DistanceMode
+from src.queries import build_query1, build_query2, build_query3, DistanceMode, ExcludeRange
 
 
 # =========================
@@ -20,56 +19,6 @@ class ChunkData:
     df1: pd.DataFrame
     df2: pd.DataFrame
     df3_hist: pd.DataFrame  # binごとに auto/manual の cnt/ratio を持つ
-
-
-# =========================
-# SQLテンプレ検査ユーティリティ（残してOK）
-# ※ build_query1/2/3 に寄せたので基本は不要になるが、
-#   既存の adaptive split / 例外メッセージの質を落とさないため残置
-# =========================
-def build_query(
-    tpl: str,
-    vehicle_id: str,
-    start: datetime,
-    end: datetime,
-    **kwargs,
-) -> str:
-    """
-    SQLテンプレを format() する（旧来の保険関数）。
-    ※ 今後は基本的に queries.build_query1/2/3 を使う。
-    """
-    values = dict(
-        vehicle_id=vehicle_id,
-        start_time=start.isoformat(),
-        end_time=end.isoformat(),
-        **kwargs,
-    )
-
-    required = _required_format_keys(tpl)
-    missing = sorted(k for k in required if k not in values)
-    if missing:
-        raise ValueError(
-            "build_query(): SQLテンプレの format キーが不足しています: "
-            f"{missing}. 渡されたキー={sorted(values.keys())}"
-        )
-
-    try:
-        return tpl.format(**values)
-    except KeyError as ex:
-        raise ValueError(
-            f"build_query(): SQLテンプレ format 失敗: missing={ex}"
-        ) from ex
-
-
-def _required_format_keys(tpl: str) -> set[str]:
-    keys: set[str] = set()
-    for _, field_name, _, _ in string.Formatter().parse(tpl):
-        if not field_name:
-            continue
-        base = field_name.split(".")[0].split("[")[0]
-        if base:
-            keys.add(base)
-    return keys
 
 
 # =========================
@@ -100,12 +49,10 @@ def _run_sql_adaptive_split(
     min_split_minutes: int,
     context: Optional[dict[str, Any]] = None,
 ) -> list[pd.DataFrame]:
-    """
-    まず[start,end)で実行を試し、上限エラーなら期間を二分割して再帰的に実行。
-    成功したDataFrameのリスト（時系列順）を返す。
-    """
     try:
         q = query_builder(start, end)
+        if "{start_time}" in q or "{end_time}" in q or "{vehicle_id}" in q:
+            raise RuntimeError("SQL placeholder remained: " + q[:500])
         df = client.sql(q, context=context)
         return [df]
     except Exception as ex:
@@ -152,23 +99,19 @@ def _concat_make_cum_dist_continuous(
     dfs: list[pd.DataFrame],
     cum_col: str = "cum_dist_km",
 ) -> pd.DataFrame:
-    """
-    各dfのcum_dist_kmがチャンク内で0起算になる前提で、
-    前チャンク末尾のmaxをoffsetとして加算し、全体で連続化してconcatする。
-    """
     out: list[pd.DataFrame] = []
     offset = 0.0
 
     for df in dfs:
         if df is None or df.empty:
             continue
+        if cum_col not in df.columns:
+            out.append(df.copy())
+            continue
 
         d = df.copy()
-
-        if cum_col in d.columns:
-            d[cum_col] = pd.to_numeric(d[cum_col], errors="coerce").fillna(0.0) + offset
-            offset = float(d[cum_col].max()) if len(d) > 0 else offset
-
+        d[cum_col] = pd.to_numeric(d[cum_col], errors="coerce").fillna(0.0) + offset
+        offset = float(d[cum_col].max()) if len(d) > 0 else offset
         out.append(d)
 
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
@@ -181,15 +124,13 @@ def _aggregate_hist_bins(dfs: list[pd.DataFrame], cnt_col: str = "cnt") -> pd.Da
     if not dfs:
         return pd.DataFrame()
 
-    parts: list[pd.DataFrame] = []
+    parts = []
     for df in dfs:
         if df is None or df.empty:
             continue
-
         needed = {"bin_start", "bin_end", cnt_col}
         if not needed.issubset(df.columns):
             continue
-
         d = df[["bin_start", "bin_end", cnt_col]].copy()
         d[cnt_col] = pd.to_numeric(d[cnt_col], errors="coerce").fillna(0.0)
         parts.append(d)
@@ -229,23 +170,16 @@ def fetch_chunk_data(
     min_split_minutes: int = 10,
     thr_lat: float = 0.2,
     thr_acc: float = 1.0,
-    # ★追加：距離算出モード（latlon がデフォルト）
     dist_mode: DistanceMode = "latlon",
+    excludes: Sequence[ExcludeRange] = (),
 ) -> ChunkData:
     """
-    1チャンク(cs,ce)のデータ取得。
-    - Query1/2/3 を実行
-    - ResourceLimit系に当たったら自動で時間を細分化して再実行
-    - Query1/2 は cum_dist_km を連続化して concat
-    - Query3 は分割結果をbinで合算して ratio を算出し、auto/manualをマージ
-    - dist_mode:
-        - "latlon": 1秒 lat/lon の Haversine
-        - "speed" : 1秒 avg_speed の積分（近似）
+    - excludes: [start,end) の除外時間帯（複数OK）
+      -> SQL側に入れて “完全除外（距離も含めて）” を実現
     """
-
     ctx = {"maxSubqueryBytes": "auto"}
 
-    # ---- Query1（adaptive split + cum_dist連続化） ----
+    # ---- Query1 ----
     def q1_builder(s: datetime, e: datetime) -> str:
         return build_query1(
             vehicle_id=vehicle_id,
@@ -253,6 +187,7 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             thr_lat=float(thr_lat),
             dist_mode=dist_mode,
+            excludes=excludes,
         )
 
     q1_dfs = _run_sql_adaptive_split(
@@ -265,7 +200,7 @@ def fetch_chunk_data(
     )
     df1 = _concat_make_cum_dist_continuous(q1_dfs, cum_col="cum_dist_km")
 
-    # ---- Query2（adaptive split + cum_dist連続化） ----
+    # ---- Query2 ----
     def q2_builder(s: datetime, e: datetime) -> str:
         return build_query2(
             vehicle_id=vehicle_id,
@@ -273,6 +208,7 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             thr_acc=float(thr_acc),
             dist_mode=dist_mode,
+            excludes=excludes,
         )
 
     q2_dfs = _run_sql_adaptive_split(
@@ -292,6 +228,7 @@ def fetch_chunk_data(
             start_time=s.isoformat(),
             end_time=e.isoformat(),
             state_condition="s.system_state = 4",
+            excludes=excludes,
         )
 
     def q3_manual_builder(s: datetime, e: datetime) -> str:
@@ -300,6 +237,7 @@ def fetch_chunk_data(
             start_time=s.isoformat(),
             end_time=e.isoformat(),
             state_condition="s.system_state <> 4",
+            excludes=excludes,
         )
 
     q3_auto_dfs = _run_sql_adaptive_split(

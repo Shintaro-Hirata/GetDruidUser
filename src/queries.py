@@ -1,15 +1,48 @@
 # src/queries.py
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Iterable, Literal, Sequence
 
 
 # ============================================================
 # 距離CTE生成
 # ============================================================
 
-# ★ UI/RunConfig 側の値に合わせる（"latlon" / "speed"）
+# UI/RunConfig 側の値に合わせる（"latlon" / "speed"）
 DistanceMode = Literal["latlon", "speed"]
+
+
+@dataclass(frozen=True)
+class ExcludeRange:
+    start: datetime
+    end: datetime
+
+
+def _build_exclude_or_clause(
+    *,
+    excludes: Sequence[ExcludeRange],
+    time_expr: str,
+) -> str:
+    """
+    例:
+      AND NOT (
+        (__time >= '...' AND __time < '...') OR
+        (__time >= '...' AND __time < '...')
+      )
+    """
+    if not excludes:
+        return ""
+
+    parts = []
+    for r in excludes:
+        s = r.start.isoformat()
+        e = r.end.isoformat()
+        parts.append(f"({time_expr} >= '{s}' AND {time_expr} < '{e}')")
+
+    inner = " OR ".join(parts)
+    return f"\n    AND NOT ({inner})"
 
 
 def make_distance_cte_latlon(
@@ -18,13 +51,10 @@ def make_distance_cte_latlon(
     lat_col: str = "#latitude",
     lon_col: str = "#longitude",
     earth_radius_m: float = 6_371_000.0,
+    exclude_sql: str = "",
 ) -> str:
-    # ★ f-stringを使わず、{vehicle_id}などは「後段format用の穴」として残す
-    return r"""
-/* =========================
-   距離計算（1秒 lat/lon → Haversine → cum_dist_km）
-   mode=latlon
-   ========================= */
+    return f"""
+/* distance mode=latlon */
 pos_1s AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
@@ -34,6 +64,7 @@ pos_1s AS (
   WHERE "#vehicle_id" = '{{vehicle_id}}'
     AND __time >= '{{start_time}}'
     AND __time <  '{{end_time}}'
+    {exclude_sql}
   GROUP BY FLOOR(__time TO SECOND)
 ),
 
@@ -70,24 +101,17 @@ cum AS (
     SUM(delta_m) OVER (ORDER BY sec_time) / 1000.0 AS cum_dist_km
   FROM dist_1s
 )
-""".format(
-        src_table=src_table,
-        lat_col=lat_col,
-        lon_col=lon_col,
-        earth_radius_m=earth_radius_m,
-    ).strip()
+""".strip()
 
 
 def make_distance_cte_speed(
     *,
     speed_table: str = "t2_localization_compositor_pose",
     speed_col: str = ".pose.poslv_speed",
+    exclude_sql: str = "", 
 ) -> str:
-    return r"""
-/* =========================
-   距離計算（1秒 avg_speed → cum_dist_km）
-   mode=speed
-   ========================= */
+    return f"""
+/* distance mode=speed (1s) */
 speed_1s AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
@@ -96,6 +120,7 @@ speed_1s AS (
   WHERE "#vehicle_id" = '{{vehicle_id}}'
     AND __time >= '{{start_time}}'
     AND __time <  '{{end_time}}'
+    {exclude_sql}
   GROUP BY FLOOR(__time TO SECOND)
 ),
 
@@ -112,50 +137,54 @@ cum AS (
     SUM(delta_m) OVER (ORDER BY sec_time) / 1000.0 AS cum_dist_km
   FROM dist_1s
 )
-""".format(
-        speed_table=speed_table,
-        speed_col=speed_col,
-    ).strip()
+""".strip()
 
 
-
-def pick_distance_cte(*, dist_mode: DistanceMode) -> str:
+def pick_distance_cte(
+    *,
+    dist_mode: DistanceMode,
+    excludes: Sequence[ExcludeRange],
+) -> str:
     """
     distance_cte を mode に応じて返す。
-    QUERY1/2 には {distance_cte} として埋め込まれる想定。
+    - どちらも cum(sec_time, cum_dist_km) を返す
+    - excludes を距離算出にも反映して “完全除外” を保証
     """
+    exclude_sql = _build_exclude_or_clause(excludes=excludes, time_expr="__time").strip()
+    if exclude_sql:
+        exclude_sql = "\n    " + exclude_sql.strip()
+
     if dist_mode == "latlon":
         return make_distance_cte_latlon(
             src_table="t2_control_debug",
             lat_col="#latitude",
             lon_col="#longitude",
             earth_radius_m=6_371_000.0,
+            exclude_sql=exclude_sql,
         )
     if dist_mode == "speed":
         return make_distance_cte_speed(
             speed_table="t2_localization_compositor_pose",
             speed_col=".pose.poslv_speed",
+            exclude_sql=exclude_sql,
         )
-    # Literal なので通常来ないが保険
     raise ValueError(f"Unknown dist_mode: {dist_mode}")
 
 
 # ============================================================
-# Query テンプレ（distance_cte を差し込む）
-# - ★距離は必ず sec_time JOIN に統一（latlon / speed とも cum は sec_time）
+# Query テンプレ
+# - 距離は sec_time JOIN に統一（latlon / speed とも cum は sec_time）
+# - 除外条件は各テーブル参照に挿入できるよう {exclude_xxx} を用意
 # ============================================================
 
 QUERY1_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
-
     "#latitude"  AS latitude,
     "#longitude" AS longitude,
-
     ".debug_for_mcap.lateral_error" AS lateral_error,
     ABS(".debug_for_mcap.lateral_error") AS abs_lateral_error,
-
     ROW_NUMBER() OVER (
       PARTITION BY FLOOR(__time TO SECOND)
       ORDER BY ABS(".debug_for_mcap.lateral_error") DESC
@@ -164,16 +193,13 @@ WITH per_sec AS (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
+    {exclude_ctrl}
     AND ABS(".debug_for_mcap.lateral_error") >= {thr_lat}
 ),
 
 sec_pick AS (
   SELECT
-    sec_time,
-    latitude,
-    longitude,
-    lateral_error,
-    abs_lateral_error
+    sec_time, latitude, longitude, lateral_error, abs_lateral_error
   FROM per_sec
   WHERE rn = 1
 ),
@@ -186,17 +212,15 @@ state_per_sec AS (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
+    {exclude_state}
   GROUP BY FLOOR(__time TO SECOND)
 ),
 
 filtered AS (
   SELECT
     TIME_FLOOR(p.sec_time, 'PT1M') AS win_1m,
-    p.sec_time,
-    p.latitude,
-    p.longitude,
-    p.lateral_error,
-    p.abs_lateral_error
+    p.sec_time, p.latitude, p.longitude,
+    p.lateral_error, p.abs_lateral_error
   FROM sec_pick p
   JOIN state_per_sec s
     ON p.sec_time = s.sec_time
@@ -205,12 +229,8 @@ filtered AS (
 
 ranked AS (
   SELECT
-    win_1m,
-    sec_time,
-    latitude,
-    longitude,
-    lateral_error,
-    abs_lateral_error,
+    win_1m, sec_time, latitude, longitude,
+    lateral_error, abs_lateral_error,
     ROW_NUMBER() OVER (
       PARTITION BY win_1m
       ORDER BY abs_lateral_error DESC
@@ -240,13 +260,10 @@ QUERY2_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
-
     "#latitude"  AS latitude,
     "#longitude" AS longitude,
-
     ".debug_for_mcap.acceleration" AS acceleration,
     ABS(".debug_for_mcap.acceleration") AS abs_acceleration,
-
     ROW_NUMBER() OVER (
       PARTITION BY FLOOR(__time TO SECOND)
       ORDER BY ABS(".debug_for_mcap.acceleration") DESC
@@ -255,16 +272,13 @@ WITH per_sec AS (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
+    {exclude_ctrl}
     AND ABS(".debug_for_mcap.acceleration") >= {thr_acc}
 ),
 
 sec_pick AS (
   SELECT
-    sec_time,
-    latitude,
-    longitude,
-    acceleration,
-    abs_acceleration
+    sec_time, latitude, longitude, acceleration, abs_acceleration
   FROM per_sec
   WHERE rn = 1
 ),
@@ -277,17 +291,15 @@ state_per_sec AS (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
+    {exclude_state}
   GROUP BY FLOOR(__time TO SECOND)
 ),
 
 filtered AS (
   SELECT
     TIME_FLOOR(p.sec_time, 'PT1M') AS win_1m,
-    p.sec_time,
-    p.latitude,
-    p.longitude,
-    p.acceleration,
-    p.abs_acceleration
+    p.sec_time, p.latitude, p.longitude,
+    p.acceleration, p.abs_acceleration
   FROM sec_pick p
   JOIN state_per_sec s
     ON p.sec_time = s.sec_time
@@ -296,12 +308,8 @@ filtered AS (
 
 ranked AS (
   SELECT
-    win_1m,
-    sec_time,
-    latitude,
-    longitude,
-    acceleration,
-    abs_acceleration,
+    win_1m, sec_time, latitude, longitude,
+    acceleration, abs_acceleration,
     ROW_NUMBER() OVER (
       PARTITION BY win_1m
       ORDER BY abs_acceleration DESC
@@ -341,12 +349,14 @@ JOIN (
   WHERE "#vehicle_id" = '{vehicle_id}'
     AND __time >= '{start_time}'
     AND __time <  '{end_time}'
+    {exclude_state}
   GROUP BY FLOOR(__time TO SECOND)
 ) s
   ON FLOOR(p.__time TO SECOND) = s.sec_time
 WHERE p."#vehicle_id" = '{vehicle_id}'
   AND p.__time >= '{start_time}'
   AND p.__time <  '{end_time}'
+  {exclude_pose}
   AND {state_condition}
 GROUP BY 1, 2
 ORDER BY 1
@@ -354,8 +364,23 @@ ORDER BY 1
 
 
 # ============================================================
-# Build functions（呼び出し側はこれを使う）
+# Build functions（data_service から呼ぶ）
 # ============================================================
+
+def _build_excludes_for_templates(excludes: Sequence[ExcludeRange]) -> dict[str, str]:
+    """
+    テンプレの {exclude_xxx} に入れる文字列を作る。
+    - 先頭に改行 + AND... を含むか、空文字
+    """
+    ex_ctrl = _build_exclude_or_clause(excludes=excludes, time_expr="__time")
+    ex_state = _build_exclude_or_clause(excludes=excludes, time_expr="__time")
+    ex_pose = _build_exclude_or_clause(excludes=excludes, time_expr="p.__time")
+    return {
+        "exclude_ctrl": ex_ctrl,
+        "exclude_state": ex_state,
+        "exclude_pose": ex_pose,
+    }
+
 
 def build_query1(
     *,
@@ -364,17 +389,25 @@ def build_query1(
     end_time: str,
     thr_lat: float,
     dist_mode: DistanceMode = "latlon",
+    excludes: Sequence[ExcludeRange] = (),
 ) -> str:
-    distance_cte = pick_distance_cte(dist_mode=dist_mode)
+    ex = _build_excludes_for_templates(excludes)
 
-    # ★重要：distance_cte を “値” として渡さず、テンプレに埋め込んでから format する
-    tpl = QUERY1_TEMPLATE.replace("{distance_cte}", distance_cte)
+    # ★ CTEは “先に” vehicle_id/start/end を埋めて完成させる
+    distance_cte_tpl = pick_distance_cte(dist_mode=dist_mode, excludes=excludes)
+    distance_cte = distance_cte_tpl.format(
+        vehicle_id=vehicle_id,
+        start_time=start_time,
+        end_time=end_time,
+    )
 
-    return tpl.format(
+    return QUERY1_TEMPLATE.format(
         vehicle_id=vehicle_id,
         start_time=start_time,
         end_time=end_time,
         thr_lat=float(thr_lat),
+        distance_cte=distance_cte,
+        **ex,
     )
 
 
@@ -385,19 +418,26 @@ def build_query2(
     end_time: str,
     thr_acc: float,
     dist_mode: DistanceMode = "latlon",
+    excludes: Sequence[ExcludeRange] = (),
 ) -> str:
-    distance_cte = pick_distance_cte(dist_mode=dist_mode)
+    ex = _build_excludes_for_templates(excludes)
 
-    # ★重要：distance_cte を “値” として渡さず、テンプレに埋め込んでから format する
-    tpl = QUERY2_TEMPLATE.replace("{distance_cte}", distance_cte)
+    # ★ 同じく先にCTEを完成させる
+    distance_cte_tpl = pick_distance_cte(dist_mode=dist_mode, excludes=excludes)
+    distance_cte = distance_cte_tpl.format(
+        vehicle_id=vehicle_id,
+        start_time=start_time,
+        end_time=end_time,
+    )
 
-    return tpl.format(
+    return QUERY2_TEMPLATE.format(
         vehicle_id=vehicle_id,
         start_time=start_time,
         end_time=end_time,
         thr_acc=float(thr_acc),
+        distance_cte=distance_cte,
+        **ex,
     )
-
 
 
 def build_query3(
@@ -406,10 +446,13 @@ def build_query3(
     start_time: str,
     end_time: str,
     state_condition: str,
+    excludes: Sequence[ExcludeRange] = (),
 ) -> str:
+    ex = _build_excludes_for_templates(excludes)
     return QUERY3_TEMPLATE.format(
         vehicle_id=vehicle_id,
         start_time=start_time,
         end_time=end_time,
         state_condition=state_condition,
+        **ex,
     )

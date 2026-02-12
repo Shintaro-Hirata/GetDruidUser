@@ -35,6 +35,7 @@ class RunConfig:
     raise_on_error: bool = False
     max_workers: int = 1    # 並列実行数
     dist_mode: DistanceMode = "latlon"
+    exclude_ranges_text: str = ""
 
 @dataclass(frozen=True)
 class PipelineResults:

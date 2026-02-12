@@ -65,6 +65,22 @@ def render_sidebar() -> SidebarState:
             key="split_minutes",
             help="開始/終了入力を変更すると、自動で推奨値に戻ります。",
         )
+       
+        st.markdown("---")
+        st.subheader("除外時間帯（完全除外）")
+
+        st.caption("1行に1範囲で入力してください。形式：")
+        st.caption("  開始,終了")
+        st.caption("  開始 - 終了 でも可")
+        st.caption("例：2025-12-15T08:10:00+09:00, 2025-12-15T08:20:00+09:00")
+        st.caption("※この時間帯のデータは距離計算も含めて完全に除外されます")
+
+        st.text_area(
+            "除外時間帯（複数行）",
+            key="exclude_ranges_text",
+            height=120,
+        )
+        
 
         st.markdown("---")
         st.subheader("クエリ条件（再実行が必要）")
@@ -96,7 +112,7 @@ def render_sidebar() -> SidebarState:
         st.radio(
             "移動距離（cum_dist_km）の算出方式",
             options=["latlon", "speed"],
-            format_func=lambda v: "緯度・経度（Haversine）" if v == "latlon" else "速度平均（1分近似）",
+            format_func=lambda v: "緯度・経度（Haversine）" if v == "latlon" else "速度平均",
             key=SS_DIST_MODE,
             help="緯度・経度が欠損/異常な日がある場合は速度平均に切り替えてください（再実行が必要）。",
         )
