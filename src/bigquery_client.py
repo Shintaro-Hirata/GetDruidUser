@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Tuple, Union
 
 import pandas as pd
 
@@ -11,7 +11,7 @@ import pandas as pd
 try:
     from google.cloud import bigquery
     from google.api_core.exceptions import GoogleAPIError
-except Exception as _ex:
+except Exception:
     # import を遅延させるため、例外は実行時に発生させる
     bigquery = None  # type: ignore
     GoogleAPIError = Exception  # type: ignore
@@ -21,17 +21,6 @@ except Exception as _ex:
 class BigQueryClient:
     """
     BigQuery から SQL を実行して pandas.DataFrame を返す簡易クライアント。
-
-    既存の DruidClient と似たインターフェースを提供します:
-      - sql(query: str, context: Optional[dict] = None) -> pd.DataFrame
-      - clone() -> BigQueryClient
-      - close()
-
-    Notes:
-      - 認証は Google の Application Default Credentials (ADC) を使うのが簡単です。
-        例: `gcloud auth application-default login` もしくは環境変数
-              GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
-      - 依存: google-cloud-bigquery[pandas]
     """
     project: str
     timeout_sec: int = 120
@@ -45,38 +34,56 @@ class BigQueryClient:
                 "requirements に `google-cloud-bigquery[pandas]` を追加してインストールしてください."
             )
         kwargs = dict(self.client_kwargs or {})
-        # project を明示してクライアントを作る（ADC が使われるはず）
         kwargs.setdefault("project", self.project)
-        # bigquery.Client は内部的に接続を管理します
         self._client = bigquery.Client(**kwargs)
 
-    def sql(self, query: str, context: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    def sql(
+        self,
+        query: str,
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        create_bqstorage_client: bool = False,
+        job_config: Optional[Any] = None,
+        return_job: bool = False
+    ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Any]]:
         """
         SQL を実行して pandas.DataFrame を返す。
-        - context 引数は Druid 側互換のために残してありますが、BigQuery固有のオプションがあれば
-          client_kwargs で渡すかこのメソッドを拡張してください。
+
+        - create_bqstorage_client: True にすると BigQuery Storage API を使って高速に DataFrame を取得します（追加依存が必要）。
+        - job_config: google.cloud.bigquery.QueryJobConfig 相当のオブジェクト（型注釈は Any）。
+        - return_job: True の場合、(DataFrame, QueryJob) を返します（QueryJob の型は Any）。
         """
         try:
-            # BigQuery の query ジョブを投げる
-            job = self._client.query(query)
-            # 結果を待つ（timeout を指定）
+            # job_config をそのまま渡します（呼び出し側で QueryJobConfig を構築してください）
+            job = self._client.query(query, job_config=job_config)
             res = job.result(timeout=self.timeout_sec)
-            # to_dataframe() を使って pandas DataFrame を得る
-            # create_bqstorage_client を True にすると高速化できるが、追加依存が必要になる。
-            df = res.to_dataframe(create_bqstorage_client=False)
+            df = res.to_dataframe(create_bqstorage_client=create_bqstorage_client)
+            if return_job:
+                return df, job
             return df
         except GoogleAPIError as ex:
-            # Google API のエラーメッセージを拾って RuntimeError に包む
             body = getattr(ex, "message", str(ex))
             raise RuntimeError(f"{ex} | body={body}") from ex
         except Exception as ex:
-            # その他の例外も RuntimeError に変換しておく（既存 DruidClient と同様の扱い）
             raise RuntimeError(f"{ex}") from ex
+
+    def dry_run_query(self, query: str, use_query_cache: bool = False) -> int:
+        """
+        Dry-run を実行してクエリが処理する予定のバイト数を返す（課金確認用）。
+        """
+        try:
+            # bigquery が None でなければ QueryJobConfig を使って dry_run を行う
+            if bigquery is None:
+                raise RuntimeError("google-cloud-bigquery が利用できません（dry-run を実行できません）")
+            job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=use_query_cache)
+            job = self._client.query(query, job_config=job_config)
+            return int(getattr(job, "total_bytes_processed", 0))
+        except Exception as ex:
+            raise RuntimeError(f"Dry-run failed: {ex}") from ex
 
     def clone(self) -> "BigQueryClient":
         """
         スレッドごとに別インスタンスを作るための clone。
-        client_kwargs を渡している場合はそれを再利用します。
         """
         return BigQueryClient(project=self.project, timeout_sec=self.timeout_sec, client_kwargs=self.client_kwargs)
 
@@ -85,9 +92,7 @@ class BigQueryClient:
         BigQuery のクライアントをクローズ（存在すれば）。
         """
         try:
-            # google-cloud-bigquery の Client は .close() を提供している（バージョンによる）
             if hasattr(self, "_client") and getattr(self._client, "close", None):
                 self._client.close()  # type: ignore[call-arg]
         except Exception:
-            # クローズで例外は投げない
             pass
