@@ -8,8 +8,8 @@ from typing import Optional
 import pandas as pd
 
 # Backends
-from src.bigquery_compat import BigQueryDruidClient
-from src.druid_client import DruidClient
+from src.clients.adapter import BigQueryDruidClient
+from src.clients.druid import DruidClient
 
 # SQL templates
 QUERY1 = """

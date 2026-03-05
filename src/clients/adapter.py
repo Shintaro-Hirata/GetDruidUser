@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional, Dict, Any
 import pandas as pd
-from .bigquery_client import BigQueryClient
+from .bigquery import BigQueryClient
 
 class BigQueryDruidClient:
     """

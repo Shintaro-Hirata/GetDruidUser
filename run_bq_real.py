@@ -1,5 +1,5 @@
 # run_bq_real.py
-from src.bigquery_client import BigQueryClient
+from src.clients.bigquery import BigQueryClient
 import pandas as pd
 
 client = BigQueryClient(project="t2-integration", timeout_sec=120)

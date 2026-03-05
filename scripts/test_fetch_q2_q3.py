@@ -1,5 +1,5 @@
 # test_fetch_q2_q3.py
-from src.bigquery_client import BigQueryClient
+from src.clients.bigquery import BigQueryClient
 import pandas as pd
 
 QUERY2 = """

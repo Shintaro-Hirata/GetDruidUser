@@ -1,5 +1,5 @@
 # smoke_test.py
-from src.bigquery_client import BigQueryClient
+from src.clients.bigquery import BigQueryClient
 
 client = BigQueryClient(project="t2-integration", timeout_sec=30)
 try:
