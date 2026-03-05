@@ -4,7 +4,7 @@ from typing import Callable, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-from src.druid_client import DruidClient
+from src.clients.druid import DruidClient
 from src.time_ranges import split_range
 from src.data_service import fetch_chunk_data
 from src.compare import collect_compare_series_from_excel_sheets

@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-from src.druid_client import DruidClient
+from src.clients.druid import DruidClient
 from src.export_excel import to_excel_bytes
 from src.time_ranges import parse_ranges
 

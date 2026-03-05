@@ -7,7 +7,7 @@ from typing import Callable, Optional, Any, Sequence
 
 import pandas as pd
 
-from src.druid_client import DruidClient
+from src.clients.druid import DruidClient
 from src.queries import build_query1, build_query2, build_query3, DistanceMode, ExcludeRange
 
 
