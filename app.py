@@ -116,6 +116,10 @@ if run:
         max_workers=2,  # まずは2並列
         dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")), 
         exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
+        data_source=ui.data_source,
+        bigquery_src_table=ui.bigquery_src_table,
+        bigquery_state_table=ui.bigquery_state_table,
+        bigquery_pose_table=ui.bigquery_pose_table,
     )
      
     # ★ Run中UI（進捗＋ログ）を外出し

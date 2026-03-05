@@ -81,6 +81,30 @@ def render_sidebar() -> SidebarState:
             height=120,
         )
         
+        st.markdown("---")
+        st.subheader("データソース（取得先）")
+        data_source = st.selectbox(
+            "取得先",
+            options=["druid", "bigquery"],
+            index=0,
+            help="Druid か BigQuery を選択。BigQuery を選ぶと下のテーブル指定が使われます。",
+        )
+
+        bigquery_src_table = st.text_input(
+            "BigQuery: src table (project.dataset.table)",
+            value=st.session_state.get("bigquery_src_table", "t2-integration.zero_plotter.t2_control_debug"),
+            help="Query1/2 で使う t2_control_debug の fully-qualified table 名",
+        )
+        bigquery_state_table = st.text_input(
+            "BigQuery: state table (project.dataset.table)",
+            value=st.session_state.get("bigquery_state_table", "t2-integration.zero_plotter.t2_system_state_manager_state"),
+            help="system_state のテーブル",
+        )
+        bigquery_pose_table = st.text_input(
+            "BigQuery: pose table (project.dataset.table)",
+            value=st.session_state.get("bigquery_pose_table", "t2-integration.zero_plotter.t2_positioning_driver_pose"),
+            help="Query3 で使う pose テーブル",
+        )
 
         st.markdown("---")
         st.subheader("クエリ条件（再実行が必要）")
@@ -271,5 +295,9 @@ def render_sidebar() -> SidebarState:
         ylim_q3=ylim_q3,
         thr_lat=float(thr_lat),
         thr_acc=float(thr_acc),
+        data_source=data_source,
+        bigquery_src_table=bigquery_src_table,
+        bigquery_state_table=bigquery_state_table,
+        bigquery_pose_table=bigquery_pose_table
     )
 

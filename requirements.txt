@@ -5,3 +5,4 @@ matplotlib
 openpyxl
 python-dateutil
 google-cloud-bigquery[pandas]
+google-cloud-bigquery[pandas]>=3.0.0

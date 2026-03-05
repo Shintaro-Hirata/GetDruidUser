@@ -126,6 +126,10 @@ def run_and_build_results(
                     thr_acc=float(config.thr_acc),
                     dist_mode=getattr(config, "dist_mode", "latlon"),
                     excludes=excludes,  # ★追加
+                    data_source=getattr(config, "data_source", "druid"),
+                    bigquery_src_table=getattr(config, "bigquery_src_table", None),
+                    bigquery_state_table=getattr(config, "bigquery_state_table", None),
+                    bigquery_pose_table=getattr(config, "bigquery_pose_table", None),
                 )
                 futures[fut] = (chunk_idx, cs, ce)
 

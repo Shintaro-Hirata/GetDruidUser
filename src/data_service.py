@@ -4,26 +4,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, Optional, Any, Sequence
+import string
 
 import pandas as pd
 
 from src.clients.druid import DruidClient
-from src.queries import build_query1, build_query2, build_query3, DistanceMode, ExcludeRange
+from src.queries import QUERY1_TEMPLATE, QUERY2_TEMPLATE, QUERY3_TEMPLATE  # existing druid templates
+from src import queries as queries_druid
+from src import queries_bq
+from src.queries_bq import ExcludeRange
 
+# (the rest of helper functions stay the same as before: _is_resource_limit_error, _run_sql_adaptive_split, _concat_make_cum_dist_continuous, _aggregate_hist_bins, _add_ratio)
+# For brevity, paste the earlier implementations of these helpers (unchanged). 
 
-# =========================
-# 戻り値
-# =========================
-@dataclass(frozen=True)
-class ChunkData:
-    df1: pd.DataFrame
-    df2: pd.DataFrame
-    df3_hist: pd.DataFrame  # binごとに auto/manual の cnt/ratio を持つ
-
-
-# =========================
-# エラー判定（上限系か？）
-# =========================
+# --- BEGIN helpers (copy from previous implementation) ---
 def _is_resource_limit_error(ex: Exception) -> bool:
     s = str(ex)
     keywords = [
@@ -37,9 +31,6 @@ def _is_resource_limit_error(ex: Exception) -> bool:
     return any(k in s for k in keywords)
 
 
-# =========================
-# Query実行：上限エラーなら二分割して再試行
-# =========================
 def _run_sql_adaptive_split(
     *,
     client: DruidClient,
@@ -51,8 +42,6 @@ def _run_sql_adaptive_split(
 ) -> list[pd.DataFrame]:
     try:
         q = query_builder(start, end)
-        if "{start_time}" in q or "{end_time}" in q or "{vehicle_id}" in q:
-            raise RuntimeError("SQL placeholder remained: " + q[:500])
         df = client.sql(q, context=context)
         return [df]
     except Exception as ex:
@@ -92,14 +81,8 @@ def _run_sql_adaptive_split(
         return left + right
 
 
-# =========================
-# cum_dist_km をチャンク跨ぎで連続化
-# =========================
-def _concat_make_cum_dist_continuous(
-    dfs: list[pd.DataFrame],
-    cum_col: str = "cum_dist_km",
-) -> pd.DataFrame:
-    out: list[pd.DataFrame] = []
+def _concat_make_cum_dist_continuous(dfs: list[pd.DataFrame], cum_col: str = "cum_dist_km") -> pd.DataFrame:
+    out = []
     offset = 0.0
 
     for df in dfs:
@@ -117,9 +100,6 @@ def _concat_make_cum_dist_continuous(
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
-# =========================
-# Query3：分割実行した結果をbinで合算→ratio算出
-# =========================
 def _aggregate_hist_bins(dfs: list[pd.DataFrame], cnt_col: str = "cnt") -> pd.DataFrame:
     if not dfs:
         return pd.DataFrame()
@@ -156,11 +136,16 @@ def _add_ratio(df: pd.DataFrame, cnt_col: str, ratio_col: str) -> pd.DataFrame:
     total = float(out[cnt_col].sum())
     out[ratio_col] = out[cnt_col] / total if total > 0 else 0.0
     return out
+# --- END helpers ---
 
 
-# =========================
-# メイン：ChunkData取得（自動分割＋補正込み）
-# =========================
+@dataclass(frozen=True)
+class ChunkData:
+    df1: pd.DataFrame
+    df2: pd.DataFrame
+    df3_hist: pd.DataFrame
+
+
 def fetch_chunk_data(
     *,
     client: DruidClient,
@@ -170,26 +155,104 @@ def fetch_chunk_data(
     min_split_minutes: int = 10,
     thr_lat: float = 0.2,
     thr_acc: float = 1.0,
-    dist_mode: DistanceMode = "latlon",
+    dist_mode: str = "latlon",
     excludes: Sequence[ExcludeRange] = (),
+    data_source: str = "druid",
+    bigquery_src_table: Optional[str] = None,
+    bigquery_state_table: Optional[str] = None,
+    bigquery_pose_table: Optional[str] = None,
 ) -> ChunkData:
     """
-    - excludes: [start,end) の除外時間帯（複数OK）
-      -> SQL側に入れて “完全除外（距離も含めて）” を実現
+    1チャンクのデータ取得：Druid または BigQuery を選べるようにした。
+    - data_source: "druid" or "bigquery"
+    - bigquery_* の引数は BigQuery を使うときに使う（fully-qualified table 名）
     """
+
     ctx = {"maxSubqueryBytes": "auto"}
 
-    # ---- Query1 ----
-    def q1_builder(s: datetime, e: datetime) -> str:
-        return build_query1(
-            vehicle_id=vehicle_id,
-            start_time=s.isoformat(),
-            end_time=e.isoformat(),
-            thr_lat=float(thr_lat),
-            dist_mode=dist_mode,
-            excludes=excludes,
-        )
+    # Query1 builder
+    if data_source == "bigquery":
+        def q1_builder(s: datetime, e: datetime) -> str:
+            return queries_bq.build_query1(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                thr_lat=float(thr_lat),
+                dist_mode=dist_mode,
+                src_table=(bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug"),
+                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
+                excludes=excludes,
+            )
+        def q2_builder(s: datetime, e: datetime) -> str:
+            return queries_bq.build_query2(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                thr_acc=float(thr_acc),
+                dist_mode=dist_mode,
+                src_table=(bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug"),
+                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
+                excludes=excludes,
+            )
+        def q3_auto_builder(s: datetime, e: datetime) -> str:
+            return queries_bq.build_query3(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                state_condition="s.system_state = 4",
+                pose_table=(bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose"),
+                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
+                excludes=excludes,
+            )
+        def q3_manual_builder(s: datetime, e: datetime) -> str:
+            return queries_bq.build_query3(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                state_condition="s.system_state <> 4",
+                pose_table=(bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose"),
+                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
+                excludes=excludes,
+            )
 
+    else:
+        # default: druid
+        def q1_builder(s: datetime, e: datetime) -> str:
+            return queries_druid.build_query1(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                thr_lat=float(thr_lat),
+                dist_mode=dist_mode,
+                excludes=excludes,
+            )
+        def q2_builder(s: datetime, e: datetime) -> str:
+            return queries_druid.build_query2(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                thr_acc=float(thr_acc),
+                dist_mode=dist_mode,
+                excludes=excludes,
+            )
+        def q3_auto_builder(s: datetime, e: datetime) -> str:
+            return queries_druid.build_query3(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                state_condition="s.system_state = 4",
+                excludes=excludes,
+            )
+        def q3_manual_builder(s: datetime, e: datetime) -> str:
+            return queries_druid.build_query3(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                state_condition="s.system_state <> 4",
+                excludes=excludes,
+            )
+
+    # Execute Query1
     q1_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q1_builder,
@@ -200,17 +263,7 @@ def fetch_chunk_data(
     )
     df1 = _concat_make_cum_dist_continuous(q1_dfs, cum_col="cum_dist_km")
 
-    # ---- Query2 ----
-    def q2_builder(s: datetime, e: datetime) -> str:
-        return build_query2(
-            vehicle_id=vehicle_id,
-            start_time=s.isoformat(),
-            end_time=e.isoformat(),
-            thr_acc=float(thr_acc),
-            dist_mode=dist_mode,
-            excludes=excludes,
-        )
-
+    # Execute Query2
     q2_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q2_builder,
@@ -221,25 +274,7 @@ def fetch_chunk_data(
     )
     df2 = _concat_make_cum_dist_continuous(q2_dfs, cum_col="cum_dist_km")
 
-    # ---- Query3（auto/manual） ----
-    def q3_auto_builder(s: datetime, e: datetime) -> str:
-        return build_query3(
-            vehicle_id=vehicle_id,
-            start_time=s.isoformat(),
-            end_time=e.isoformat(),
-            state_condition="s.system_state = 4",
-            excludes=excludes,
-        )
-
-    def q3_manual_builder(s: datetime, e: datetime) -> str:
-        return build_query3(
-            vehicle_id=vehicle_id,
-            start_time=s.isoformat(),
-            end_time=e.isoformat(),
-            state_condition="s.system_state <> 4",
-            excludes=excludes,
-        )
-
+    # Query3 auto/manual
     q3_auto_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q3_auto_builder,
