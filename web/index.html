@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>GetDruidUser — BigQuery quick UI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+  <div id="container">
+    <aside id="sidebar">
+      <h2>設定</h2>
+      <label>vehicle_id:<br/><input id="vehicle_id" value="giga07"></label>
+      <label>start_ts:<br/><input id="start_ts" value="2026-02-19T11:06:01+09:00"></label>
+      <label>end_ts:<br/><input id="end_ts" value="2026-02-19T11:06:03+09:00"></label>
+      <label>limit:<br/><input id="limit" value="200" type="number"></label>
+      <div style="margin-top:10px;">
+        <button id="btnScatter">Fetch Scatter</button>
+        <button id="btnHist">Fetch Hist</button>
+      </div>
+      <div id="meta_box" style="margin-top:16px;">
+        <strong>Matched:</strong> <span id="matched">-</span>
+      </div>
+      <div style="margin-top:18px; font-size:0.9em; color:#666;">
+        <p>Backend: <select id="backend"><option value="bigquery">bigquery</option><option value="druid">druid</option></select></p>
+        <p>Project: <input id="project" value="t2-integration"></p>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header><h1>GetDruidUser — BigQuery quick UI</h1></header>
+
+      <section class="row">
+        <div id="scatter" class="plot wide"></div>
+        <div id="hist" class="plot narrow"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
