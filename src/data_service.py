@@ -4,20 +4,80 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, Optional, Any, Sequence
-import string
 
 import pandas as pd
+import string
+import logging
 
 from src.clients.druid import DruidClient
-from src.queries import QUERY1_TEMPLATE, QUERY2_TEMPLATE, QUERY3_TEMPLATE  # existing druid templates
-from src import queries as queries_druid
-from src import queries_bq
-from src.queries_bq import ExcludeRange
+from src.queries import (
+    build_query1,
+    build_query2,
+    build_query3,
+    DistanceMode,
+    ExcludeRange,
+)
 
-# (the rest of helper functions stay the same as before: _is_resource_limit_error, _run_sql_adaptive_split, _concat_make_cum_dist_continuous, _aggregate_hist_bins, _add_ratio)
-# For brevity, paste the earlier implementations of these helpers (unchanged). 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# --- BEGIN helpers (copy from previous implementation) ---
+
+# =========================
+# 戻り値
+# =========================
+@dataclass(frozen=True)
+class ChunkData:
+    df1: pd.DataFrame
+    df2: pd.DataFrame
+    df3_hist: pd.DataFrame  # binごとに auto/manual の cnt/ratio を持つ
+
+
+# =========================
+# SQLテンプレ検査ユーティリティ（残してOK）
+# =========================
+def build_query(
+    tpl: str,
+    vehicle_id: str,
+    start: datetime,
+    end: datetime,
+    **kwargs,
+) -> str:
+    values = dict(
+        vehicle_id=vehicle_id,
+        start_time=start.isoformat(),
+        end_time=end.isoformat(),
+        **kwargs,
+    )
+
+    required = _required_format_keys(tpl)
+    missing = sorted(k for k in required if k not in values)
+
+    if missing:
+        raise ValueError(
+            "build_query(): SQLテンプレの format キーが不足しています: "
+            f"{missing}. 渡されたキー={sorted(values.keys())}"
+        )
+
+    try:
+        return tpl.format(**values)
+    except KeyError as ex:
+        raise ValueError(f"build_query(): SQLテンプレ format 失敗: missing={ex}") from ex
+
+
+def _required_format_keys(tpl: str) -> set[str]:
+    keys: set[str] = set()
+    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(tpl):
+        if not field_name:
+            continue
+        base = field_name.split(".")[0].split("[")[0]
+        if base:
+            keys.add(base)
+    return keys
+
+
+# =========================
+# エラー判定（上限系か？）
+# =========================
 def _is_resource_limit_error(ex: Exception) -> bool:
     s = str(ex)
     keywords = [
@@ -31,6 +91,9 @@ def _is_resource_limit_error(ex: Exception) -> bool:
     return any(k in s for k in keywords)
 
 
+# =========================
+# Query実行：上限エラーなら二分割して再試行
+# =========================
 def _run_sql_adaptive_split(
     *,
     client: DruidClient,
@@ -45,6 +108,7 @@ def _run_sql_adaptive_split(
         df = client.sql(q, context=context)
         return [df]
     except Exception as ex:
+        # 上限系以外はそのまま投げる
         if not _is_resource_limit_error(ex):
             raise
 
@@ -81,7 +145,13 @@ def _run_sql_adaptive_split(
         return left + right
 
 
-def _concat_make_cum_dist_continuous(dfs: list[pd.DataFrame], cum_col: str = "cum_dist_km") -> pd.DataFrame:
+# =========================
+# cum_dist_km をチャンク跨ぎで連続化
+# =========================
+def _concat_make_cum_dist_continuous(
+    dfs: list[pd.DataFrame],
+    cum_col: str = "cum_dist_km",
+) -> pd.DataFrame:
     out = []
     offset = 0.0
 
@@ -100,9 +170,15 @@ def _concat_make_cum_dist_continuous(dfs: list[pd.DataFrame], cum_col: str = "cu
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
+# =========================
+# Query3：分割実行した結果をbinで合算→ratio算出
+# - 空でも想定列を持つ DataFrame を返す（堅牢化）
+# =========================
 def _aggregate_hist_bins(dfs: list[pd.DataFrame], cnt_col: str = "cnt") -> pd.DataFrame:
+    expected_cols = ["bin_start", "bin_end", cnt_col]
+
     if not dfs:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=expected_cols)
 
     parts = []
     for df in dfs:
@@ -110,13 +186,14 @@ def _aggregate_hist_bins(dfs: list[pd.DataFrame], cnt_col: str = "cnt") -> pd.Da
             continue
         needed = {"bin_start", "bin_end", cnt_col}
         if not needed.issubset(df.columns):
+            logger.debug("Query3 part missing expected cols, skipping: %s", df.columns.tolist())
             continue
         d = df[["bin_start", "bin_end", cnt_col]].copy()
         d[cnt_col] = pd.to_numeric(d[cnt_col], errors="coerce").fillna(0.0)
         parts.append(d)
 
     if not parts:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=expected_cols)
 
     all_df = pd.concat(parts, ignore_index=True)
     agg = (
@@ -129,23 +206,25 @@ def _aggregate_hist_bins(dfs: list[pd.DataFrame], cnt_col: str = "cnt") -> pd.Da
 
 
 def _add_ratio(df: pd.DataFrame, cnt_col: str, ratio_col: str) -> pd.DataFrame:
-    if df is None or df.empty or cnt_col not in df.columns:
-        return df.copy() if df is not None else pd.DataFrame()
+    if df is None:
+        return pd.DataFrame(columns=[cnt_col, ratio_col])
 
     out = df.copy()
-    total = float(out[cnt_col].sum())
+
+    if cnt_col not in out.columns:
+        out[cnt_col] = 0.0
+
+    out[cnt_col] = pd.to_numeric(out[cnt_col], errors="coerce").fillna(0.0)
+
+    total = float(out[cnt_col].sum()) if len(out) > 0 else 0.0
     out[ratio_col] = out[cnt_col] / total if total > 0 else 0.0
     return out
-# --- END helpers ---
 
 
-@dataclass(frozen=True)
-class ChunkData:
-    df1: pd.DataFrame
-    df2: pd.DataFrame
-    df3_hist: pd.DataFrame
-
-
+# =========================
+# メイン：ChunkData取得（自動分割＋補正込み）
+# - ここで dist_mode/excludes/data_source/bigquery_* を受け取り、queries.build_queryX に渡す
+# =========================
 def fetch_chunk_data(
     *,
     client: DruidClient,
@@ -155,7 +234,7 @@ def fetch_chunk_data(
     min_split_minutes: int = 10,
     thr_lat: float = 0.2,
     thr_acc: float = 1.0,
-    dist_mode: str = "latlon",
+    dist_mode: DistanceMode = "latlon",
     excludes: Sequence[ExcludeRange] = (),
     data_source: str = "druid",
     bigquery_src_table: Optional[str] = None,
@@ -163,96 +242,39 @@ def fetch_chunk_data(
     bigquery_pose_table: Optional[str] = None,
 ) -> ChunkData:
     """
-    1チャンクのデータ取得：Druid または BigQuery を選べるようにした。
-    - data_source: "druid" or "bigquery"
-    - bigquery_* の引数は BigQuery を使うときに使う（fully-qualified table 名）
+    1チャンク(cs,ce)のデータ取得。
+    - Query1/2/3 を実行（build_query1/2/3 を使用）
+    - ResourceLimit系に当たったら自動で時間を細分化して再実行
+    - Query1/2 は cum_dist_km を連続化して concat
+    - Query3 は分割結果をbinで合算して ratio を算出し、auto/manualをマージ
+
+    BigQuery 関連の引数は将来の BigQuery 実行経路のためのプレースホルダです。
     """
+
+    logger.debug(
+        "fetch_chunk_data called: data_source=%s dist_mode=%s excludes=%s bigquery_src_table=%s bigquery_state_table=%s bigquery_pose_table=%s",
+        data_source,
+        dist_mode,
+        bool(excludes),
+        bigquery_src_table,
+        bigquery_state_table,
+        bigquery_pose_table,
+    )
 
     ctx = {"maxSubqueryBytes": "auto"}
 
-    # Query1 builder
-    if data_source == "bigquery":
-        def q1_builder(s: datetime, e: datetime) -> str:
-            return queries_bq.build_query1(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                thr_lat=float(thr_lat),
-                dist_mode=dist_mode,
-                src_table=(bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug"),
-                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
-                excludes=excludes,
-            )
-        def q2_builder(s: datetime, e: datetime) -> str:
-            return queries_bq.build_query2(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                thr_acc=float(thr_acc),
-                dist_mode=dist_mode,
-                src_table=(bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug"),
-                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
-                excludes=excludes,
-            )
-        def q3_auto_builder(s: datetime, e: datetime) -> str:
-            return queries_bq.build_query3(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                state_condition="s.system_state = 4",
-                pose_table=(bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose"),
-                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
-                excludes=excludes,
-            )
-        def q3_manual_builder(s: datetime, e: datetime) -> str:
-            return queries_bq.build_query3(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                state_condition="s.system_state <> 4",
-                pose_table=(bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose"),
-                state_table=(bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state"),
-                excludes=excludes,
-            )
+    # ---- Query1（adaptive split + cum_dist連続化） ----
+    def q1_builder(s: datetime, e: datetime) -> str:
+        # 将来、data_source に応じて build_queryX のパラメータやテンプレを切り替える実装をここに入れる
+        return build_query1(
+            vehicle_id=vehicle_id,
+            start_time=s.isoformat(),
+            end_time=e.isoformat(),
+            thr_lat=float(thr_lat),
+            dist_mode=dist_mode,
+            excludes=excludes,
+        )
 
-    else:
-        # default: druid
-        def q1_builder(s: datetime, e: datetime) -> str:
-            return queries_druid.build_query1(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                thr_lat=float(thr_lat),
-                dist_mode=dist_mode,
-                excludes=excludes,
-            )
-        def q2_builder(s: datetime, e: datetime) -> str:
-            return queries_druid.build_query2(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                thr_acc=float(thr_acc),
-                dist_mode=dist_mode,
-                excludes=excludes,
-            )
-        def q3_auto_builder(s: datetime, e: datetime) -> str:
-            return queries_druid.build_query3(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                state_condition="s.system_state = 4",
-                excludes=excludes,
-            )
-        def q3_manual_builder(s: datetime, e: datetime) -> str:
-            return queries_druid.build_query3(
-                vehicle_id=vehicle_id,
-                start_time=s.isoformat(),
-                end_time=e.isoformat(),
-                state_condition="s.system_state <> 4",
-                excludes=excludes,
-            )
-
-    # Execute Query1
     q1_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q1_builder,
@@ -263,7 +285,17 @@ def fetch_chunk_data(
     )
     df1 = _concat_make_cum_dist_continuous(q1_dfs, cum_col="cum_dist_km")
 
-    # Execute Query2
+    # ---- Query2（adaptive split + cum_dist連続化） ----
+    def q2_builder(s: datetime, e: datetime) -> str:
+        return build_query2(
+            vehicle_id=vehicle_id,
+            start_time=s.isoformat(),
+            end_time=e.isoformat(),
+            thr_acc=float(thr_acc),
+            dist_mode=dist_mode,
+            excludes=excludes,
+        )
+
     q2_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q2_builder,
@@ -274,7 +306,25 @@ def fetch_chunk_data(
     )
     df2 = _concat_make_cum_dist_continuous(q2_dfs, cum_col="cum_dist_km")
 
-    # Query3 auto/manual
+    # ---- Query3（auto/manual） ----
+    def q3_auto_builder(s: datetime, e: datetime) -> str:
+        return build_query3(
+            vehicle_id=vehicle_id,
+            start_time=s.isoformat(),
+            end_time=e.isoformat(),
+            state_condition="s.system_state = 4",
+            excludes=excludes,
+        )
+
+    def q3_manual_builder(s: datetime, e: datetime) -> str:
+        return build_query3(
+            vehicle_id=vehicle_id,
+            start_time=s.isoformat(),
+            end_time=e.isoformat(),
+            state_condition="s.system_state <> 4",
+            excludes=excludes,
+        )
+
     q3_auto_dfs = _run_sql_adaptive_split(
         client=client,
         query_builder=q3_auto_builder,
@@ -298,9 +348,11 @@ def fetch_chunk_data(
     df3_auto = _add_ratio(df3_auto, cnt_col="cnt_auto", ratio_col="ratio_auto")
     df3_manual = _add_ratio(df3_manual, cnt_col="cnt_manual", ratio_col="ratio_manual")
 
+    # マージ（binで揃える）
     df3_hist = pd.merge(df3_auto, df3_manual, on=["bin_start", "bin_end"], how="outer")
     df3_hist = df3_hist.sort_values("bin_start").reset_index(drop=True)
 
+    # 欠損を0埋め
     for c in ["cnt_auto", "ratio_auto", "cnt_manual", "ratio_manual"]:
         if c not in df3_hist.columns:
             df3_hist[c] = 0.0
