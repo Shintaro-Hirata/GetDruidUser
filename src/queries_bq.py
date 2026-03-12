@@ -24,13 +24,16 @@ def _build_exclude_or_clause(
         s = r.start.isoformat()
         e = r.end.isoformat()
         # BigQuery: TIMESTAMP('...') を使う
-        parts.append(f"({time_expr} >= TIMESTAMP '{s}' AND {time_expr} < TIMESTAMP '{e}')")
+        parts.append(f"({time_expr} >= '{s}' AND {time_expr} < '{e}')")
     inner = " OR ".join(parts)
     return f"\n    AND NOT ({inner})"
 
 
 def make_distance_cte_latlon(
     *,
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     lat_col: str = "#latitude",
     lon_col: str = "#longitude",
@@ -52,9 +55,9 @@ pos_1s AS (
     ANY_VALUE(`{lat_col}`) AS lat,
     ANY_VALUE(`{lon_col}`) AS lon
   FROM `{src_table}`
-  WHERE `#vehicle_id` = '{{vehicle_id}}'
-    AND `#timestamp` >= TIMESTAMP '{{start_time}}'
-    AND `#timestamp` <  TIMESTAMP '{{end_time}}'
+  WHERE `#vehicle_id` = '{vehicle_id}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_sql}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -93,6 +96,9 @@ cum AS (
 
 def make_distance_cte_speed(
     *,
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
     speed_table: str = "t2-integration.zero_plotter.t2_localization_compositor_pose",
     speed_col: str = ":pose:poslv_speed",
     excludes: Sequence[ExcludeRange] = (),
@@ -108,9 +114,9 @@ speed_1s AS (
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
     AVG(`{speed_col}`) AS avg_speed_mps
   FROM `{speed_table}`
-  WHERE `#vehicle_id` = '{{vehicle_id}}'
-    AND `#timestamp` >= TIMESTAMP '{{start_time}}'
-    AND `#timestamp` <  TIMESTAMP '{{end_time}}'
+  WHERE `#vehicle_id` = '{vehicle_id}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_sql}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -131,11 +137,24 @@ cum AS (
 """.strip()
 
 
-def pick_distance_cte(*, dist_mode: str = "latlon", excludes: Sequence[ExcludeRange] = ()):
+def pick_distance_cte(
+    *,
+    dist_mode: str = "latlon",
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
+    excludes: Sequence[ExcludeRange] = (),
+):
     if dist_mode == "latlon":
-        return make_distance_cte_latlon(excludes=excludes)
+        return make_distance_cte_latlon(
+            vehicle_id=vehicle_id, start_time=start_time, end_time=end_time,
+            excludes=excludes,
+        )
     if dist_mode == "speed":
-        return make_distance_cte_speed(excludes=excludes)
+        return make_distance_cte_speed(
+            vehicle_id=vehicle_id, start_time=start_time, end_time=end_time,
+            excludes=excludes,
+        )
     raise ValueError("Unknown dist_mode: " + str(dist_mode))
 
 
@@ -156,8 +175,8 @@ WITH per_sec AS (
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP '{start_time}'
-    AND `#timestamp` <  TIMESTAMP '{end_time}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:lateral_error`) >= {thr_lat}
 ),
@@ -179,8 +198,8 @@ state_per_sec AS (
     MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP '{start_time}'
-    AND `#timestamp` <  TIMESTAMP '{end_time}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -246,8 +265,8 @@ WITH per_sec AS (
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP '{start_time}'
-    AND `#timestamp` <  TIMESTAMP '{end_time}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:acceleration`) >= {thr_acc}
 ),
@@ -269,8 +288,8 @@ state_per_sec AS (
     MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP '{start_time}'
-    AND `#timestamp` <  TIMESTAMP '{end_time}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -324,8 +343,8 @@ ORDER BY r.win_1m
 
 QUERY3_TEMPLATE = r"""
 SELECT
-  CAST(FLOOR(p.`:pose:linear_acceleration_vrf.y` / 0.2) * 0.2 AS FLOAT64) AS bin_start,
-  CAST(FLOOR(p.`:pose:linear_acceleration_vrf.y` / 0.2) * 0.2 + 0.2 AS FLOAT64) AS bin_end,
+  CAST(FLOOR(p.`:pose:linear_acceleration_vrf:y` / 0.2) * 0.2 AS FLOAT64) AS bin_start,
+  CAST(FLOOR(p.`:pose:linear_acceleration_vrf:y` / 0.2) * 0.2 + 0.2 AS FLOAT64) AS bin_end,
   COUNT(*) AS cnt
 FROM `{pose_table}` p
 JOIN (
@@ -334,15 +353,15 @@ JOIN (
     MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP '{start_time}'
-    AND `#timestamp` <  TIMESTAMP '{end_time}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ) s
   ON TIMESTAMP_TRUNC(p.`#timestamp`, SECOND) = s.sec_time
 WHERE p.`#vehicle_id` = '{vehicle_id}'
-  AND p.`#timestamp` >= TIMESTAMP '{start_time}'
-  AND p.`#timestamp` <  TIMESTAMP '{end_time}'
+  AND p.`#timestamp` >= '{start_time}'
+  AND p.`#timestamp` <  '{end_time}'
   {exclude_pose}
   AND {state_condition}
 GROUP BY 1, 2
@@ -372,7 +391,10 @@ def build_query1(
     excludes: Sequence[ExcludeRange] = (),
 ) -> str:
     ex = _build_excludes_for_templates(excludes)
-    distance_cte = pick_distance_cte(dist_mode=dist_mode, excludes=excludes)
+    distance_cte = pick_distance_cte(
+        dist_mode=dist_mode, vehicle_id=vehicle_id,
+        start_time=start_time, end_time=end_time, excludes=excludes,
+    )
     return QUERY1_TEMPLATE.format(
         vehicle_id=vehicle_id,
         start_time=start_time,
@@ -397,7 +419,10 @@ def build_query2(
     excludes: Sequence[ExcludeRange] = (),
 ) -> str:
     ex = _build_excludes_for_templates(excludes)
-    distance_cte = pick_distance_cte(dist_mode=dist_mode, excludes=excludes)
+    distance_cte = pick_distance_cte(
+        dist_mode=dist_mode, vehicle_id=vehicle_id,
+        start_time=start_time, end_time=end_time, excludes=excludes,
+    )
     return QUERY2_TEMPLATE.format(
         vehicle_id=vehicle_id,
         start_time=start_time,
