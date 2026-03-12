@@ -24,7 +24,7 @@ def _build_exclude_or_clause(
         s = r.start.isoformat()
         e = r.end.isoformat()
         # BigQuery: TIMESTAMP('...') を使う
-        parts.append(f"({time_expr} >= TIMESTAMP('{s}') AND {time_expr} < TIMESTAMP('{e}'))")
+        parts.append(f"({time_expr} >= '{s}' AND {time_expr} < '{e}')")
     inner = " OR ".join(parts)
     return f"\n    AND NOT ({inner})"
 
@@ -53,8 +53,8 @@ pos_1s AS (
     ANY_VALUE(`{lon_col}`) AS lon
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{{vehicle_id}}'
-    AND `#timestamp` >= TIMESTAMP('{{start_time}}')
-    AND `#timestamp` <  TIMESTAMP('{{end_time}}')
+    AND `#timestamp` >= '{{start_time}}'
+    AND `#timestamp` <  '{{end_time}}'
     {exclude_sql}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -109,8 +109,8 @@ speed_1s AS (
     AVG(`{speed_col}`) AS avg_speed_mps
   FROM `{speed_table}`
   WHERE `#vehicle_id` = '{{vehicle_id}}'
-    AND `#timestamp` >= TIMESTAMP('{{start_time}}')
-    AND `#timestamp` <  TIMESTAMP('{{end_time}}')
+    AND `#timestamp` >= '{{start_time}}'
+    AND `#timestamp` <  '{{end_time}}'
     {exclude_sql}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -156,8 +156,8 @@ WITH per_sec AS (
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:lateral_error`) >= {thr_lat}
 ),
@@ -179,8 +179,8 @@ state_per_sec AS (
     MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -246,8 +246,8 @@ WITH per_sec AS (
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:acceleration`) >= {thr_acc}
 ),
@@ -269,8 +269,8 @@ state_per_sec AS (
     MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -334,15 +334,15 @@ JOIN (
     MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ) s
   ON TIMESTAMP_TRUNC(p.`#timestamp`, SECOND) = s.sec_time
 WHERE p.`#vehicle_id` = '{vehicle_id}'
-  AND p.`#timestamp` >= TIMESTAMP('{start_time}')
-  AND p.`#timestamp` <  TIMESTAMP('{end_time}')
+  AND p.`#timestamp` >= '{start_time}'
+  AND p.`#timestamp` <  '{end_time}'
   {exclude_pose}
   AND {state_condition}
 GROUP BY 1, 2
