@@ -8,7 +8,7 @@ from datetime import datetime
 from src.clients.druid import DruidClient
 from src.clients.bigquery import BigQueryClient
 
-from src.time_ranges import split_range
+from src.time_ranges import split_range, parse_exclude_ranges
 from src.data_service import fetch_chunk_data
 from src.compare import collect_compare_series_from_excel_sheets
 from src.types import PipelineResults, RunConfig
@@ -54,6 +54,11 @@ def run_and_build_results(
     - fetch_chunk_data を並列実行
     - all_excel_sheets への格納と emit はメインスレッドで行う（競合回避）
     """
+    # 除外時間帯テキストをパース
+    excludes = parse_exclude_ranges(
+        getattr(config, "exclude_ranges_text", "") or ""
+    )
+
     all_excel_sheets: dict[str, pd.DataFrame] = {}
     compare_q1: list[tuple[str, pd.DataFrame]] = []
     compare_q2: list[tuple[str, pd.DataFrame]] = []
@@ -111,6 +116,7 @@ def run_and_build_results(
                     thr_lat=float(config.thr_lat),
                     thr_acc=float(config.thr_acc),
                     dist_mode=config.dist_mode,
+                    excludes=excludes,
                     data_source=config.data_source,
                     bigquery_src_table=config.bigquery_src_table,
                     bigquery_state_table=config.bigquery_state_table,

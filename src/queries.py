@@ -1,19 +1,14 @@
 # src/queries.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Literal, Sequence
 
 import src.queries_bq as bq
+from src.time_ranges import ExcludeRange
 
 # UI/RunConfig 側の値に合わせる（"latlon" / "speed"）
 DistanceMode = Literal["latlon", "speed"]
-
-@dataclass(frozen=True)
-class ExcludeRange:
-    start: datetime
-    end: datetime
 
 def _build_exclude_or_clause(
     *,
