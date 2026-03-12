@@ -22,6 +22,12 @@ def to_excel_bytes(sheets: Dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
         for name, df in sheets.items():
             safe = re.sub(r"[\[\]\:\*\?\/\\]", "_", name)[:31]
+            # Excel does not support timezone-aware datetimes
+            dt_cols = df.select_dtypes(include=["datetimetz"]).columns
+            if len(dt_cols) > 0:
+                df = df.copy()
+                for c in dt_cols:
+                    df[c] = df[c].dt.tz_localize(None)
             df.to_excel(writer, sheet_name=safe, index=False)
             _autosize_worksheet(writer.book[safe])
     return bio.getvalue()
