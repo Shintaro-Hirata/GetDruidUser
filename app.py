@@ -75,8 +75,7 @@ ui = render_sidebar()
 # ★ sidebar の確定値を見て client を作る
 if ui.data_source == "bigquery":
     client = BigQueryClient(
-        project="t2-integration",
-        default_dataset="zero_plotter",  # 現在使っているテーブルに合わせる
+        project=ui.bigquery_project or None,  # None の場合はデフォルト認証のプロジェクトを使用
     )
 else:
     client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
@@ -227,4 +226,3 @@ st.download_button(
     file_name="druid_results.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
-

@@ -55,6 +55,7 @@ class RunConfig:
 
     # ★ ここから追加：どのデータソースから取るか、BigQuery のテーブル名等
     data_source: DataSource = "druid"
+    bigquery_project: Optional[str] = None
     bigquery_src_table: Optional[str] = None
     bigquery_state_table: Optional[str] = None
     bigquery_pose_table: Optional[str] = None
