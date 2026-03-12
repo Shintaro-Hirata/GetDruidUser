@@ -33,6 +33,7 @@ class SidebarState:
 
     # --- ここから追加：データソース選択・BigQuery 設定（サイドバー入力で編集） ---
     data_source: DataSource = "druid"
+    bigquery_project: Optional[str] = None
     bigquery_src_table: Optional[str] = None
     bigquery_state_table: Optional[str] = None
     bigquery_pose_table: Optional[str] = None
