@@ -105,12 +105,23 @@ def _run_sql_adaptive_split(
 ) -> list[pd.DataFrame]:
     try:
         q = query_builder(start, end)
-        # デバッグ: 除外句が含まれているか確認
+        # デバッグ: 除外句が含まれているか確認 & SQLをファイルに出力
         if "AND NOT" in q:
             logger.info("SQL contains AND NOT clause (exclude active)")
         else:
             logger.info("SQL does NOT contain AND NOT clause (no exclude)")
         logger.debug("Generated SQL:\n%s", q)
+        # デバッグ用: SQL全文をファイルに追記
+        try:
+            import pathlib
+            debug_sql_path = pathlib.Path("debug_sql.log")
+            with debug_sql_path.open("a", encoding="utf-8") as f:
+                f.write(f"\n{'='*60}\n")
+                f.write(f"-- range: {start.isoformat()} ~ {end.isoformat()}\n")
+                f.write(q)
+                f.write("\n")
+        except Exception:
+            pass
         df = client.sql(q, context=context)
         return [df]
     except Exception as ex:

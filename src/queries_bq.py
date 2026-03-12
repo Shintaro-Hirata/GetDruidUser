@@ -18,8 +18,8 @@ def _build_exclude_or_clause(
     for r in excludes:
         s = r.start.isoformat()
         e = r.end.isoformat()
-        # BigQuery: TIMESTAMP('...') を使う
-        parts.append(f"({time_expr} >= '{s}' AND {time_expr} < '{e}')")
+        # BigQuery: TIMESTAMP() で明示的にキャスト
+        parts.append(f"({time_expr} >= TIMESTAMP('{s}') AND {time_expr} < TIMESTAMP('{e}'))")
     inner = " OR ".join(parts)
     return f"\n    AND NOT ({inner})"
 
