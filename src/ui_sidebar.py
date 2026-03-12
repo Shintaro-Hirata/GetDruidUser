@@ -314,4 +314,3 @@ def render_sidebar() -> SidebarState:
         bigquery_speed_table=bigquery_speed_table,
         exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
     )
-
