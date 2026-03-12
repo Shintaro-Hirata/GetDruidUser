@@ -1,15 +1,10 @@
 # src/queries_bq.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
 
-
-@dataclass(frozen=True)
-class ExcludeRange:
-    start: datetime
-    end: datetime
+from src.time_ranges import ExcludeRange
 
 
 def _build_exclude_or_clause(
