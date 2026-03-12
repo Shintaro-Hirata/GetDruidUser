@@ -240,6 +240,7 @@ def fetch_chunk_data(
     bigquery_src_table: Optional[str] = None,
     bigquery_state_table: Optional[str] = None,
     bigquery_pose_table: Optional[str] = None,
+    bigquery_speed_table: Optional[str] = None,
 ) -> ChunkData:
     """
     1チャンク(cs,ce)のデータ取得。
@@ -259,6 +260,7 @@ def fetch_chunk_data(
         bigquery_src_table,
         bigquery_state_table,
         bigquery_pose_table,
+        bigquery_speed_table,
     )
 
     ctx = {"maxSubqueryBytes": "auto"}
@@ -273,6 +275,11 @@ def fetch_chunk_data(
             thr_lat=float(thr_lat),
             dist_mode=dist_mode,
             excludes=excludes,
+            data_source=data_source,
+            bigquery_src_table=bigquery_src_table,
+            bigquery_state_table=bigquery_state_table,
+            bigquery_pose_table=bigquery_pose_table,
+            bigquery_speed_table=bigquery_speed_table,
         )
 
     q1_dfs = _run_sql_adaptive_split(
@@ -294,6 +301,11 @@ def fetch_chunk_data(
             thr_acc=float(thr_acc),
             dist_mode=dist_mode,
             excludes=excludes,
+            data_source=data_source,
+            bigquery_src_table=bigquery_src_table,
+            bigquery_state_table=bigquery_state_table,
+            bigquery_pose_table=bigquery_pose_table,
+            bigquery_speed_table=bigquery_speed_table,
         )
 
     q2_dfs = _run_sql_adaptive_split(
@@ -314,6 +326,11 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             state_condition="s.system_state = 4",
             excludes=excludes,
+            data_source=data_source,
+            bigquery_src_table=bigquery_src_table,
+            bigquery_state_table=bigquery_state_table,
+            bigquery_pose_table=bigquery_pose_table,
+            bigquery_speed_table=bigquery_speed_table,
         )
 
     def q3_manual_builder(s: datetime, e: datetime) -> str:
@@ -323,6 +340,11 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             state_condition="s.system_state <> 4",
             excludes=excludes,
+            data_source=data_source,
+            bigquery_src_table=bigquery_src_table,
+            bigquery_state_table=bigquery_state_table,
+            bigquery_pose_table=bigquery_pose_table,
+            bigquery_speed_table=bigquery_speed_table,
         )
 
     q3_auto_dfs = _run_sql_adaptive_split(

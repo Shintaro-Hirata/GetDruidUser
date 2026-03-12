@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Any, Literal
 import pandas as pd
 
+
 Range2 = Tuple[float, float]
 DistanceMode = Literal["latlon", "speed"]
 DataSource = Literal["druid", "bigquery"]
@@ -12,6 +13,10 @@ DataSource = Literal["druid", "bigquery"]
 
 @dataclass(frozen=True)
 class SidebarState:
+    """
+    サイドバーから返す「軽い」状態オブジェクト。
+    UIで決める値をここに集める（RunConfig と違い、UI固有の編集値を持てる）。
+    """
     vehicle_id: str
     split_minutes: int
     run: bool
@@ -26,13 +31,17 @@ class SidebarState:
     thr_lat: float = 0.2
     thr_acc: float = 1.0
 
-    # BigQuery 関連（サイドバーで指定）
+    # --- ここから追加：データソース選択・BigQuery 設定（サイドバー入力で編集） ---
     data_source: DataSource = "druid"
-    bigquery_src_table: str = "t2-integration.zero_plotter.t2_control_debug"
-    bigquery_state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state"
-    bigquery_pose_table: str = "t2-integration.zero_plotter.t2_positioning_driver_pose"
+    bigquery_src_table: Optional[str] = None
+    bigquery_state_table: Optional[str] = None
+    bigquery_pose_table: Optional[str] = None
+    bigquery_speed_table: Optional[str] = None
 
+    # 除外時間入力（複数行テキスト）
+    exclude_ranges_text: str = ""
 
+# ★追加：run_pipeline に渡す「再実行が必要な条件」を束ねる
 @dataclass(frozen=True)
 class RunConfig:
     vehicle_id: str
@@ -43,16 +52,18 @@ class RunConfig:
     max_workers: int = 1    # 並列実行数
     dist_mode: DistanceMode = "latlon"
     exclude_ranges_text: str = ""
-    # 新: どこから取るか（'druid' or 'bigquery'）
+
+    # ★ ここから追加：どのデータソースから取るか、BigQuery のテーブル名等
     data_source: DataSource = "druid"
-    # BigQuery 用：fully-qualified table names（必要なら app.py で渡す）
     bigquery_src_table: Optional[str] = None
     bigquery_state_table: Optional[str] = None
     bigquery_pose_table: Optional[str] = None
+    bigquery_speed_table: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class PipelineResults:
+    # 本当は RangeItem 型が望ましいが、循環import回避のため Any にしておく
     ranges: list[Any]
     all_excel_sheets: dict[str, pd.DataFrame]
     compare_q1: list[tuple[str, pd.DataFrame]]

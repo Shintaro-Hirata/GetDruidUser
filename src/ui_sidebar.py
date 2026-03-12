@@ -105,6 +105,11 @@ def render_sidebar() -> SidebarState:
             value=st.session_state.get("bigquery_pose_table", "t2-integration.zero_plotter.t2_positioning_driver_pose"),
             help="Query3 で使う pose テーブル",
         )
+        bigquery_speed_table = st.text_input(
+            "BigQuery: speed table (project.dataset.table)",
+            value=st.session_state.get("bigquery_speed_table", "t2-integration.zero_plotter.t2_positioning_driver_speed"),
+            help="Query3 で使う speed テーブル",
+        )
 
         st.markdown("---")
         st.subheader("クエリ条件（再実行が必要）")
@@ -298,6 +303,8 @@ def render_sidebar() -> SidebarState:
         data_source=data_source,
         bigquery_src_table=bigquery_src_table,
         bigquery_state_table=bigquery_state_table,
-        bigquery_pose_table=bigquery_pose_table
+        bigquery_pose_table=bigquery_pose_table,
+        bigquery_speed_table=bigquery_speed_table,
+        exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
     )
 

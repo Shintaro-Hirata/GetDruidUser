@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 
 from src.clients.druid import DruidClient
+from src.clients.bigquery import BigQueryClient
+
 from src.export_excel import to_excel_bytes
 from src.time_ranges import parse_ranges
 
@@ -49,9 +51,6 @@ from src.ui_state import ensure_cache_state, save_cache, load_cache
 st.set_page_config(page_title="Druid Query Runner", layout="wide")
 st.title("Druid: 期間（複数ペア）×（基本は非分割）× 可視化 × Excel一括DL")
 
-client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
-
-
 
 # =========================
 # 初回デフォルト
@@ -72,6 +71,16 @@ if SS_CACHE_READY not in st.session_state:
 # UI（サイドバー）
 # =========================
 ui = render_sidebar()
+
+# ★ sidebar の確定値を見て client を作る
+if ui.data_source == "bigquery":
+    client = BigQueryClient(
+        project="t2-integration",
+        default_dataset="zero_plotter",  # 現在使っているテーブルに合わせる
+    )
+else:
+    client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
+
 if st.session_state.get(SS_PLOT_APPLY_REQ, False):
     st.session_state[SS_PLOT_W] = float(st.session_state[SS_PLOT_EDIT_W])
     st.session_state[SS_PLOT_H] = float(st.session_state[SS_PLOT_EDIT_H])

@@ -1,81 +1,65 @@
 # src/run_pipeline.py
+# run時の「クエリ実行＋比較データ作成＋Excel格納」担当
 import pandas as pd
 from typing import Callable, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from src.clients.druid import DruidClient
+from src.clients.bigquery import BigQueryClient
+
 from src.time_ranges import split_range
 from src.data_service import fetch_chunk_data
 from src.compare import collect_compare_series_from_excel_sheets
 from src.types import PipelineResults, RunConfig
 
-from src.queries import ExcludeRange
 
-
-def _make_thread_client(base: DruidClient) -> DruidClient:
-    return DruidClient(
-        url=base.url,
-        timeout_sec=base.timeout_sec,
-        default_context=base.default_context,
-    )
-
-
-def _parse_exclude_ranges_text(text: str) -> list[ExcludeRange]:
+def _make_thread_client(base):
     """
-    1行=1範囲:
-      2025-12-15T08:00:00+09:00,2025-12-15T08:10:00+09:00
-    または空白区切り/ハイフン区切りも許容:
-      2025-12-15T08:00:00+09:00 - 2025-12-15T08:10:00+09:00
-
-    ※ ISO8601 を datetime.fromisoformat で読む前提
+    スレッド専用 client を base と同じ種類で作る。
+    - DruidClient -> DruidClient(...)
+    - BigQueryClient -> BigQueryClient(...)
+    - それ以外は単純に base を返す（stateless の場合は安全）
     """
-    if not text:
-        return []
-
-    out: list[ExcludeRange] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        if "," in line:
-            a, b = [x.strip() for x in line.split(",", 1)]
-        elif " - " in line:
-            a, b = [x.strip() for x in line.split(" - ", 1)]
-        else:
-            # 最後の手段：空白2トークン
-            toks = line.split()
-            if len(toks) != 2:
-                raise ValueError(f"exclude_ranges_text: 解析できない行: {line}")
-            a, b = toks[0], toks[1]
-
-        s = datetime.fromisoformat(a)
-        e = datetime.fromisoformat(b)
-        if e <= s:
-            raise ValueError(f"exclude_ranges_text: end <= start: {line}")
-        out.append(ExcludeRange(start=s, end=e))
-
-    # start順に整列
-    out.sort(key=lambda r: r.start)
-    return out
+    if isinstance(base, DruidClient):
+        return DruidClient(
+            url=base.url,
+            timeout_sec=base.timeout_sec,
+            default_context=base.default_context,
+        )
+    if isinstance(base, BigQueryClient):
+        # BigQueryClient の実装に合わせてクローン生成
+        # 例: BigQueryClient(project=base.project, default_dataset=base.default_dataset, credentials=base.credentials)
+        return BigQueryClient(
+            project=getattr(base, "project", None),
+            default_dataset=getattr(base, "default_dataset", None),
+            # credentials/other settings as needed
+        )
+    # 最後は元のオブジェクトを返す（安全策）
+    return base
 
 
 def run_and_build_results(
     *,
     client: DruidClient,
     config: RunConfig,
-    ranges,
+    ranges,  # parse_ranges の戻り（各要素が start/end/label を持つ想定）
     progress_callback: Optional[Callable[[dict], None]] = None,
 ) -> PipelineResults:
+    """
+    Run中は「データ取得とExcel格納だけ」を行い、描画は一切しない。
+    進捗は progress_callback(event_dict) で通知する（UI依存しない）。
+
+    ★並列化（max_workers）対応
+    - fetch_chunk_data を並列実行
+    - all_excel_sheets への格納と emit はメインスレッドで行う（競合回避）
+    """
     all_excel_sheets: dict[str, pd.DataFrame] = {}
     compare_q1: list[tuple[str, pd.DataFrame]] = []
     compare_q2: list[tuple[str, pd.DataFrame]] = []
     compare_q3: list[tuple[str, pd.DataFrame]] = []
 
-    # ★除外時間帯をここで一回だけパースして全チャンク共通で使う
-    excludes = _parse_exclude_ranges_text(getattr(config, "exclude_ranges_text", "") or "")
-
+    # 進捗用：総チャンク数を先に数える
     total_chunks = 0
     chunks_list: list[tuple[int, str, list[tuple]]] = []
     for pair_idx, r in enumerate(ranges):
@@ -114,6 +98,7 @@ def run_and_build_results(
                     }
                 )
 
+                # thread-local client copy for safety
                 th_client = _make_thread_client(client)
 
                 fut = ex.submit(
@@ -122,14 +107,15 @@ def run_and_build_results(
                     vehicle_id=config.vehicle_id,
                     cs=cs,
                     ce=ce,
+                    min_split_minutes=int(config.split_minutes),
                     thr_lat=float(config.thr_lat),
                     thr_acc=float(config.thr_acc),
-                    dist_mode=getattr(config, "dist_mode", "latlon"),
-                    excludes=excludes,  # ★追加
-                    data_source=getattr(config, "data_source", "druid"),
-                    bigquery_src_table=getattr(config, "bigquery_src_table", None),
-                    bigquery_state_table=getattr(config, "bigquery_state_table", None),
-                    bigquery_pose_table=getattr(config, "bigquery_pose_table", None),
+                    dist_mode=config.dist_mode,
+                    data_source=config.data_source,
+                    bigquery_src_table=config.bigquery_src_table,
+                    bigquery_state_table=config.bigquery_state_table,
+                    bigquery_pose_table=config.bigquery_pose_table,
+                    bigquery_speed_table=config.bigquery_speed_table,
                 )
                 futures[fut] = (chunk_idx, cs, ce)
 
@@ -163,6 +149,7 @@ def run_and_build_results(
                     )
                     continue
 
+                # 正常：Excel格納
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q1"] = data.df1
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q2"] = data.df2
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q3"] = data.df3_hist
@@ -182,6 +169,7 @@ def run_and_build_results(
                     }
                 )
 
+        # ---- periodごとの比較データ作成（従来通り） ----
         (lab1, df1), (lab2, df2) = collect_compare_series_from_excel_sheets(
             all_excel_sheets=all_excel_sheets,
             pair_idx=pair_idx,
@@ -191,6 +179,7 @@ def run_and_build_results(
         compare_q1.append((lab1, df1))
         compare_q2.append((lab2, df2))
 
+        # Query3の比較用（従来通り：非分割のみ）
         if len(chunks) == 1:
             df3 = all_excel_sheets.get(f"T{pair_idx+1}_C1_Q3", pd.DataFrame())
             compare_q3.append((label, df3))
