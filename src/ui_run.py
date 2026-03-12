@@ -95,6 +95,10 @@ def make_progress_callback(run_ui: RunUI) -> Callable[[dict], None]:
             run_ui.log_lines.append(f"- {label} / chunk {chunk_idx} [{cs_s} 〜 {ce_s}] : {err}")
             run_ui.status.warning(f"失敗：{done}/{total}（{label} / chunk {chunk_idx}）")
 
+        elif t == "info":
+            msg = ev.get("message", "")
+            run_ui.status.info(msg)
+
         elif t == "end":
             done = int(ev.get("done_chunks", 0))
             total = max(1, int(ev.get("total_chunks", 1)))

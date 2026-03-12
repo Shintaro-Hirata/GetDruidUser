@@ -55,8 +55,15 @@ def run_and_build_results(
     - all_excel_sheets への格納と emit はメインスレッドで行う（競合回避）
     """
     # 除外時間帯テキストをパース
-    excludes = parse_exclude_ranges(
-        getattr(config, "exclude_ranges_text", "") or ""
+    raw_exclude_text = getattr(config, "exclude_ranges_text", "") or ""
+    excludes = parse_exclude_ranges(raw_exclude_text)
+
+    import logging as _log
+    _log.getLogger(__name__).info(
+        "exclude_ranges_text=%r  → parsed %d exclude(s): %s",
+        raw_exclude_text,
+        len(excludes),
+        [(r.start.isoformat(), r.end.isoformat()) for r in excludes],
     )
 
     all_excel_sheets: dict[str, pd.DataFrame] = {}
@@ -78,6 +85,14 @@ def run_and_build_results(
     def emit(event: dict) -> None:
         if progress_callback is not None:
             progress_callback(event)
+
+    # 除外情報を進捗イベントとして通知
+    if excludes:
+        emit({
+            "type": "info",
+            "message": f"除外時間帯 {len(excludes)} 件を適用: "
+                       + ", ".join(f"{r.start.isoformat()} ~ {r.end.isoformat()}" for r in excludes),
+        })
 
     emit({"type": "start", "total_chunks": total_chunks})
 
