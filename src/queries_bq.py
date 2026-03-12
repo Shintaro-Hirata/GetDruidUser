@@ -74,14 +74,10 @@ dist_1s AS (
     sec_time,
     CASE
       WHEN prev_lat IS NULL OR prev_lon IS NULL THEN 0.0
-      ELSE
-        2.0 * {earth_radius_m} * ASIN(
-          SQRT(
-            POWER(SIN((RADIANS(lat - prev_lat)) / 2.0), 2.0)
-            + COS(RADIANS(prev_lat)) * COS(RADIANS(lat))
-            * POWER(SIN((RADIANS(lon - prev_lon)) / 2.0), 2.0)
-          )
-        )
+      ELSE ST_DISTANCE(
+        ST_GEOGPOINT(lon, lat),
+        ST_GEOGPOINT(prev_lon, prev_lat)
+      )
     END AS delta_m
   FROM seg
 ),
