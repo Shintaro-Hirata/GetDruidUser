@@ -105,6 +105,12 @@ def _run_sql_adaptive_split(
 ) -> list[pd.DataFrame]:
     try:
         q = query_builder(start, end)
+        # デバッグ: 除外句が含まれているか確認
+        if "AND NOT" in q:
+            logger.info("SQL contains AND NOT clause (exclude active)")
+        else:
+            logger.info("SQL does NOT contain AND NOT clause (no exclude)")
+        logger.debug("Generated SQL:\n%s", q)
         df = client.sql(q, context=context)
         return [df]
     except Exception as ex:
