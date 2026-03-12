@@ -343,8 +343,8 @@ ORDER BY r.win_1m
 
 QUERY3_TEMPLATE = r"""
 SELECT
-  CAST(FLOOR(p.`:pose:linear_acceleration_vrf.y` / 0.2) * 0.2 AS FLOAT64) AS bin_start,
-  CAST(FLOOR(p.`:pose:linear_acceleration_vrf.y` / 0.2) * 0.2 + 0.2 AS FLOAT64) AS bin_end,
+  CAST(FLOOR(p.`:pose:linear_acceleration_vrf:y` / 0.2) * 0.2 AS FLOAT64) AS bin_start,
+  CAST(FLOOR(p.`:pose:linear_acceleration_vrf:y` / 0.2) * 0.2 + 0.2 AS FLOAT64) AS bin_end,
   COUNT(*) AS cnt
 FROM `{pose_table}` p
 JOIN (

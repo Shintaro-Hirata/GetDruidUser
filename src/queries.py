@@ -256,8 +256,8 @@ WITH state_per_sec AS (
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 )
 SELECT
-  CAST(FLOOR(p.`:pose:linear_acceleration_vrf.y` / 0.2) * 0.2 AS FLOAT64) AS bin_start,
-  CAST(FLOOR(p.`:pose:linear_acceleration_vrf.y` / 0.2) * 0.2 + 0.2 AS FLOAT64) AS bin_end,
+  CAST(FLOOR(p.`:pose:linear_acceleration_vrf:y` / 0.2) * 0.2 AS FLOAT64) AS bin_start,
+  CAST(FLOOR(p.`:pose:linear_acceleration_vrf:y` / 0.2) * 0.2 + 0.2 AS FLOAT64) AS bin_end,
   COUNT(*) AS cnt
 FROM `{bigquery_pose_table}` p
 JOIN state_per_sec s
