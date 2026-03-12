@@ -150,13 +150,13 @@ QUERY1_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    ANY_VALUE(`#latitude`)  AS latitude,
-    ANY_VALUE(`#longitude`) AS longitude,
-    ANY_VALUE(`:debug_for_mcap:lateral_error`) AS lateral_error,
-    ABS(ANY_VALUE(`:debug_for_mcap:lateral_error`)) AS abs_lateral_error,
+    `#latitude`  AS latitude,
+    `#longitude` AS longitude,
+    `:debug_for_mcap:lateral_error` AS lateral_error,
+    ABS(`:debug_for_mcap:lateral_error`) AS abs_lateral_error,
     ROW_NUMBER() OVER (
       PARTITION BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
-      ORDER BY ABS(ANY_VALUE(`:debug_for_mcap:lateral_error`)) DESC
+      ORDER BY ABS(`:debug_for_mcap:lateral_error`) DESC
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
@@ -164,7 +164,6 @@ WITH per_sec AS (
     AND `#timestamp` <  TIMESTAMP('{end_time}')
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:lateral_error`) >= {thr_lat}
-  GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
 sec_pick AS (
@@ -241,13 +240,13 @@ QUERY2_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    ANY_VALUE(`#latitude`)  AS latitude,
-    ANY_VALUE(`#longitude`) AS longitude,
-    ANY_VALUE(`:debug_for_mcap:acceleration`) AS acceleration,
-    ABS(ANY_VALUE(`:debug_for_mcap:acceleration`)) AS abs_acceleration,
+    `#latitude`  AS latitude,
+    `#longitude` AS longitude,
+    `:debug_for_mcap:acceleration` AS acceleration,
+    ABS(`:debug_for_mcap:acceleration`) AS abs_acceleration,
     ROW_NUMBER() OVER (
       PARTITION BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
-      ORDER BY ABS(ANY_VALUE(`:debug_for_mcap:acceleration`)) DESC
+      ORDER BY ABS(`:debug_for_mcap:acceleration`) DESC
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
@@ -255,7 +254,6 @@ WITH per_sec AS (
     AND `#timestamp` <  TIMESTAMP('{end_time}')
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:acceleration`) >= {thr_acc}
-  GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
 sec_pick AS (
