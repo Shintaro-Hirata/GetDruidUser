@@ -180,7 +180,7 @@ sec_pick AS (
 state_per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    MAX(`:system_state:.system_state`) AS system_state
+    MAX(`.system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
     AND `#timestamp` >= TIMESTAMP('{start_time}')
@@ -270,7 +270,7 @@ sec_pick AS (
 state_per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    MAX(`:system_state:.system_state`) AS system_state
+    MAX(`.system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
     AND `#timestamp` >= TIMESTAMP('{start_time}')
@@ -335,7 +335,7 @@ FROM `{pose_table}` p
 JOIN (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    MAX(`:system_state:.system_state`) AS system_state
+    MAX(`.system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
     AND `#timestamp` >= TIMESTAMP('{start_time}')
