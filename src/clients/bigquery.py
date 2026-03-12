@@ -21,6 +21,8 @@ class BigQueryClient:
     """
 
     project: Optional[str] = None
+    default_dataset: Optional[str] = None
+    timeout_sec: int = 120
     client_options: Optional[Dict[str, Any]] = None
     _client: bigquery.Client = field(init=False, repr=False)
 
@@ -37,7 +39,7 @@ class BigQueryClient:
         except Exception as ex:
             raise RuntimeError(f"Failed to initialize BigQuery client: {ex}") from ex
 
-    def sql(self, query: str, params: Optional[Dict[str, Any]] = None, job_config: Optional[Any] = None) -> pd.DataFrame:
+    def sql(self, query: str, params: Optional[Dict[str, Any]] = None, job_config: Optional[Any] = None, context: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
         """
         BigQuery にクエリを投げて結果を DataFrame で返す。
         - query: SQL 文（標準SQL）

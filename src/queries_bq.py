@@ -163,6 +163,7 @@ WITH per_sec AS (
     AND `#timestamp` >= TIMESTAMP('{start_time}')
     AND `#timestamp` <  TIMESTAMP('{end_time}')
     {exclude_ctrl}
+    AND ABS(`:debug_for_mcap:lateral_error`) >= {thr_lat}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
@@ -253,6 +254,7 @@ WITH per_sec AS (
     AND `#timestamp` >= TIMESTAMP('{start_time}')
     AND `#timestamp` <  TIMESTAMP('{end_time}')
     {exclude_ctrl}
+    AND ABS(`:debug_for_mcap:acceleration`) >= {thr_acc}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
@@ -369,7 +371,7 @@ def build_query1(
     vehicle_id: str,
     start_time: str,
     end_time: str,
-    thr_lat: float,
+    thr_lat: float = 0.2,
     dist_mode: str = "latlon",
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
@@ -394,7 +396,7 @@ def build_query2(
     vehicle_id: str,
     start_time: str,
     end_time: str,
-    thr_acc: float,
+    thr_acc: float = 1.0,
     dist_mode: str = "latlon",
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
