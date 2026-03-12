@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Literal, Sequence
 
+import src.queries_bq as bq
+
 # UI/RunConfig 側の値に合わせる（"latlon" / "speed"）
 DistanceMode = Literal["latlon", "speed"]
 
@@ -377,24 +379,22 @@ def build_query1(
     bigquery_pose_table: str = "",
     bigquery_speed_table: str = "",
 ) -> str:
-    ex = _build_excludes_for_templates(excludes)
     if data_source == "bigquery":
-        distance_cte = pick_distance_cte(dist_mode=dist_mode, data_source="bigquery")
-        return QUERY1_BQ.format(
+        # queries_bq の正しいテンプレート・除外句を使う
+        bq_excludes = [bq.ExcludeRange(start=e.start, end=e.end) for e in excludes]
+        return bq.build_query1(
             vehicle_id=vehicle_id,
             start_time=start_time,
             end_time=end_time,
             thr_lat=float(thr_lat),
-            distance_cte=distance_cte,
-            bigquery_src_table=bigquery_src_table,
-            bigquery_state_table=bigquery_state_table,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_speed_table=bigquery_speed_table,
-            **ex,
+            dist_mode=dist_mode,
+            src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
+            excludes=bq_excludes,
         )
     else:
         # Druid 用（従来）
-        # distance_cte の生成は既存 Druid のロジックに合わせてください。
+        ex = _build_excludes_for_templates(excludes)
         distance_cte = ""  # 既存の Druid distance CTE を差し込むこと
         return QUERY1_DRUID.format(
             vehicle_id=vehicle_id,
@@ -419,22 +419,20 @@ def build_query2(
     bigquery_pose_table: str = "",
     bigquery_speed_table: str = "",
 ) -> str:
-    ex = _build_excludes_for_templates(excludes)
     if data_source == "bigquery":
-        distance_cte = pick_distance_cte(dist_mode=dist_mode, data_source="bigquery")
-        return QUERY2_BQ.format(
+        bq_excludes = [bq.ExcludeRange(start=e.start, end=e.end) for e in excludes]
+        return bq.build_query2(
             vehicle_id=vehicle_id,
             start_time=start_time,
             end_time=end_time,
             thr_acc=float(thr_acc),
-            distance_cte=distance_cte,
-            bigquery_src_table=bigquery_src_table,
-            bigquery_state_table=bigquery_state_table,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_speed_table=bigquery_speed_table,
-            **ex,
+            dist_mode=dist_mode,
+            src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
+            excludes=bq_excludes,
         )
     else:
+        ex = _build_excludes_for_templates(excludes)
         distance_cte = ""
         return QUERY2_DRUID.format(
             vehicle_id=vehicle_id,
@@ -458,18 +456,19 @@ def build_query3(
     bigquery_pose_table: str = "",
     bigquery_speed_table: str = "",
 ) -> str:
-    ex = _build_excludes_for_templates(excludes)
     if data_source == "bigquery":
-        return QUERY3_BQ.format(
+        bq_excludes = [bq.ExcludeRange(start=e.start, end=e.end) for e in excludes]
+        return bq.build_query3(
             vehicle_id=vehicle_id,
             start_time=start_time,
             end_time=end_time,
             state_condition=state_condition,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_state_table=bigquery_state_table,
-            **ex,
+            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
+            excludes=bq_excludes,
         )
     else:
+        ex = _build_excludes_for_templates(excludes)
         return QUERY3_DRUID.format(
             vehicle_id=vehicle_id,
             start_time=start_time,
