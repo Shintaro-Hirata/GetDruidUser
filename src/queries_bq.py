@@ -18,7 +18,7 @@ def _build_exclude_or_clause(
     for r in excludes:
         s = r.start.isoformat()
         e = r.end.isoformat()
-        # BigQuery: TIMESTAMP('...') を使う
+        # メインWHEREと同じ形式（プレーン文字列比較）で統一
         parts.append(f"({time_expr} >= '{s}' AND {time_expr} < '{e}')")
     inner = " OR ".join(parts)
     return f"\n    AND NOT ({inner})"
@@ -63,7 +63,8 @@ seg AS (
     lat,
     lon,
     LAG(lat) OVER (ORDER BY sec_time) AS prev_lat,
-    LAG(lon) OVER (ORDER BY sec_time) AS prev_lon
+    LAG(lon) OVER (ORDER BY sec_time) AS prev_lon,
+    LAG(sec_time) OVER (ORDER BY sec_time) AS prev_sec_time
   FROM pos_1s
 ),
 
@@ -72,6 +73,7 @@ dist_1s AS (
     sec_time,
     CASE
       WHEN prev_lat IS NULL OR prev_lon IS NULL THEN 0.0
+      WHEN TIMESTAMP_DIFF(sec_time, prev_sec_time, SECOND) > 2 THEN 0.0
       ELSE ST_DISTANCE(
         ST_GEOGPOINT(lon, lat),
         ST_GEOGPOINT(prev_lon, prev_lat)
@@ -116,11 +118,23 @@ speed_1s AS (
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
+speed_with_prev AS (
+  SELECT
+    sec_time,
+    avg_speed_mps,
+    LAG(sec_time) OVER (ORDER BY sec_time) AS prev_sec_time
+  FROM speed_1s
+),
+
 dist_1s AS (
   SELECT
     sec_time,
-    (avg_speed_mps * 1.0) AS delta_m
-  FROM speed_1s
+    CASE
+      WHEN prev_sec_time IS NULL THEN 0.0
+      WHEN TIMESTAMP_DIFF(sec_time, prev_sec_time, SECOND) > 2 THEN 0.0
+      ELSE (avg_speed_mps * 1.0)
+    END AS delta_m
+  FROM speed_with_prev
 ),
 
 cum AS (
