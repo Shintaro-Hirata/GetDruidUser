@@ -284,7 +284,6 @@ def fetch_chunk_data(
 
     # ---- Query1（adaptive split + cum_dist連続化） ----
     def q1_builder(s: datetime, e: datetime) -> str:
-        # 将来、data_source に応じて build_queryX のパラメータやテンプレを切り替える実装をここに入れる
         return build_query1(
             vehicle_id=vehicle_id,
             start_time=s.isoformat(),
@@ -292,11 +291,8 @@ def fetch_chunk_data(
             thr_lat=float(thr_lat),
             dist_mode=dist_mode,
             excludes=excludes,
-            data_source=data_source,
-            bigquery_src_table=bigquery_src_table,
-            bigquery_state_table=bigquery_state_table,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_speed_table=bigquery_speed_table,
+            src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
         )
 
     q1_dfs = _run_sql_adaptive_split(
@@ -318,11 +314,8 @@ def fetch_chunk_data(
             thr_acc=float(thr_acc),
             dist_mode=dist_mode,
             excludes=excludes,
-            data_source=data_source,
-            bigquery_src_table=bigquery_src_table,
-            bigquery_state_table=bigquery_state_table,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_speed_table=bigquery_speed_table,
+            src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
         )
 
     q2_dfs = _run_sql_adaptive_split(
@@ -343,11 +336,8 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             state_condition="s.system_state = 4",
             excludes=excludes,
-            data_source=data_source,
-            bigquery_src_table=bigquery_src_table,
-            bigquery_state_table=bigquery_state_table,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_speed_table=bigquery_speed_table,
+            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
         )
 
     def q3_manual_builder(s: datetime, e: datetime) -> str:
@@ -357,11 +347,8 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             state_condition="s.system_state <> 4",
             excludes=excludes,
-            data_source=data_source,
-            bigquery_src_table=bigquery_src_table,
-            bigquery_state_table=bigquery_state_table,
-            bigquery_pose_table=bigquery_pose_table,
-            bigquery_speed_table=bigquery_speed_table,
+            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose",
+            state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
         )
 
     q3_auto_dfs = _run_sql_adaptive_split(

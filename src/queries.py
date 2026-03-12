@@ -1,10 +1,13 @@
-# src/queries_bq.py
+# src/queries.py  (BigQuery専用)
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Sequence
+from typing import Literal, Sequence
 
 from src.time_ranges import ExcludeRange
+
+# data_service.py から参照される型
+DistanceMode = Literal["latlon", "speed"]
 
 
 def _build_exclude_or_clause(
