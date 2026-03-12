@@ -24,7 +24,7 @@ def _build_exclude_or_clause(
         s = r.start.isoformat()
         e = r.end.isoformat()
         # BigQuery: TIMESTAMP('...') を使う
-        parts.append(f"({time_expr} >= TIMESTAMP('{s}') AND {time_expr} < TIMESTAMP('{e}'))")
+        parts.append(f"({time_expr} >= TIMESTAMP '{s}' AND {time_expr} < TIMESTAMP '{e}')")
     inner = " OR ".join(parts)
     return f"\n    AND NOT ({inner})"
 
@@ -53,8 +53,8 @@ pos_1s AS (
     ANY_VALUE(`{lon_col}`) AS lon
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{{vehicle_id}}'
-    AND `#timestamp` >= TIMESTAMP('{{start_time}}')
-    AND `#timestamp` <  TIMESTAMP('{{end_time}}')
+    AND `#timestamp` >= TIMESTAMP '{{start_time}}'
+    AND `#timestamp` <  TIMESTAMP '{{end_time}}'
     {exclude_sql}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -74,14 +74,10 @@ dist_1s AS (
     sec_time,
     CASE
       WHEN prev_lat IS NULL OR prev_lon IS NULL THEN 0.0
-      ELSE
-        2.0 * {earth_radius_m} * ASIN(
-          SQRT(
-            POWER(SIN((RADIANS(lat - prev_lat)) / 2.0), 2.0)
-            + COS(RADIANS(prev_lat)) * COS(RADIANS(lat))
-            * POWER(SIN((RADIANS(lon - prev_lon)) / 2.0), 2.0)
-          )
-        )
+      ELSE ST_DISTANCE(
+        ST_GEOGPOINT(lon, lat),
+        ST_GEOGPOINT(prev_lon, prev_lat)
+      )
     END AS delta_m
   FROM seg
 ),
@@ -113,8 +109,8 @@ speed_1s AS (
     AVG(`{speed_col}`) AS avg_speed_mps
   FROM `{speed_table}`
   WHERE `#vehicle_id` = '{{vehicle_id}}'
-    AND `#timestamp` >= TIMESTAMP('{{start_time}}')
-    AND `#timestamp` <  TIMESTAMP('{{end_time}}')
+    AND `#timestamp` >= TIMESTAMP '{{start_time}}'
+    AND `#timestamp` <  TIMESTAMP '{{end_time}}'
     {exclude_sql}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -150,21 +146,20 @@ QUERY1_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    ANY_VALUE(`#latitude`)  AS latitude,
-    ANY_VALUE(`#longitude`) AS longitude,
-    ANY_VALUE(`:debug_for_mcap:lateral_error`) AS lateral_error,
-    ABS(ANY_VALUE(`:debug_for_mcap:lateral_error`)) AS abs_lateral_error,
+    `#latitude`  AS latitude,
+    `#longitude` AS longitude,
+    `:debug_for_mcap:lateral_error` AS lateral_error,
+    ABS(`:debug_for_mcap:lateral_error`) AS abs_lateral_error,
     ROW_NUMBER() OVER (
       PARTITION BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
-      ORDER BY ABS(ANY_VALUE(`:debug_for_mcap:lateral_error`)) DESC
+      ORDER BY ABS(`:debug_for_mcap:lateral_error`) DESC
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= TIMESTAMP '{start_time}'
+    AND `#timestamp` <  TIMESTAMP '{end_time}'
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:lateral_error`) >= {thr_lat}
-  GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
 sec_pick AS (
@@ -181,11 +176,11 @@ sec_pick AS (
 state_per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    MAX(`:system_state:.system_state`) AS system_state
+    MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= TIMESTAMP '{start_time}'
+    AND `#timestamp` <  TIMESTAMP '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -241,21 +236,20 @@ QUERY2_TEMPLATE = r"""
 WITH per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    ANY_VALUE(`#latitude`)  AS latitude,
-    ANY_VALUE(`#longitude`) AS longitude,
-    ANY_VALUE(`:debug_for_mcap:acceleration`) AS acceleration,
-    ABS(ANY_VALUE(`:debug_for_mcap:acceleration`)) AS abs_acceleration,
+    `#latitude`  AS latitude,
+    `#longitude` AS longitude,
+    `:debug_for_mcap:acceleration` AS acceleration,
+    ABS(`:debug_for_mcap:acceleration`) AS abs_acceleration,
     ROW_NUMBER() OVER (
       PARTITION BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
-      ORDER BY ABS(ANY_VALUE(`:debug_for_mcap:acceleration`)) DESC
+      ORDER BY ABS(`:debug_for_mcap:acceleration`) DESC
     ) AS rn
   FROM `{src_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= TIMESTAMP '{start_time}'
+    AND `#timestamp` <  TIMESTAMP '{end_time}'
     {exclude_ctrl}
     AND ABS(`:debug_for_mcap:acceleration`) >= {thr_acc}
-  GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
 
 sec_pick AS (
@@ -272,11 +266,11 @@ sec_pick AS (
 state_per_sec AS (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    MAX(`:system_state:.system_state`) AS system_state
+    MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= TIMESTAMP '{start_time}'
+    AND `#timestamp` <  TIMESTAMP '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ),
@@ -337,18 +331,18 @@ FROM `{pose_table}` p
 JOIN (
   SELECT
     TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
-    MAX(`:system_state:.system_state`) AS system_state
+    MAX(`:system_state`) AS system_state
   FROM `{state_table}`
   WHERE `#vehicle_id` = '{vehicle_id}'
-    AND `#timestamp` >= TIMESTAMP('{start_time}')
-    AND `#timestamp` <  TIMESTAMP('{end_time}')
+    AND `#timestamp` >= TIMESTAMP '{start_time}'
+    AND `#timestamp` <  TIMESTAMP '{end_time}'
     {exclude_state}
   GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
 ) s
   ON TIMESTAMP_TRUNC(p.`#timestamp`, SECOND) = s.sec_time
 WHERE p.`#vehicle_id` = '{vehicle_id}'
-  AND p.`#timestamp` >= TIMESTAMP('{start_time}')
-  AND p.`#timestamp` <  TIMESTAMP('{end_time}')
+  AND p.`#timestamp` >= TIMESTAMP '{start_time}'
+  AND p.`#timestamp` <  TIMESTAMP '{end_time}'
   {exclude_pose}
   AND {state_condition}
 GROUP BY 1, 2
