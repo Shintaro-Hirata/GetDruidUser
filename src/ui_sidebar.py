@@ -85,9 +85,9 @@ def render_sidebar() -> SidebarState:
         st.subheader("データソース（取得先）")
         data_source = st.selectbox(
             "取得先",
-            options=["druid", "bigquery"],
+            options=["bigquery", "druid"],
             index=0,
-            help="Druid か BigQuery を選択。BigQuery を選ぶと下のテーブル指定が使われます。",
+            help="BigQuery か Druid を選択。BigQuery を選ぶと下のテーブル指定が使われます。",
         )
 
         bigquery_project = st.text_input(

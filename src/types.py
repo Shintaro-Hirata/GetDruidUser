@@ -32,7 +32,7 @@ class SidebarState:
     thr_acc: float = 1.0
 
     # --- ここから追加：データソース選択・BigQuery 設定（サイドバー入力で編集） ---
-    data_source: DataSource = "druid"
+    data_source: DataSource = "bigquery"
     bigquery_project: Optional[str] = None
     bigquery_src_table: Optional[str] = None
     bigquery_state_table: Optional[str] = None
@@ -55,7 +55,7 @@ class RunConfig:
     exclude_ranges_text: str = ""
 
     # ★ ここから追加：どのデータソースから取るか、BigQuery のテーブル名等
-    data_source: DataSource = "druid"
+    data_source: DataSource = "bigquery"
     bigquery_project: Optional[str] = None   # ← この行を追加
     bigquery_src_table: Optional[str] = None
     bigquery_state_table: Optional[str] = None

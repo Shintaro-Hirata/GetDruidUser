@@ -253,7 +253,7 @@ def fetch_chunk_data(
     thr_acc: float = 1.0,
     dist_mode: DistanceMode = "latlon",
     excludes: Sequence[ExcludeRange] = (),
-    data_source: str = "druid",
+    data_source: str = "bigquery",
     bigquery_src_table: Optional[str] = None,
     bigquery_state_table: Optional[str] = None,
     bigquery_pose_table: Optional[str] = None,
@@ -383,5 +383,15 @@ def fetch_chunk_data(
         if c not in df3_hist.columns:
             df3_hist[c] = 0.0
         df3_hist[c] = pd.to_numeric(df3_hist[c], errors="coerce").fillna(0.0)
+
+    # ---- JST列を追加（sec_time / win_1m → +09:00 表示） ----
+    for df in (df1, df2):
+        if df is None or df.empty:
+            continue
+        for col in ("sec_time", "win_1m"):
+            if col not in df.columns:
+                continue
+            ts = pd.to_datetime(df[col], errors="coerce", utc=True)
+            df[f"{col}_jst"] = ts.dt.tz_convert("Asia/Tokyo").dt.strftime("%Y-%m-%d %H:%M:%S")
 
     return ChunkData(df1=df1, df2=df2, df3_hist=df3_hist)
