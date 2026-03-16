@@ -1,27 +1,35 @@
 @echo off
-setlocal EnableExtensions
-cd /d %~dp0
+setlocal EnableExtensions EnableDelayedExpansion
+chcp 65001 >nul
+cd /d "%~dp0"
 title Install Dependencies
 
 echo [INFO] Working dir: %cd%
 echo.
 
 REM ---- Python起動コマンドを決める（py優先、なければpython） ----
-set "PY=py"
+set "PY="
+
 where py >nul 2>&1
-if errorlevel 1 (
-  set "PY=python"
-  where python >nul 2>&1
-  if errorlevel 1 (
-    echo.
-    echo [ERROR] Python launcher 'py' も 'python' も見つかりません。
-    echo - Python をインストールしてください（Windows版推奨）。
-    echo - 既に入っているのに見つからない場合：PATHが通っていない可能性があります。
-    pause
-    exit /b 1
-  )
+if not errorlevel 1 (
+  set "PY=py"
+  goto :found_python
 )
 
+where python >nul 2>&1
+if not errorlevel 1 (
+  set "PY=python"
+  goto :found_python
+)
+
+echo.
+echo [ERROR] Python launcher 'py' も 'python' も見つかりません。
+echo - Python をインストールしてください（Windows版推奨）。
+echo - 既に入っているのに見つからない場合：PATHが通っていない可能性があります。
+pause
+exit /b 1
+
+:found_python
 echo [INFO] Using: %PY%
 %PY% -c "import sys; print('[INFO] sys.executable=', sys.executable)"
 

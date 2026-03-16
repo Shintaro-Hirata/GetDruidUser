@@ -11,6 +11,30 @@
 
 ---
 
+## 0. フォルダの配置場所（重要）
+
+ツールのフォルダは、**パスに日本語や特殊文字を含まない場所**に置いてください。
+
+**NG な例:**
+```
+C:\Users\田中\デスクトップ\GetDruidUser
+C:\Users\Tanaka\OneDrive – 株式会社○○\GetDruidUser
+```
+
+**OK な例:**
+```
+C:\Tools\GetDruidUser
+C:\Users\Tanaka\GetDruidUser
+D:\work\GetDruidUser
+```
+
+> **なぜ？** Windows のバッチファイル（`.bat`）は、パスに日本語・全角文字・特殊記号（`–` など）が含まれると正しく動作しないことがあります。
+> 特に OneDrive の同期フォルダ名に会社名（日本語）が入っている場合に問題になりやすいです。
+>
+> **対処法:** フォルダごと `C:\Tools\GetDruidUser` など英数字のみのパスにコピーまたは移動してください。
+
+---
+
 ## 1. Python パッケージのインストール
 
 ```bash

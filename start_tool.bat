@@ -1,16 +1,17 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
+REM ---- 文字化け対策（UTF-8）※ start より前に実行 ----
+chcp 65001 >nul
+
 REM ==========================================================
 REM  ダブルクリックでも必ず「開いたまま」にする（cmd /k で再起動）
+REM  %~fs0 で8.3短縮パスを使い、日本語パスの問題を回避する
 REM ==========================================================
 if /i not "%~1"=="__RUN__" (
-  start "Druid Query Runner" cmd /k ""%~f0" __RUN__"
+  start "Druid Query Runner" cmd /k "chcp 65001 >nul & "%~fs0" __RUN__"
   exit /b
 )
-
-REM ---- 文字化け対策（UTF-8） ----
-chcp 65001 >nul
 
 title Druid Query Runner
 cd /d "%~dp0"
