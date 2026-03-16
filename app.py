@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+
+# プロジェクトルートを sys.path に追加（src パッケージの import を確実にする）
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import streamlit as st
 import pandas as pd
 
