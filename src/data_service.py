@@ -293,6 +293,7 @@ def fetch_chunk_data(
             excludes=excludes,
             src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
             state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
+            speed_table=bigquery_speed_table or "t2-integration.zero_plotter.t2_localization_compositor_pose",
         )
 
     q1_dfs = _run_sql_adaptive_split(
@@ -316,6 +317,7 @@ def fetch_chunk_data(
             excludes=excludes,
             src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
             state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
+            speed_table=bigquery_speed_table or "t2-integration.zero_plotter.t2_localization_compositor_pose",
         )
 
     q2_dfs = _run_sql_adaptive_split(

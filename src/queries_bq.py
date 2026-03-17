@@ -153,16 +153,18 @@ def pick_distance_cte(
     start_time: str,
     end_time: str,
     excludes: Sequence[ExcludeRange] = (),
+    src_table: str = "t2-integration.zero_plotter.t2_control_debug",
+    speed_table: str = "t2-integration.zero_plotter.t2_localization_compositor_pose",
 ):
     if dist_mode == "latlon":
         return make_distance_cte_latlon(
             vehicle_id=vehicle_id, start_time=start_time, end_time=end_time,
-            excludes=excludes,
+            excludes=excludes, src_table=src_table,
         )
     if dist_mode == "speed":
         return make_distance_cte_speed(
             vehicle_id=vehicle_id, start_time=start_time, end_time=end_time,
-            excludes=excludes,
+            excludes=excludes, speed_table=speed_table,
         )
     raise ValueError("Unknown dist_mode: " + str(dist_mode))
 
@@ -397,12 +399,14 @@ def build_query1(
     dist_mode: str = "latlon",
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
+    speed_table: str = "t2-integration.zero_plotter.t2_localization_compositor_pose",
     excludes: Sequence[ExcludeRange] = (),
 ) -> str:
     ex = _build_excludes_for_templates(excludes)
     distance_cte = pick_distance_cte(
         dist_mode=dist_mode, vehicle_id=vehicle_id,
         start_time=start_time, end_time=end_time, excludes=excludes,
+        src_table=src_table, speed_table=speed_table,
     )
     return QUERY1_TEMPLATE.format(
         vehicle_id=vehicle_id,
@@ -425,12 +429,14 @@ def build_query2(
     dist_mode: str = "latlon",
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
+    speed_table: str = "t2-integration.zero_plotter.t2_localization_compositor_pose",
     excludes: Sequence[ExcludeRange] = (),
 ) -> str:
     ex = _build_excludes_for_templates(excludes)
     distance_cte = pick_distance_cte(
         dist_mode=dist_mode, vehicle_id=vehicle_id,
         start_time=start_time, end_time=end_time, excludes=excludes,
+        src_table=src_table, speed_table=speed_table,
     )
     return QUERY2_TEMPLATE.format(
         vehicle_id=vehicle_id,
