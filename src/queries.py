@@ -384,6 +384,132 @@ ORDER BY 1
 
 
 # -------------------------
+# 汎用散布図クエリ（追加散布図用）
+# -------------------------
+EXTRA_SCATTER_TEMPLATE = r"""
+WITH per_sec AS (
+  SELECT
+    TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
+    `#latitude`  AS latitude,
+    `#longitude` AS longitude,
+    `{field_id}` AS field_value,
+    ABS(`{field_id}`) AS abs_field_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
+      ORDER BY ABS(`{field_id}`) DESC
+    ) AS rn
+  FROM `{data_table}`
+  WHERE `#vehicle_id` = '{vehicle_id}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
+    {exclude_ctrl}
+    AND ABS(`{field_id}`) >= {threshold}
+),
+
+sec_pick AS (
+  SELECT
+    sec_time,
+    latitude,
+    longitude,
+    field_value,
+    abs_field_value
+  FROM per_sec
+  WHERE rn = 1
+),
+
+state_per_sec AS (
+  SELECT
+    TIMESTAMP_TRUNC(`#timestamp`, SECOND) AS sec_time,
+    MAX(`:system_state`) AS system_state
+  FROM `{state_table}`
+  WHERE `#vehicle_id` = '{vehicle_id}'
+    AND `#timestamp` >= '{start_time}'
+    AND `#timestamp` <  '{end_time}'
+    {exclude_state}
+  GROUP BY TIMESTAMP_TRUNC(`#timestamp`, SECOND)
+),
+
+filtered AS (
+  SELECT
+    TIMESTAMP_TRUNC(p.sec_time, MINUTE) AS win_1m,
+    p.sec_time,
+    p.latitude,
+    p.longitude,
+    p.field_value,
+    p.abs_field_value
+  FROM sec_pick p
+  JOIN state_per_sec s
+    ON p.sec_time = s.sec_time
+  WHERE s.system_state = 4
+),
+
+ranked AS (
+  SELECT
+    win_1m,
+    sec_time,
+    latitude,
+    longitude,
+    field_value,
+    abs_field_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY win_1m
+      ORDER BY abs_field_value DESC
+    ) AS rn
+  FROM filtered
+),
+
+{distance_cte}
+
+SELECT
+  r.win_1m,
+  r.sec_time,
+  r.latitude,
+  r.longitude,
+  r.field_value,
+  r.abs_field_value,
+  c.cum_dist_km
+FROM ranked r
+LEFT JOIN cum c
+  ON r.sec_time = c.sec_time
+WHERE r.rn = 1
+ORDER BY r.win_1m
+""".strip()
+
+
+def build_extra_scatter_query(
+    *,
+    vehicle_id: str,
+    start_time: str,
+    end_time: str,
+    data_table: str,
+    field_id: str,
+    threshold: float = 0.0,
+    dist_mode: str = "latlon",
+    src_table: str = "t2-integration.zero_plotter.t2_control_debug",
+    state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
+    speed_table: str = "t2-integration.zero_plotter.t2_localization_compositor_pose",
+    excludes: Sequence[ExcludeRange] = (),
+) -> str:
+    ex = _build_excludes_for_templates(excludes)
+    distance_cte = pick_distance_cte(
+        dist_mode=dist_mode, vehicle_id=vehicle_id,
+        start_time=start_time, end_time=end_time, excludes=excludes,
+        src_table=src_table, speed_table=speed_table,
+    )
+    return EXTRA_SCATTER_TEMPLATE.format(
+        vehicle_id=vehicle_id,
+        start_time=start_time,
+        end_time=end_time,
+        data_table=data_table,
+        field_id=field_id,
+        threshold=float(threshold),
+        distance_cte=distance_cte,
+        state_table=state_table,
+        **ex,
+    )
+
+
+# -------------------------
 # Build functions
 # -------------------------
 def _build_excludes_for_templates(excludes: Sequence[ExcludeRange]) -> dict:

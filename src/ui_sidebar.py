@@ -3,14 +3,13 @@
 import streamlit as st
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
-from src.types import SidebarState
-from src.config import SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR, SS_DIST_MODE
-
-# --- 追加 import（ファイル先頭の import 群に追加） ---
+from src.types import SidebarState, ExtraScatterConfig
 from src.config import (
+    SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR, SS_DIST_MODE,
     SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE,
     SS_PLOT_EDIT_W, SS_PLOT_EDIT_H, SS_PLOT_EDIT_WC, SS_PLOT_EDIT_HC,
     SS_PLOT_APPLY_REQ, SS_PLOT_LOCK,
+    SS_EXTRA_SCATTERS,
 )
 
 
@@ -30,6 +29,66 @@ def _plot_size_reset():
     st.session_state[SS_PLOT_EDIT_HC] = 4.5
 
     st.session_state[SS_PLOT_APPLY_REQ] = True
+
+def _render_extra_scatter_ui() -> None:
+    """追加散布図の設定UIを描画する。"""
+    configs: list[dict] = st.session_state[SS_EXTRA_SCATTERS]
+
+    # 既存の設定を表示
+    to_delete = []
+    for idx, cfg in enumerate(configs):
+        with st.expander(f"追加{idx+1}: {cfg.get('label', '未設定')}", expanded=False):
+            st.text(f"テーブル: {cfg.get('table_id', '未選択')}")
+            st.text(f"フィールド: {cfg.get('field_id', '未選択')}")
+            st.text(f"閾値: {cfg.get('threshold', 0.0)}")
+            if st.button("削除", key=f"del_extra_{idx}"):
+                to_delete.append(idx)
+
+    for idx in reversed(to_delete):
+        configs.pop(idx)
+
+    # 新規追加
+    with st.expander("＋ 新しい追加散布図", expanded=len(configs) == 0):
+        new_table = st.text_input(
+            "テーブルID",
+            value="",
+            key="new_extra_table",
+            help="例: t2_control_debug（データセット t2-integration.zero_plotter 配下）",
+        )
+        new_field = st.text_input(
+            "フィールドID",
+            value="",
+            key="new_extra_field",
+            help="例: :debug_for_mcap:lateral_error（バッククォート不要）",
+        )
+        new_threshold = st.number_input(
+            "閾値 (ABS >= )",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+            format="%.3f",
+            key="new_extra_threshold",
+        )
+        new_label = st.text_input(
+            "ラベル（表示名）",
+            value="",
+            key="new_extra_label",
+            help="空欄の場合は「テーブル.フィールド」が使われます",
+        )
+
+        if st.button("追加", key="add_extra_scatter"):
+            if new_table.strip() and new_field.strip():
+                label = new_label.strip() or f"{new_table.strip()}.{new_field.strip()}"
+                configs.append({
+                    "table_id": new_table.strip(),
+                    "field_id": new_field.strip(),
+                    "threshold": float(new_threshold),
+                    "label": label,
+                })
+                st.success(f"追加しました: {label}")
+            else:
+                st.warning("テーブルIDとフィールドIDを入力してください。")
+
 
 def render_sidebar() -> SidebarState:
     """
@@ -154,7 +213,16 @@ def render_sidebar() -> SidebarState:
 
 
 
-        # （今は自動/手動はやめる、という方針なのでレンジ入力は残すか任意）
+        # -------------------------
+        # 追加散布図（再実行が必要）
+        # -------------------------
+        st.markdown("---")
+        st.subheader("追加散布図（再実行が必要）")
+        st.caption("テーブルとフィールドを指定して、Q1/Q2 と同じ形式の追加散布図を取得できます。")
+
+        st.session_state.setdefault(SS_EXTRA_SCATTERS, [])
+        _render_extra_scatter_ui()
+
         st.markdown("---")
         st.subheader("表示レンジ（比較タブ用・任意）")
         x_min = st.number_input("X最小（km）", value=0.0)
@@ -295,6 +363,17 @@ def render_sidebar() -> SidebarState:
     #     st.session_state[SS_PLOT_LOCK] = True
         
 
+    # 追加散布図の設定を ExtraScatterConfig に変換
+    extra_configs = tuple(
+        ExtraScatterConfig(
+            table_id=c["table_id"],
+            field_id=c["field_id"],
+            threshold=float(c.get("threshold", 0.0)),
+            label=c.get("label", f"{c['table_id']}.{c['field_id']}"),
+        )
+        for c in st.session_state.get(SS_EXTRA_SCATTERS, [])
+    )
+
     return SidebarState(
         vehicle_id=vehicle_id,
         split_minutes=int(split_minutes),
@@ -313,4 +392,5 @@ def render_sidebar() -> SidebarState:
         bigquery_pose_table=bigquery_pose_table,
         bigquery_speed_table=bigquery_speed_table,
         exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
+        extra_scatters=extra_configs,
     )

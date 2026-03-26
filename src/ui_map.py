@@ -36,6 +36,18 @@ _OSM_STYLE_URL = "data:application/json;base64," + base64.b64encode(
 _BASE_Q1 = (220, 40, 40)     # 赤系 — lateral_error
 _BASE_Q2 = (40, 80, 220)     # 青系 — acceleration
 
+# 追加散布図用の色パレット（最大8色）
+_EXTRA_COLORS = [
+    (40, 180, 40),     # 緑
+    (200, 120, 0),     # オレンジ
+    (150, 40, 200),    # 紫
+    (0, 180, 180),     # シアン
+    (200, 200, 0),     # 黄
+    (200, 80, 120),    # ピンク
+    (100, 60, 30),     # 茶
+    (80, 80, 80),      # グレー
+]
+
 
 def _color_by_magnitude(
     abs_values: pd.Series,
@@ -135,62 +147,43 @@ _TOOLTIP = {
 
 @st.fragment
 def _map_fragment(
-    q1_data: pd.DataFrame | None,
-    q2_data: pd.DataFrame | None,
-    q1_count: int,
-    q2_count: int,
+    layer_entries: list[dict],
     view_state: pdk.ViewState,
     key_prefix: str,
     map_height: int,
 ) -> None:
     """
     fragment 内でチェックボックス＋地図を描画する。
-    チェックボックスの変更はこの fragment だけ再実行される
-    （ページ全体の散布図・ヒストグラムは再描画されない）。
+    layer_entries: [{"label": str, "data": DataFrame, "count": int, "rgb": (r,g,b)}, ...]
     """
-    # --- Q1/Q2 表示切り替えチェックボックス ---
-    col_chk1, col_chk2, _ = st.columns([1, 1, 3])
-    with col_chk1:
-        show_q1 = st.checkbox(
-            f"Q1: lateral_error ({q1_count}件)",
-            value=True,
-            key=f"map_q1_{key_prefix}",
-        )
-    with col_chk2:
-        show_q2 = st.checkbox(
-            f"Q2: acceleration ({q2_count}件)",
-            value=True,
-            key=f"map_q2_{key_prefix}",
-        )
+    # --- 表示切り替えチェックボックス ---
+    num_entries = len(layer_entries)
+    cols = st.columns(min(num_entries, 4))
+    show_flags = {}
+    for idx, entry in enumerate(layer_entries):
+        with cols[idx % len(cols)]:
+            show_flags[idx] = st.checkbox(
+                f"{entry['label']} ({entry['count']}件)",
+                value=True,
+                key=f"map_{idx}_{key_prefix}",
+            )
 
-    has_q1 = q1_data is not None and show_q1
-    has_q2 = q2_data is not None and show_q2
+    active = [
+        entry for idx, entry in enumerate(layer_entries)
+        if show_flags.get(idx, False) and entry["data"] is not None
+    ]
 
-    if not has_q1 and not has_q2:
+    if not active:
         st.info("表示するレイヤーが選択されていません。")
         return
 
     # --- レイヤー構築 ---
     layers: list[pdk.Layer] = []
-    if has_q1:
+    for entry in active:
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                data=q1_data,
-                get_position=["longitude", "latitude"],
-                get_color="color",
-                get_radius=30,
-                radius_min_pixels=4,
-                radius_max_pixels=12,
-                pickable=True,
-                auto_highlight=True,
-            )
-        )
-    if has_q2:
-        layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=q2_data,
+                data=entry["data"],
                 get_position=["longitude", "latitude"],
                 get_color="color",
                 get_radius=30,
@@ -201,15 +194,12 @@ def _map_fragment(
             )
         )
 
-    # --- 凡例（濃淡の説明付き） ---
+    # --- 凡例 ---
     legend_parts = []
-    if has_q1:
+    for entry in active:
+        r, g, b = entry["rgb"]
         legend_parts.append(
-            '<span style="color:rgb(220,40,40);">&#9679;</span> Q1: lateral_error'
-        )
-    if has_q2:
-        legend_parts.append(
-            '<span style="color:rgb(40,80,220);">&#9679;</span> Q2: acceleration'
+            f'<span style="color:rgb({r},{g},{b});">&#9679;</span> {entry["label"]}'
         )
     if legend_parts:
         legend_html = (
@@ -237,6 +227,7 @@ def show_map(
     df1: pd.DataFrame | None,
     df2: pd.DataFrame | None,
     *,
+    extra_dfs: list[tuple[str, pd.DataFrame]] | None = None,
     range_label: str = "",
     range_start: str = "",
     range_end: str = "",
@@ -244,7 +235,7 @@ def show_map(
     thr_acc: float | None = None,
     map_height: int = 500,
 ) -> None:
-    """Q1 (lateral_error) と Q2 (acceleration) の発生地点を地図にプロットする。"""
+    """Q1/Q2 + 追加散布図の発生地点を地図にプロットする。"""
 
     st.markdown("### 地図: 発生地点プロット")
 
@@ -254,11 +245,11 @@ def show_map(
     )
 
     # --- データ準備（fragment の外で 1 回だけ実行） ---
-    q1_data: pd.DataFrame | None = None
-    q2_data: pd.DataFrame | None = None
-    q1_count = 0
-    q2_count = 0
+    layer_entries: list[dict] = []
+    all_lats: list[float] = []
+    all_lons: list[float] = []
 
+    # Q1
     if df1 is not None and not df1.empty:
         df1_clean = _ensure_numeric(df1, ["latitude", "longitude", "lateral_error"])
         if not df1_clean.empty:
@@ -266,8 +257,11 @@ def show_map(
                 df1_clean, "lateral_error", "abs_lateral_error",
                 "Q1 (lateral_error)", _BASE_Q1, run_info,
             )
-            q1_count = len(q1_data)
+            layer_entries.append({"label": "Q1: lateral_error", "data": q1_data, "count": len(q1_data), "rgb": _BASE_Q1})
+            all_lats.extend(q1_data["latitude"].tolist())
+            all_lons.extend(q1_data["longitude"].tolist())
 
+    # Q2
     if df2 is not None and not df2.empty:
         df2_clean = _ensure_numeric(df2, ["latitude", "longitude", "acceleration"])
         if not df2_clean.empty:
@@ -275,21 +269,29 @@ def show_map(
                 df2_clean, "acceleration", "abs_acceleration",
                 "Q2 (acceleration)", _BASE_Q2, run_info,
             )
-            q2_count = len(q2_data)
+            layer_entries.append({"label": "Q2: acceleration", "data": q2_data, "count": len(q2_data), "rgb": _BASE_Q2})
+            all_lats.extend(q2_data["latitude"].tolist())
+            all_lons.extend(q2_data["longitude"].tolist())
 
-    if q1_data is None and q2_data is None:
+    # 追加散布図
+    for idx, (ex_label, ex_df) in enumerate(extra_dfs or []):
+        if ex_df is None or ex_df.empty:
+            continue
+        ex_clean = _ensure_numeric(ex_df, ["latitude", "longitude", "field_value"])
+        if ex_clean.empty:
+            continue
+        color = _EXTRA_COLORS[idx % len(_EXTRA_COLORS)]
+        ex_data = _prepare_layer_df(
+            ex_clean, "field_value", "abs_field_value",
+            f"追加: {ex_label}", color, run_info,
+        )
+        layer_entries.append({"label": f"追加: {ex_label}", "data": ex_data, "count": len(ex_data), "rgb": color})
+        all_lats.extend(ex_data["latitude"].tolist())
+        all_lons.extend(ex_data["longitude"].tolist())
+
+    if not layer_entries:
         st.info("地図に表示できるデータがありません（緯度・経度が欠損）。")
         return
-
-    # --- ビューポート（全データから算出） ---
-    all_lats: list[float] = []
-    all_lons: list[float] = []
-    if q1_data is not None:
-        all_lats.extend(q1_data["latitude"].tolist())
-        all_lons.extend(q1_data["longitude"].tolist())
-    if q2_data is not None:
-        all_lats.extend(q2_data["latitude"].tolist())
-        all_lons.extend(q2_data["longitude"].tolist())
 
     view_state = pdk.ViewState(
         latitude=sum(all_lats) / len(all_lats),
@@ -298,12 +300,8 @@ def show_map(
         pitch=0,
     )
 
-    # --- fragment 呼び出し（チェックボックス変更時はここだけ再実行） ---
     _map_fragment(
-        q1_data=q1_data,
-        q2_data=q2_data,
-        q1_count=q1_count,
-        q2_count=q2_count,
+        layer_entries=layer_entries,
         view_state=view_state,
         key_prefix=f"{range_label}_{range_start}",
         map_height=map_height,

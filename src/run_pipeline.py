@@ -137,6 +137,7 @@ def run_and_build_results(
                     bigquery_state_table=config.bigquery_state_table,
                     bigquery_pose_table=config.bigquery_pose_table,
                     bigquery_speed_table=config.bigquery_speed_table,
+                    extra_scatters=config.extra_scatters or (),
                 )
                 futures[fut] = (chunk_idx, cs, ce)
 
@@ -152,6 +153,8 @@ def run_and_build_results(
                     all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q1"] = pd.DataFrame()
                     all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q2"] = pd.DataFrame()
                     all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q3"] = pd.DataFrame()
+                    for esc in (config.extra_scatters or ()):
+                        all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_EX_{esc.label}"] = pd.DataFrame()
 
                     done_chunks += 1
                     emit(
@@ -174,6 +177,9 @@ def run_and_build_results(
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q1"] = data.df1
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q2"] = data.df2
                 all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_Q3"] = data.df3_hist
+                if data.extra_dfs:
+                    for ex_label, ex_df in data.extra_dfs.items():
+                        all_excel_sheets[f"T{pair_idx+1}_C{chunk_idx+1}_EX_{ex_label}"] = ex_df
 
                 done_chunks += 1
                 emit(

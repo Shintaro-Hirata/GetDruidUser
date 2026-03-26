@@ -135,6 +135,7 @@ if run:
         bigquery_state_table=ui.bigquery_state_table,
         bigquery_pose_table=ui.bigquery_pose_table,
         bigquery_speed_table=ui.bigquery_speed_table,
+        extra_scatters=ui.extra_scatters,
     )
      
     # ★ Run中UI（進捗＋ログ）を外出し

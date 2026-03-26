@@ -115,6 +115,48 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None, fig_size=(7.0, 4.0))
     st.dataframe(df2, use_container_width=True)
 
 
+def show_extra_scatter(
+    label: str,
+    df: pd.DataFrame,
+    *,
+    xlim=None,
+    ylim=None,
+    fig_size=(7.0, 4.0),
+) -> None:
+    """追加散布図を表示する。X=cum_dist_km, Y=field_value。"""
+    st.markdown(f"### 追加: {label}（散布図）")
+    if df is None or df.empty:
+        st.info("結果0件")
+        return
+
+    if not _require_columns(df, ["cum_dist_km", "field_value"], context=f"追加({label})"):
+        return
+
+    plot_df = df.copy()
+    plot_df["cum_dist_km"] = pd.to_numeric(plot_df["cum_dist_km"], errors="coerce")
+    plot_df["field_value"] = pd.to_numeric(plot_df["field_value"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["cum_dist_km", "field_value"])
+
+    if plot_df.empty:
+        st.info("結果0件（数値化後に有効データがありません）")
+        return
+
+    fig = scatter(
+        plot_df,
+        "cum_dist_km",
+        "field_value",
+        "移動距離[km]",
+        label,
+        fig_size=fig_size,
+    )
+
+    ax = fig.axes[0] if fig.axes else None
+    _apply_limits(ax, xlim=xlim, ylim=ylim)
+
+    st.pyplot(fig, clear_figure=True, use_container_width=False)
+    st.dataframe(plot_df, use_container_width=True)
+
+
 def show_query3(df3_hist: pd.DataFrame, *, xlim=None, ylim=None, smooth_window: int = 1, fig_size=(7.0, 4.0)):
     st.markdown("### クエリ3: 横G（ヒストグラム：自動/手動 重ね表示）")
     if df3_hist is None or df3_hist.empty:

@@ -43,3 +43,7 @@ SS_PLOT_LOCK = "plot_ui_locked"              # 反映中は True（スライダ�
 
 # 距離の算出方式
 SS_DIST_MODE = "dist_mode"  # "latlon" or "speed"
+
+# 追加散布図
+SS_EXTRA_SCATTERS = "extra_scatters"          # list[ExtraScatterConfig]
+SS_CACHE_EXTRA_SHEETS = "cache_extra_sheets"  # dict[str, pd.DataFrame]

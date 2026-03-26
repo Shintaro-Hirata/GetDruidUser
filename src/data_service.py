@@ -14,6 +14,7 @@ from src.queries import (
     build_query1,
     build_query2,
     build_query3,
+    build_extra_scatter_query,
     DistanceMode,
     ExcludeRange,
 )
@@ -30,6 +31,7 @@ class ChunkData:
     df1: pd.DataFrame
     df2: pd.DataFrame
     df3_hist: pd.DataFrame  # binごとに auto/manual の cnt/ratio を持つ
+    extra_dfs: dict[str, pd.DataFrame] = None  # 追加散布図 {label: df}
 
 
 # =========================
@@ -258,6 +260,7 @@ def fetch_chunk_data(
     bigquery_state_table: Optional[str] = None,
     bigquery_pose_table: Optional[str] = None,
     bigquery_speed_table: Optional[str] = None,
+    extra_scatters: Sequence[Any] = (),
 ) -> ChunkData:
     """
     1チャンク(cs,ce)のデータ取得。
@@ -386,8 +389,44 @@ def fetch_chunk_data(
             df3_hist[c] = 0.0
         df3_hist[c] = pd.to_numeric(df3_hist[c], errors="coerce").fillna(0.0)
 
+    # ---- 追加散布図 ----
+    extra_dfs: dict[str, pd.DataFrame] = {}
+    dataset_prefix = "t2-integration.zero_plotter"
+    for esc in extra_scatters:
+        full_table = f"{dataset_prefix}.{esc.table_id}"
+
+        def extra_builder(s: datetime, e: datetime, _ft=full_table, _fi=esc.field_id, _thr=esc.threshold) -> str:
+            return build_extra_scatter_query(
+                vehicle_id=vehicle_id,
+                start_time=s.isoformat(),
+                end_time=e.isoformat(),
+                data_table=_ft,
+                field_id=_fi,
+                threshold=float(_thr),
+                dist_mode=dist_mode,
+                excludes=excludes,
+                src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",
+                state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
+                speed_table=bigquery_speed_table or "t2-integration.zero_plotter.t2_localization_compositor_pose",
+            )
+
+        try:
+            ex_dfs = _run_sql_adaptive_split(
+                client=client,
+                query_builder=extra_builder,
+                start=cs,
+                end=ce,
+                min_split_minutes=min_split_minutes,
+                context=ctx,
+            )
+            extra_dfs[esc.label] = _concat_make_cum_dist_continuous(ex_dfs, cum_col="cum_dist_km")
+        except Exception as ex:
+            logger.warning("追加散布図 '%s' のクエリ失敗: %s", esc.label, ex)
+            extra_dfs[esc.label] = pd.DataFrame()
+
     # ---- JST列を追加（sec_time / win_1m → +09:00 表示） ----
-    for df in (df1, df2):
+    all_dfs = [df1, df2] + list(extra_dfs.values())
+    for df in all_dfs:
         if df is None or df.empty:
             continue
         for col in ("sec_time", "win_1m"):
@@ -396,4 +435,4 @@ def fetch_chunk_data(
             ts = pd.to_datetime(df[col], errors="coerce", utc=True)
             df[f"{col}_jst"] = ts.dt.tz_convert("Asia/Tokyo").dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    return ChunkData(df1=df1, df2=df2, df3_hist=df3_hist)
+    return ChunkData(df1=df1, df2=df2, df3_hist=df3_hist, extra_dfs=extra_dfs)

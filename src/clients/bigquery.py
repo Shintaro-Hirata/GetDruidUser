@@ -68,6 +68,22 @@ class BigQueryClient:
         except Exception as ex:
             raise RuntimeError(f"Failed to run BigQuery SQL: {ex}") from ex
 
+    def list_tables(self, dataset_id: str) -> list[str]:
+        """dataset_id 配下のテーブルID一覧を返す。"""
+        try:
+            tables = self._client.list_tables(dataset_id)
+            return sorted(t.table_id for t in tables)
+        except Exception as ex:
+            raise RuntimeError(f"Failed to list tables in {dataset_id}: {ex}") from ex
+
+    def get_table_fields(self, full_table_id: str) -> list[str]:
+        """テーブルのフィールド名一覧を返す（#timestamp, #vehicle_id 等も含む）。"""
+        try:
+            table = self._client.get_table(full_table_id)
+            return [f.name for f in table.schema]
+        except Exception as ex:
+            raise RuntimeError(f"Failed to get schema for {full_table_id}: {ex}") from ex
+
     def close(self) -> None:
         # bigquery.Client に close メソッドは基本不要だが念のため
         try:

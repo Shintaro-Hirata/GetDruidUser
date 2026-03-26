@@ -42,6 +42,9 @@ class SidebarState:
     # 除外時間入力（複数行テキスト）
     exclude_ranges_text: str = ""
 
+    # 追加散布図
+    extra_scatters: tuple = ()  # tuple[ExtraScatterConfig, ...]
+
 # ★追加：run_pipeline に渡す「再実行が必要な条件」を束ねる
 @dataclass(frozen=True)
 class RunConfig:
@@ -62,6 +65,17 @@ class RunConfig:
     bigquery_pose_table: Optional[str] = None
     bigquery_speed_table: Optional[str] = None
 
+    extra_scatters: tuple[Any, ...] = ()  # tuple[ExtraScatterConfig, ...]
+
+
+@dataclass(frozen=True)
+class ExtraScatterConfig:
+    """追加散布図の設定（ユーザーが動的に指定するテーブル/フィールド）。"""
+    table_id: str        # e.g. "t2_control_debug"
+    field_id: str        # e.g. ":debug_for_mcap:some_field"
+    threshold: float     # ABS(field) >= threshold
+    label: str           # 表示ラベル（自動生成 or ユーザー指定）
+
 
 @dataclass(frozen=True)
 class PipelineResults:
@@ -71,3 +85,4 @@ class PipelineResults:
     compare_q1: list[tuple[str, pd.DataFrame]]
     compare_q2: list[tuple[str, pd.DataFrame]]
     compare_q3: list[tuple[str, pd.DataFrame]]
+    extra_scatter_data: dict[str, dict[str, pd.DataFrame]] = None  # {label: {sheet_key: df}}

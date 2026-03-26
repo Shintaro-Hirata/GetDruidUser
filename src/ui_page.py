@@ -4,12 +4,37 @@ import pandas as pd
 
 from src.ui_view import show_query1, show_query2, show_query3
 from src.ui_view import show_scatter_compare, show_query3_compare
+from src.ui_view import show_extra_scatter
 from src.ui_map import show_map
 
 from src.config import (
     SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE,
     SS_CACHE_THR_LAT, SS_CACHE_THR_ACC,
+    SS_EXTRA_SCATTERS,
 )
+
+
+def _find_extra_labels(all_excel_sheets: dict, period: int, chunk: int) -> list[str]:
+    """指定チャンクに存在する追加散布図のラベルを返す。"""
+    prefix = f"T{period}_C{chunk}_EX_"
+    return [k[len(prefix):] for k in all_excel_sheets if k.startswith(prefix)]
+
+
+def _render_extras(
+    all_excel_sheets: dict,
+    period: int,
+    chunk: int,
+    fig_size: tuple,
+    xlim=None,
+) -> None:
+    """追加散布図を描画する。"""
+    labels = _find_extra_labels(all_excel_sheets, period, chunk)
+    if not labels:
+        return
+    st.markdown("---")
+    for ex_label in labels:
+        ex_df = all_excel_sheets.get(f"T{period}_C{chunk}_EX_{ex_label}", pd.DataFrame())
+        show_extra_scatter(ex_label, ex_df, xlim=xlim, fig_size=fig_size)
 
 
 def render_period_tabs_from_cache(
@@ -40,7 +65,6 @@ def render_period_tabs_from_cache(
             st.subheader(f"{label}: {r.start.isoformat()} 〜 {r.end.isoformat()}")
 
             # 分割数は、all_excel_sheets に何枚入っているかから復元する
-            # T{period}_C{chunk}_Q1 が存在する chunk を数える
             chunk_idx = 1
             chunk_keys = []
             while True:
@@ -59,7 +83,15 @@ def render_period_tabs_from_cache(
             thr_lat = st.session_state.get(SS_CACHE_THR_LAT, None)
             thr_acc = st.session_state.get(SS_CACHE_THR_ACC, None)
 
-            # 1チャンクならそのまま表示、複数ならチャンクタブを作る
+            # 追加散布図の地図表示用データを収集する関数
+            def _collect_extra_map_data(period: int, chunk: int):
+                """追加散布図のDFリストを返す（地図表示用）。"""
+                labels = _find_extra_labels(all_excel_sheets, period, chunk)
+                return [
+                    (ex_label, all_excel_sheets.get(f"T{period}_C{chunk}_EX_{ex_label}", pd.DataFrame()))
+                    for ex_label in labels
+                ]
+
             if len(chunk_keys) == 1:
                 c = chunk_keys[0]
                 df1 = all_excel_sheets.get(f"T{i+1}_C{c}_Q1", pd.DataFrame())
@@ -74,9 +106,14 @@ def render_period_tabs_from_cache(
                     st.markdown("---")
                     show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3, fig_size=fig_size)
 
+                # 追加散布図
+                _render_extras(all_excel_sheets, i + 1, c, fig_size, xlim=xlim)
+
                 st.markdown("---")
+                extra_map_data = _collect_extra_map_data(i + 1, c)
                 show_map(
                     df1, df2,
+                    extra_dfs=extra_map_data,
                     range_label=label,
                     range_start=r.start.isoformat(),
                     range_end=r.end.isoformat(),
@@ -100,16 +137,20 @@ def render_period_tabs_from_cache(
                             st.markdown("---")
                             show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3, fig_size=fig_size)
 
+                        # 追加散布図
+                        _render_extras(all_excel_sheets, i + 1, c, fig_size, xlim=xlim)
+
                         st.markdown("---")
+                        extra_map_data = _collect_extra_map_data(i + 1, c)
                         show_map(
                             df1, df2,
+                            extra_dfs=extra_map_data,
                             range_label=label,
                             range_start=r.start.isoformat(),
                             range_end=r.end.isoformat(),
                             thr_lat=thr_lat,
                             thr_acc=thr_acc,
                         )
-
 
 
 def render_compare_tab(
@@ -172,5 +213,5 @@ def render_compare_tab(
             xlim=xlim_q3,
             ylim=ylim_q3,
             smooth_window=smooth_window_q3,
-            fig_size=fig_size_cmp,  # ★追加
+            fig_size=fig_size_cmp,
         )
