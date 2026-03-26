@@ -164,7 +164,7 @@ def _map_fragment(
             layers=layers,
             initial_view_state=view_state,
             tooltip=_TOOLTIP,
-            map_style=pdk.map_styles.ROAD,
+            map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
         ),
         height=map_height,
     )
