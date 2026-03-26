@@ -27,22 +27,14 @@ app.add_middleware(
 
 logger = logging.getLogger("uvicorn.error")
 
-# mount web/ as root static files (serve index.html)
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
-if WEB_DIR.exists():
-    # mount web/ at /static so static files are available as /static/...
-    app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
-
 # mount web/ at /static so static files are available as /static/...
-app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+if WEB_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 # serve index.html at root so 127.0.0.1:8000/ loads the UI
 @app.get("/", include_in_schema=False)
-def serve_index():
-    return FileResponse(str(WEB_DIR / "index.html"))
-
 @app.get("/index.html", include_in_schema=False)
-def serve_index_html():
+def serve_index():
     return FileResponse(str(WEB_DIR / "index.html"))
 
 def normalize_df(df: pd.DataFrame) -> pd.DataFrame:

@@ -36,22 +36,3 @@ def scatter(
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     return fig
-
-
-def hist_ratio(
-    df: pd.DataFrame,
-    bin_col: str = "bin_start",
-    cnt_col: str = "cnt",
-    bar_width: float = 0.18,
-    *,
-    fig_size=(7.0, 4.0),
-):
-    df = df.copy()
-    total = df[cnt_col].sum()
-    df["ratio"] = df[cnt_col] / total if total > 0 else 0.0
-
-    fig, ax = plt.subplots(figsize=fig_size)
-    ax.bar(df[bin_col], df["ratio"], width=bar_width)
-    ax.set_xlabel(bin_col)
-    ax.set_ylabel("ratio")
-    return fig, df

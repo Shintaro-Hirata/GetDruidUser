@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from src.plots import scatter, hist_ratio, setup_japanese_font
+from src.plots import scatter, setup_japanese_font
 from src.config import SS_TEST_DROP_COLUMNS
 
 setup_japanese_font()
