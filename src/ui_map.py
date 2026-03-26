@@ -149,13 +149,33 @@ def show_map(
         st.info("地図に表示できるデータがありません（緯度・経度が欠損）。")
         return
 
+    # --- Q1/Q2 表示切り替えチェックボックス ---
+    col_chk1, col_chk2, _ = st.columns([1, 1, 3])
+    with col_chk1:
+        show_q1 = st.checkbox(
+            f"Q1: lateral_error ({len(df1) if has_q1 else 0}件)",
+            value=True,
+            key=f"map_q1_{range_label}_{range_start}",
+        )
+    with col_chk2:
+        show_q2 = st.checkbox(
+            f"Q2: acceleration ({len(df2) if has_q2 else 0}件)",
+            value=True,
+            key=f"map_q2_{range_label}_{range_start}",
+        )
+
+    # どちらも非表示なら地図だけ表示
+    if not (show_q1 and has_q1) and not (show_q2 and has_q2):
+        st.info("表示するレイヤーが選択されていません。")
+        return
+
     # --- 地図の中心を決定 ---
     all_lats: list[float] = []
     all_lons: list[float] = []
-    if has_q1:
+    if show_q1 and has_q1:
         all_lats.extend(df1["latitude"].tolist())
         all_lons.extend(df1["longitude"].tolist())
-    if has_q2:
+    if show_q2 and has_q2:
         all_lats.extend(df2["latitude"].tolist())
         all_lons.extend(df2["longitude"].tolist())
 
@@ -165,7 +185,7 @@ def show_map(
     m = folium.Map(location=[center_lat, center_lon], zoom_start=15)
 
     # --- Q1 マーカー ---
-    if has_q1:
+    if show_q1 and has_q1:
         fg1 = folium.FeatureGroup(name=f"Q1: lateral_error ({len(df1)}件)")
         _add_markers(
             fg1, df1,
@@ -178,7 +198,7 @@ def show_map(
         fg1.add_to(m)
 
     # --- Q2 マーカー ---
-    if has_q2:
+    if show_q2 and has_q2:
         fg2 = folium.FeatureGroup(name=f"Q2: acceleration ({len(df2)}件)")
         _add_markers(
             fg2, df2,
@@ -190,19 +210,17 @@ def show_map(
         )
         fg2.add_to(m)
 
-    # --- レイヤーコントロール ---
-    folium.LayerControl().add_to(m)
-
     # --- 地図全体がデータ範囲に収まるようにフィット ---
     m.fit_bounds([[min(all_lats), min(all_lons)], [max(all_lats), max(all_lons)]])
 
     # --- 凡例 ---
-    legend_html = """
-    <div style="font-size:13px; margin-bottom:8px;">
-        <span style="color:red;">&#9679;</span> Q1: lateral_error &nbsp;&nbsp;
-        <span style="color:blue;">&#9679;</span> Q2: acceleration
-    </div>
-    """
-    st.markdown(legend_html, unsafe_allow_html=True)
+    legend_parts = []
+    if show_q1 and has_q1:
+        legend_parts.append('<span style="color:red;">&#9679;</span> Q1: lateral_error')
+    if show_q2 and has_q2:
+        legend_parts.append('<span style="color:blue;">&#9679;</span> Q2: acceleration')
+    if legend_parts:
+        legend_html = f'<div style="font-size:13px; margin-bottom:8px;">{"&nbsp;&nbsp;".join(legend_parts)}</div>'
+        st.markdown(legend_html, unsafe_allow_html=True)
 
     st_folium(m, width=None, height=map_height, returned_objects=[])
