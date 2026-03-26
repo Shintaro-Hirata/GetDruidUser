@@ -211,6 +211,128 @@ def show_scatter_compare(
     st.pyplot(fig, clear_figure=True, use_container_width=False)
 
 
+# -------------------------------------------------
+# カスタム散布図（Feature 3）
+# -------------------------------------------------
+_FRIENDLY_NAMES: dict[str, str] = {
+    "cum_dist_km": "移動距離 [km]",
+    "lateral_error": "lateral_error [m]",
+    "abs_lateral_error": "|lateral_error| [m]",
+    "acceleration": "acceleration [m/s²]",
+    "abs_acceleration": "|acceleration| [m/s²]",
+    "latitude": "緯度",
+    "longitude": "経度",
+}
+
+
+def _numeric_columns(df: pd.DataFrame) -> list[str]:
+    """DataFrame から数値に変換可能な列名のリストを返す（時刻系は除外）。"""
+    skip = {"win_1m", "sec_time", "win_1m_jst", "sec_time_jst"}
+    cols: list[str] = []
+    for c in df.columns:
+        if c in skip:
+            continue
+        if pd.api.types.is_numeric_dtype(df[c]):
+            cols.append(c)
+            continue
+        converted = pd.to_numeric(df[c], errors="coerce")
+        if converted.notna().sum() > len(df) * 0.5:
+            cols.append(c)
+    return cols
+
+
+def _col_label(col: str) -> str:
+    return _FRIENDLY_NAMES.get(col, col)
+
+
+@st.fragment
+def show_custom_scatter(
+    df1: pd.DataFrame | None,
+    df2: pd.DataFrame | None,
+    *,
+    key_prefix: str = "",
+    fig_size: tuple[float, float] = (7.0, 4.0),
+) -> None:
+    """ユーザーがX軸/Y軸を自由に選べるカスタム散布図。"""
+
+    st.markdown("### カスタム散布図")
+    st.caption("取得済みデータの任意の列を X/Y 軸に指定して散布図を描画できます。")
+
+    # データソース選択
+    sources: list[str] = []
+    if df1 is not None and not df1.empty:
+        sources.append("Q1 (lateral_error)")
+    if df2 is not None and not df2.empty:
+        sources.append("Q2 (acceleration)")
+    if not sources:
+        st.info("カスタム散布図に使えるデータがありません。")
+        return
+
+    col_src, col_x, col_y = st.columns([1, 1, 1])
+
+    with col_src:
+        src_label = st.selectbox(
+            "データソース",
+            sources,
+            key=f"custom_scatter_src_{key_prefix}",
+        )
+
+    df = df1 if src_label.startswith("Q1") else df2
+    num_cols = _numeric_columns(df)
+
+    if len(num_cols) < 2:
+        st.warning("数値列が2つ以上必要です。")
+        return
+
+    default_x = "cum_dist_km" if "cum_dist_km" in num_cols else num_cols[0]
+    default_y_candidates = ["lateral_error", "abs_lateral_error", "acceleration", "abs_acceleration"]
+    default_y = next(
+        (c for c in default_y_candidates if c in num_cols and c != default_x),
+        num_cols[1] if num_cols[1] != default_x else num_cols[0],
+    )
+
+    with col_x:
+        x_col = st.selectbox(
+            "X軸",
+            num_cols,
+            index=num_cols.index(default_x) if default_x in num_cols else 0,
+            format_func=_col_label,
+            key=f"custom_scatter_x_{key_prefix}",
+        )
+    with col_y:
+        y_col = st.selectbox(
+            "Y軸",
+            num_cols,
+            index=num_cols.index(default_y) if default_y in num_cols else 0,
+            format_func=_col_label,
+            key=f"custom_scatter_y_{key_prefix}",
+        )
+
+    if x_col == y_col:
+        st.warning("X軸とY軸に同じ列が選択されています。異なる列を選択してください。")
+        return
+
+    plot_df = df[[x_col, y_col]].copy()
+    plot_df[x_col] = pd.to_numeric(plot_df[x_col], errors="coerce")
+    plot_df[y_col] = pd.to_numeric(plot_df[y_col], errors="coerce")
+    plot_df = plot_df.dropna()
+
+    if plot_df.empty:
+        st.info("有効なデータがありません（数値変換後に全て NaN）。")
+        return
+
+    fig = scatter(
+        plot_df,
+        x_col,
+        y_col,
+        _col_label(x_col),
+        _col_label(y_col),
+        fig_size=fig_size,
+    )
+    st.pyplot(fig, clear_figure=True, use_container_width=False)
+    st.caption(f"プロット件数: {len(plot_df)}")
+
+
 def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, ylim=None, smooth_window: int = 1, fig_size=(9.0, 4.5)):
     """
     series: [(期間ラベル, df3_hist), ...]
