@@ -52,7 +52,7 @@ _EXTRA_COLORS = [
 def _color_by_magnitude(
     abs_values: pd.Series,
     base_rgb: tuple[int, int, int],
-    alpha_min: int = 120,
+    alpha_min: int = 100,
     alpha_max: int = 220,
 ) -> list[list[int]]:
     """abs値の大小に応じて alpha（透明度）を線形補間し RGBA リストを返す。"""

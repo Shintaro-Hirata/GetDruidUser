@@ -395,15 +395,22 @@ def fetch_chunk_data(
     for esc in extra_scatters:
         full_table = f"{dataset_prefix}.{esc.table_id}"
 
-        def extra_builder(s: datetime, e: datetime, _ft=full_table, _fi=esc.field_id, _tmin=esc.threshold_min, _tmax=esc.threshold_max) -> str:
+        def extra_builder(
+            s: datetime, e: datetime,
+            _ft=full_table, _fi=esc.field_id,
+            _ct=esc.condition_type, _tmin=esc.threshold_min,
+            _tmax=esc.threshold_max, _eq=esc.equals_value,
+        ) -> str:
             return build_extra_scatter_query(
                 vehicle_id=vehicle_id,
                 start_time=s.isoformat(),
                 end_time=e.isoformat(),
                 data_table=_ft,
                 field_id=_fi,
+                condition_type=_ct,
                 threshold_min=float(_tmin),
                 threshold_max=float(_tmax),
+                equals_value=float(_eq),
                 dist_mode=dist_mode,
                 excludes=excludes,
                 src_table=bigquery_src_table or "t2-integration.zero_plotter.t2_control_debug",

@@ -37,11 +37,12 @@ def _fetch_table_list(client_getter) -> list[str]:
     if cached is not None:
         return cached
     try:
-        client = client_getter()
-        dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
-        tables = client.list_tables(dataset_id)
-        st.session_state[SS_BQ_TABLE_LIST] = tables
-        return tables
+        with st.spinner("テーブル一覧を読み込み中…"):
+            client = client_getter()
+            dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
+            tables = client.list_tables(dataset_id)
+            st.session_state[SS_BQ_TABLE_LIST] = tables
+            return tables
     except Exception as ex:
         st.warning(f"テーブル一覧の取得に失敗: {ex}")
         return []
@@ -53,12 +54,13 @@ def _fetch_field_list(client_getter, table_id: str) -> list[str]:
     if table_id in cache:
         return cache[table_id]
     try:
-        client = client_getter()
-        dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
-        full_table = f"{dataset_id}.{table_id}"
-        fields = client.get_table_fields(full_table)
-        cache[table_id] = fields
-        return fields
+        with st.spinner(f"フィールド一覧を読み込み中（{table_id}）…"):
+            client = client_getter()
+            dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
+            full_table = f"{dataset_id}.{table_id}"
+            fields = client.get_table_fields(full_table)
+            cache[table_id] = fields
+            return fields
     except Exception as ex:
         st.warning(f"フィールド一覧の取得に失敗 ({table_id}): {ex}")
         return []
@@ -76,10 +78,14 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
     # 既存の設定を表示
     to_delete = []
     for idx, cfg in enumerate(configs):
+        cond = cfg.get("condition_type", "threshold")
         with st.expander(f"追加{idx+1}: {cfg.get('label', '未設定')}", expanded=False):
             st.text(f"テーブル: {cfg.get('table_id', '未選択')}")
             st.text(f"フィールド: {cfg.get('field_id', '未選択')}")
-            st.text(f"閾値: {cfg.get('threshold_min', 0.0)} 〜 {cfg.get('threshold_max', 0.0)}")
+            if cond == "equals":
+                st.text(f"条件: = {cfg.get('equals_value', 0.0)}")
+            else:
+                st.text(f"条件: < {cfg.get('threshold_min', 0.0)} または > {cfg.get('threshold_max', 0.0)}")
             st.text(f"色: {'一定' if cfg.get('use_flat_color', False) else '濃淡あり'}")
             if st.button("削除", key=f"del_extra_{idx}"):
                 to_delete.append(idx)
@@ -127,24 +133,47 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
                 help="例: :debug_for_mcap:lateral_error（バッククォート不要）",
             )
 
-        col_min, col_max = st.columns(2)
-        with col_min:
-            new_threshold_min = st.number_input(
-                "閾値（最小）",
+        # 条件タイプ選択
+        condition_type = st.radio(
+            "条件タイプ",
+            options=["threshold", "equals"],
+            format_func=lambda v: "閾値（範囲外をプロット）" if v == "threshold" else "一致（= 値をプロット）",
+            key="new_extra_condition_type",
+            horizontal=True,
+        )
+
+        new_threshold_min = 0.0
+        new_threshold_max = 0.0
+        new_equals_value = 0.0
+
+        if condition_type == "threshold":
+            col_min, col_max = st.columns(2)
+            with col_min:
+                new_threshold_min = st.number_input(
+                    "下限閾値（この値未満をプロット）",
+                    value=0.0,
+                    step=0.1,
+                    format="%.3f",
+                    key="new_extra_threshold_min",
+                    help="フィールド値がこの値を下回ったらプロット（0で無効）",
+                )
+            with col_max:
+                new_threshold_max = st.number_input(
+                    "上限閾値（この値超過をプロット）",
+                    value=0.0,
+                    step=0.1,
+                    format="%.3f",
+                    key="new_extra_threshold_max",
+                    help="フィールド値がこの値を上回ったらプロット（0で無効）",
+                )
+        else:
+            new_equals_value = st.number_input(
+                "一致値（= この値をプロット）",
                 value=0.0,
                 step=0.1,
                 format="%.3f",
-                key="new_extra_threshold_min",
-                help="フィールド値がこの値以上のデータを取得",
-            )
-        with col_max:
-            new_threshold_max = st.number_input(
-                "閾値（最大）",
-                value=0.0,
-                step=0.1,
-                format="%.3f",
-                key="new_extra_threshold_max",
-                help="フィールド値がこの値以下のデータを取得",
+                key="new_extra_equals_value",
+                help="フィールド値がこの値と一致するデータをプロット",
             )
 
         new_flat_color = st.checkbox(
@@ -166,8 +195,10 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
                 configs.append({
                     "table_id": new_table.strip(),
                     "field_id": new_field.strip(),
+                    "condition_type": condition_type,
                     "threshold_min": float(new_threshold_min),
                     "threshold_max": float(new_threshold_max),
+                    "equals_value": float(new_equals_value),
                     "label": label,
                     "use_flat_color": bool(new_flat_color),
                 })
@@ -461,8 +492,10 @@ def render_sidebar(*, bq_client_getter=None) -> SidebarState:
         ExtraScatterConfig(
             table_id=c["table_id"],
             field_id=c["field_id"],
+            condition_type=c.get("condition_type", "threshold"),
             threshold_min=float(c.get("threshold_min", 0.0)),
             threshold_max=float(c.get("threshold_max", 0.0)),
+            equals_value=float(c.get("equals_value", 0.0)),
             label=c.get("label", f"{c['table_id']}.{c['field_id']}"),
             use_flat_color=bool(c.get("use_flat_color", False)),
         )

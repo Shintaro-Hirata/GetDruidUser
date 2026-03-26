@@ -403,8 +403,7 @@ WITH per_sec AS (
     AND `#timestamp` >= '{start_time}'
     AND `#timestamp` <  '{end_time}'
     {exclude_ctrl}
-    AND `{field_id}` >= {threshold_min}
-    AND `{field_id}` <= {threshold_max}
+    {filter_condition}
 ),
 
 sec_pick AS (
@@ -477,6 +476,28 @@ ORDER BY r.win_1m
 """.strip()
 
 
+def _build_filter_condition(
+    field_id: str,
+    condition_type: str,
+    threshold_min: float = 0.0,
+    threshold_max: float = 0.0,
+    equals_value: float = 0.0,
+) -> str:
+    """追加散布図のフィルタ条件SQLを組み立てる。"""
+    if condition_type == "equals":
+        return f"AND `{field_id}` = {float(equals_value)}"
+
+    # threshold: min未満 OR max超過
+    parts = []
+    if threshold_min != 0.0:
+        parts.append(f"`{field_id}` < {float(threshold_min)}")
+    if threshold_max != 0.0:
+        parts.append(f"`{field_id}` > {float(threshold_max)}")
+    if not parts:
+        return ""  # 閾値なし → フィルタなし
+    return "AND (" + " OR ".join(parts) + ")"
+
+
 def build_extra_scatter_query(
     *,
     vehicle_id: str,
@@ -484,8 +505,10 @@ def build_extra_scatter_query(
     end_time: str,
     data_table: str,
     field_id: str,
+    condition_type: str = "threshold",
     threshold_min: float = 0.0,
     threshold_max: float = 0.0,
+    equals_value: float = 0.0,
     dist_mode: str = "latlon",
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
@@ -498,14 +521,20 @@ def build_extra_scatter_query(
         start_time=start_time, end_time=end_time, excludes=excludes,
         src_table=src_table, speed_table=speed_table,
     )
+    filter_condition = _build_filter_condition(
+        field_id=field_id,
+        condition_type=condition_type,
+        threshold_min=threshold_min,
+        threshold_max=threshold_max,
+        equals_value=equals_value,
+    )
     return EXTRA_SCATTER_TEMPLATE.format(
         vehicle_id=vehicle_id,
         start_time=start_time,
         end_time=end_time,
         data_table=data_table,
         field_id=field_id,
-        threshold_min=float(threshold_min),
-        threshold_max=float(threshold_max),
+        filter_condition=filter_condition,
         distance_cte=distance_cte,
         state_table=state_table,
         **ex,

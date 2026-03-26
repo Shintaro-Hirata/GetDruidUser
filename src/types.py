@@ -70,12 +70,19 @@ class RunConfig:
 
 @dataclass(frozen=True)
 class ExtraScatterConfig:
-    """追加散布図の設定（ユーザーが動的に指定するテーブル/フィールド）。"""
+    """追加散布図の設定（ユーザーが動的に指定するテーブル/フィールド）。
+
+    condition_type:
+      "threshold" — threshold_min 未満 OR threshold_max 超過でプロット
+      "equals"    — field == equals_value でプロット
+    """
     table_id: str        # e.g. "t2_control_debug"
     field_id: str        # e.g. ":debug_for_mcap:some_field"
-    threshold_min: float # field_value >= threshold_min
-    threshold_max: float # field_value <= threshold_max
-    label: str           # 表示ラベル（自動生成 or ユーザー指定）
+    condition_type: str  # "threshold" or "equals"
+    threshold_min: float = 0.0  # この値を下回ったらプロット
+    threshold_max: float = 0.0  # この値を上回ったらプロット
+    equals_value: float = 0.0   # condition_type="equals" のとき使用
+    label: str = ""      # 表示ラベル（自動生成 or ユーザー指定）
     use_flat_color: bool = False  # True: 地図プロットで濃淡なし（一定色）
 
 
