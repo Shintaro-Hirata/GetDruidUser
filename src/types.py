@@ -73,8 +73,10 @@ class ExtraScatterConfig:
     """追加散布図の設定（ユーザーが動的に指定するテーブル/フィールド）。"""
     table_id: str        # e.g. "t2_control_debug"
     field_id: str        # e.g. ":debug_for_mcap:some_field"
-    threshold: float     # ABS(field) >= threshold
+    threshold_min: float # field_value >= threshold_min
+    threshold_max: float # field_value <= threshold_max
     label: str           # 表示ラベル（自動生成 or ユーザー指定）
+    use_flat_color: bool = False  # True: 地図プロットで濃淡なし（一定色）
 
 
 @dataclass(frozen=True)

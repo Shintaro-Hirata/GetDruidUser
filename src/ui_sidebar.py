@@ -10,6 +10,7 @@ from src.config import (
     SS_PLOT_EDIT_W, SS_PLOT_EDIT_H, SS_PLOT_EDIT_WC, SS_PLOT_EDIT_HC,
     SS_PLOT_APPLY_REQ, SS_PLOT_LOCK,
     SS_EXTRA_SCATTERS,
+    SS_BQ_TABLE_LIST, SS_BQ_FIELD_CACHE, SS_BQ_DATASET_ID,
 )
 
 
@@ -30,9 +31,47 @@ def _plot_size_reset():
 
     st.session_state[SS_PLOT_APPLY_REQ] = True
 
-def _render_extra_scatter_ui() -> None:
+def _fetch_table_list(client_getter) -> list[str]:
+    """BigQuery のテーブル一覧をキャッシュ付きで取得する。"""
+    cached = st.session_state.get(SS_BQ_TABLE_LIST)
+    if cached is not None:
+        return cached
+    try:
+        client = client_getter()
+        dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
+        tables = client.list_tables(dataset_id)
+        st.session_state[SS_BQ_TABLE_LIST] = tables
+        return tables
+    except Exception as ex:
+        st.warning(f"テーブル一覧の取得に失敗: {ex}")
+        return []
+
+
+def _fetch_field_list(client_getter, table_id: str) -> list[str]:
+    """BigQuery のフィールド一覧をキャッシュ付きで取得する。"""
+    cache: dict = st.session_state.setdefault(SS_BQ_FIELD_CACHE, {})
+    if table_id in cache:
+        return cache[table_id]
+    try:
+        client = client_getter()
+        dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
+        full_table = f"{dataset_id}.{table_id}"
+        fields = client.get_table_fields(full_table)
+        cache[table_id] = fields
+        return fields
+    except Exception as ex:
+        st.warning(f"フィールド一覧の取得に失敗 ({table_id}): {ex}")
+        return []
+
+
+def _render_extra_scatter_ui(client_getter=None) -> None:
     """追加散布図の設定UIを描画する。"""
     configs: list[dict] = st.session_state[SS_EXTRA_SCATTERS]
+
+    # テーブル一覧を取得（BigQuery接続が可能な場合のみ）
+    table_list: list[str] = []
+    if client_getter is not None:
+        table_list = _fetch_table_list(client_getter)
 
     # 既存の設定を表示
     to_delete = []
@@ -40,7 +79,8 @@ def _render_extra_scatter_ui() -> None:
         with st.expander(f"追加{idx+1}: {cfg.get('label', '未設定')}", expanded=False):
             st.text(f"テーブル: {cfg.get('table_id', '未選択')}")
             st.text(f"フィールド: {cfg.get('field_id', '未選択')}")
-            st.text(f"閾値: {cfg.get('threshold', 0.0)}")
+            st.text(f"閾値: {cfg.get('threshold_min', 0.0)} 〜 {cfg.get('threshold_max', 0.0)}")
+            st.text(f"色: {'一定' if cfg.get('use_flat_color', False) else '濃淡あり'}")
             if st.button("削除", key=f"del_extra_{idx}"):
                 to_delete.append(idx)
 
@@ -49,26 +89,70 @@ def _render_extra_scatter_ui() -> None:
 
     # 新規追加
     with st.expander("＋ 新しい追加散布図", expanded=len(configs) == 0):
-        new_table = st.text_input(
-            "テーブルID",
-            value="",
-            key="new_extra_table",
-            help="例: t2_control_debug（データセット t2-integration.zero_plotter 配下）",
+        # テーブル選択（ドロップダウン or テキスト入力）
+        if table_list:
+            new_table = st.selectbox(
+                "テーブルID",
+                options=[""] + table_list,
+                index=0,
+                key="new_extra_table",
+                help="データセット配下のテーブルを選択",
+            )
+        else:
+            new_table = st.text_input(
+                "テーブルID",
+                value="",
+                key="new_extra_table",
+                help="例: t2_control_debug（データセット t2-integration.zero_plotter 配下）",
+            )
+
+        # フィールド選択（テーブルが選ばれたらドロップダウン）
+        field_list: list[str] = []
+        if new_table and client_getter is not None:
+            field_list = _fetch_field_list(client_getter, new_table)
+
+        if field_list:
+            new_field = st.selectbox(
+                "フィールドID",
+                options=[""] + field_list,
+                index=0,
+                key="new_extra_field",
+                help="テーブル内のフィールドを選択",
+            )
+        else:
+            new_field = st.text_input(
+                "フィールドID",
+                value="",
+                key="new_extra_field",
+                help="例: :debug_for_mcap:lateral_error（バッククォート不要）",
+            )
+
+        col_min, col_max = st.columns(2)
+        with col_min:
+            new_threshold_min = st.number_input(
+                "閾値（最小）",
+                value=0.0,
+                step=0.1,
+                format="%.3f",
+                key="new_extra_threshold_min",
+                help="フィールド値がこの値以上のデータを取得",
+            )
+        with col_max:
+            new_threshold_max = st.number_input(
+                "閾値（最大）",
+                value=0.0,
+                step=0.1,
+                format="%.3f",
+                key="new_extra_threshold_max",
+                help="フィールド値がこの値以下のデータを取得",
+            )
+
+        new_flat_color = st.checkbox(
+            "地図プロットの色を一定にする（濃淡なし）",
+            value=False,
+            key="new_extra_flat_color",
         )
-        new_field = st.text_input(
-            "フィールドID",
-            value="",
-            key="new_extra_field",
-            help="例: :debug_for_mcap:lateral_error（バッククォート不要）",
-        )
-        new_threshold = st.number_input(
-            "閾値 (ABS >= )",
-            min_value=0.0,
-            value=0.0,
-            step=0.1,
-            format="%.3f",
-            key="new_extra_threshold",
-        )
+
         new_label = st.text_input(
             "ラベル（表示名）",
             value="",
@@ -82,19 +166,28 @@ def _render_extra_scatter_ui() -> None:
                 configs.append({
                     "table_id": new_table.strip(),
                     "field_id": new_field.strip(),
-                    "threshold": float(new_threshold),
+                    "threshold_min": float(new_threshold_min),
+                    "threshold_max": float(new_threshold_max),
                     "label": label,
+                    "use_flat_color": bool(new_flat_color),
                 })
                 st.success(f"追加しました: {label}")
             else:
                 st.warning("テーブルIDとフィールドIDを入力してください。")
 
+        # メタデータキャッシュのリフレッシュ
+        if st.button("テーブル/フィールド一覧を再取得", key="refresh_bq_meta"):
+            st.session_state.pop(SS_BQ_TABLE_LIST, None)
+            st.session_state.pop(SS_BQ_FIELD_CACHE, None)
+            st.rerun()
 
-def render_sidebar() -> SidebarState:
+
+def render_sidebar(*, bq_client_getter=None) -> SidebarState:
     """
     サイドバーUIを描いて、入力値を辞書で返す。
     - ranges_text は session_state["ranges_text"]
     - split_minutes は session_state["split_minutes"]
+    - bq_client_getter: BigQueryClient を返す callable（テーブル/フィールド一覧取得に使う）
     """
     with st.sidebar:
         st.header("設定")
@@ -221,7 +314,7 @@ def render_sidebar() -> SidebarState:
         st.caption("テーブルとフィールドを指定して、Q1/Q2 と同じ形式の追加散布図を取得できます。")
 
         st.session_state.setdefault(SS_EXTRA_SCATTERS, [])
-        _render_extra_scatter_ui()
+        _render_extra_scatter_ui(client_getter=bq_client_getter)
 
         st.markdown("---")
         st.subheader("表示レンジ（比較タブ用・任意）")
@@ -368,8 +461,10 @@ def render_sidebar() -> SidebarState:
         ExtraScatterConfig(
             table_id=c["table_id"],
             field_id=c["field_id"],
-            threshold=float(c.get("threshold", 0.0)),
+            threshold_min=float(c.get("threshold_min", 0.0)),
+            threshold_max=float(c.get("threshold_max", 0.0)),
             label=c.get("label", f"{c['table_id']}.{c['field_id']}"),
+            use_flat_color=bool(c.get("use_flat_color", False)),
         )
         for c in st.session_state.get(SS_EXTRA_SCATTERS, [])
     )

@@ -403,7 +403,8 @@ WITH per_sec AS (
     AND `#timestamp` >= '{start_time}'
     AND `#timestamp` <  '{end_time}'
     {exclude_ctrl}
-    AND ABS(`{field_id}`) >= {threshold}
+    AND `{field_id}` >= {threshold_min}
+    AND `{field_id}` <= {threshold_max}
 ),
 
 sec_pick AS (
@@ -483,7 +484,8 @@ def build_extra_scatter_query(
     end_time: str,
     data_table: str,
     field_id: str,
-    threshold: float = 0.0,
+    threshold_min: float = 0.0,
+    threshold_max: float = 0.0,
     dist_mode: str = "latlon",
     src_table: str = "t2-integration.zero_plotter.t2_control_debug",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
@@ -502,7 +504,8 @@ def build_extra_scatter_query(
         end_time=end_time,
         data_table=data_table,
         field_id=field_id,
-        threshold=float(threshold),
+        threshold_min=float(threshold_min),
+        threshold_max=float(threshold_max),
         distance_cte=distance_cte,
         state_table=state_table,
         **ex,

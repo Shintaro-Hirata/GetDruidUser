@@ -47,3 +47,8 @@ SS_DIST_MODE = "dist_mode"  # "latlon" or "speed"
 # 追加散布図
 SS_EXTRA_SCATTERS = "extra_scatters"          # list[ExtraScatterConfig]
 SS_CACHE_EXTRA_SHEETS = "cache_extra_sheets"  # dict[str, pd.DataFrame]
+
+# BigQuery メタデータキャッシュ（テーブル/フィールド一覧）
+SS_BQ_TABLE_LIST = "bq_table_list"            # list[str]
+SS_BQ_FIELD_CACHE = "bq_field_cache"          # dict[str, list[str]]  {table_id: [field1, ...]}
+SS_BQ_DATASET_ID = "bq_dataset_id"            # str（データセット ID）

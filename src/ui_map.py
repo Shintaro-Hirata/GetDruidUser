@@ -52,7 +52,7 @@ _EXTRA_COLORS = [
 def _color_by_magnitude(
     abs_values: pd.Series,
     base_rgb: tuple[int, int, int],
-    alpha_min: int = 60,
+    alpha_min: int = 120,
     alpha_max: int = 220,
 ) -> list[list[int]]:
     """abs値の大小に応じて alpha（透明度）を線形補間し RGBA リストを返す。"""
@@ -81,6 +81,15 @@ def _ensure_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return df.dropna(subset=cols)
 
 
+def _color_flat(
+    count: int,
+    base_rgb: tuple[int, int, int],
+    alpha: int = 180,
+) -> list[list[int]]:
+    """全ポイントに同一色を返す。"""
+    return [[base_rgb[0], base_rgb[1], base_rgb[2], alpha]] * count
+
+
 def _prepare_layer_df(
     df: pd.DataFrame,
     value_col: str,
@@ -88,6 +97,8 @@ def _prepare_layer_df(
     query_label: str,
     base_rgb: tuple[int, int, int],
     run_info: str,
+    *,
+    use_flat_color: bool = False,
 ) -> pd.DataFrame:
     """pydeck 用に列名を統一した DataFrame を返す。色は値の大きさで濃淡が変わる。"""
     out = df[["latitude", "longitude"]].copy()
@@ -97,7 +108,10 @@ def _prepare_layer_df(
     out["time"] = df["sec_time_jst"] if "sec_time_jst" in df.columns else df.get("sec_time", "")
     out["query_label"] = query_label
     out["run_info"] = run_info
-    out["color"] = _color_by_magnitude(out["abs_value"], base_rgb)
+    if use_flat_color:
+        out["color"] = _color_flat(len(out), base_rgb)
+    else:
+        out["color"] = _color_by_magnitude(out["abs_value"], base_rgb)
     return out
 
 
@@ -228,6 +242,7 @@ def show_map(
     df2: pd.DataFrame | None,
     *,
     extra_dfs: list[tuple[str, pd.DataFrame]] | None = None,
+    extra_flat_colors: dict[str, bool] | None = None,
     range_label: str = "",
     range_start: str = "",
     range_end: str = "",
@@ -274,6 +289,7 @@ def show_map(
             all_lons.extend(q2_data["longitude"].tolist())
 
     # 追加散布図
+    flat_colors = extra_flat_colors or {}
     for idx, (ex_label, ex_df) in enumerate(extra_dfs or []):
         if ex_df is None or ex_df.empty:
             continue
@@ -284,6 +300,7 @@ def show_map(
         ex_data = _prepare_layer_df(
             ex_clean, "field_value", "abs_field_value",
             f"追加: {ex_label}", color, run_info,
+            use_flat_color=flat_colors.get(ex_label, False),
         )
         layer_entries.append({"label": f"追加: {ex_label}", "data": ex_data, "count": len(ex_data), "rgb": color})
         all_lats.extend(ex_data["latitude"].tolist())

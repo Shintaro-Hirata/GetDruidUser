@@ -37,6 +37,7 @@ from src.config import (
     SS_PLOT_EDIT_HC,
     SS_PLOT_APPLY_REQ,
     SS_DIST_MODE,
+    SS_BQ_DATASET_ID,
 )
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
@@ -74,9 +75,28 @@ if SS_CACHE_READY not in st.session_state:
     ensure_cache_state()
 
 # =========================
+# BigQuery メタデータ用データセットID（src_table から自動導出）
+# =========================
+_default_src = st.session_state.get("bigquery_src_table", "t2-integration.zero_plotter.t2_control_debug")
+_parts = _default_src.rsplit(".", 1)
+st.session_state[SS_BQ_DATASET_ID] = _parts[0] if len(_parts) >= 2 else _default_src
+
+# =========================
+# BigQuery クライアント（メタデータ取得用にサイドバーより先に用意）
+# =========================
+_bq_client_cache: list = []
+
+def _get_bq_client():
+    """BigQueryClient を遅延作成して返す（サイドバーのドロップダウン用）。"""
+    if not _bq_client_cache:
+        project = st.session_state.get("bigquery_project", "") or None
+        _bq_client_cache.append(BigQueryClient(project=project))
+    return _bq_client_cache[0]
+
+# =========================
 # UI（サイドバー）
 # =========================
-ui = render_sidebar()
+ui = render_sidebar(bq_client_getter=_get_bq_client)
 
 # ★ sidebar の確定値を見て client を作る
 if ui.data_source == "bigquery":

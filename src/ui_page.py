@@ -12,6 +12,7 @@ from src.config import (
     SS_CACHE_THR_LAT, SS_CACHE_THR_ACC,
     SS_EXTRA_SCATTERS,
 )
+from src.types import ExtraScatterConfig
 
 
 def _find_extra_labels(all_excel_sheets: dict, period: int, chunk: int) -> list[str]:
@@ -92,6 +93,14 @@ def render_period_tabs_from_cache(
                     for ex_label in labels
                 ]
 
+            # 追加散布図の flat_color 設定を取得
+            extra_flat_colors: dict[str, bool] = {}
+            for cfg in st.session_state.get(SS_EXTRA_SCATTERS, []):
+                if isinstance(cfg, dict):
+                    extra_flat_colors[cfg.get("label", "")] = bool(cfg.get("use_flat_color", False))
+                elif isinstance(cfg, ExtraScatterConfig):
+                    extra_flat_colors[cfg.label] = cfg.use_flat_color
+
             if len(chunk_keys) == 1:
                 c = chunk_keys[0]
                 df1 = all_excel_sheets.get(f"T{i+1}_C{c}_Q1", pd.DataFrame())
@@ -114,6 +123,7 @@ def render_period_tabs_from_cache(
                 show_map(
                     df1, df2,
                     extra_dfs=extra_map_data,
+                    extra_flat_colors=extra_flat_colors,
                     range_label=label,
                     range_start=r.start.isoformat(),
                     range_end=r.end.isoformat(),
@@ -145,6 +155,7 @@ def render_period_tabs_from_cache(
                         show_map(
                             df1, df2,
                             extra_dfs=extra_map_data,
+                            extra_flat_colors=extra_flat_colors,
                             range_label=label,
                             range_start=r.start.isoformat(),
                             range_end=r.end.isoformat(),
