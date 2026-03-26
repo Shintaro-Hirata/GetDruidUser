@@ -75,20 +75,110 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
     if client_getter is not None:
         table_list = _fetch_table_list(client_getter)
 
-    # 既存の設定を表示
+    # 既存の設定を表示・編集
     to_delete = []
     for idx, cfg in enumerate(configs):
-        cond = cfg.get("condition_type", "threshold")
         with st.expander(f"追加{idx+1}: {cfg.get('label', '未設定')}", expanded=False):
-            st.text(f"テーブル: {cfg.get('table_id', '未選択')}")
-            st.text(f"フィールド: {cfg.get('field_id', '未選択')}")
-            if cond == "equals":
-                st.text(f"条件: = {cfg.get('equals_value', 0.0)}")
+            # テーブル選択
+            cur_table = cfg.get("table_id", "")
+            if table_list:
+                tbl_options = list(table_list)
+                if cur_table and cur_table not in tbl_options:
+                    tbl_options = [cur_table] + tbl_options
+                tbl_idx = tbl_options.index(cur_table) if cur_table in tbl_options else 0
+                edit_table = st.selectbox(
+                    "テーブルID", options=tbl_options, index=tbl_idx,
+                    key=f"edit_table_{idx}",
+                )
             else:
-                st.text(f"条件: < {cfg.get('threshold_min', 0.0)} または > {cfg.get('threshold_max', 0.0)}")
-            st.text(f"色: {'一定' if cfg.get('use_flat_color', False) else '濃淡あり'}")
-            if st.button("削除", key=f"del_extra_{idx}"):
-                to_delete.append(idx)
+                edit_table = st.text_input(
+                    "テーブルID", value=cur_table, key=f"edit_table_{idx}",
+                )
+
+            # フィールド選択
+            cur_field = cfg.get("field_id", "")
+            edit_field_list: list[str] = []
+            if edit_table and client_getter is not None:
+                edit_field_list = _fetch_field_list(client_getter, edit_table)
+
+            if edit_field_list:
+                fld_options = list(edit_field_list)
+                if cur_field and cur_field not in fld_options:
+                    fld_options = [cur_field] + fld_options
+                fld_idx = fld_options.index(cur_field) if cur_field in fld_options else 0
+                edit_field = st.selectbox(
+                    "フィールドID", options=fld_options, index=fld_idx,
+                    key=f"edit_field_{idx}",
+                )
+            else:
+                edit_field = st.text_input(
+                    "フィールドID", value=cur_field, key=f"edit_field_{idx}",
+                )
+
+            # 条件タイプ
+            cur_cond = cfg.get("condition_type", "threshold")
+            cond_options = ["threshold", "equals"]
+            edit_cond = st.radio(
+                "条件タイプ", options=cond_options,
+                index=cond_options.index(cur_cond) if cur_cond in cond_options else 0,
+                format_func=lambda v: "閾値（範囲外をプロット）" if v == "threshold" else "一致（= 値をプロット）",
+                key=f"edit_cond_{idx}", horizontal=True,
+            )
+
+            edit_thr_min = 0.0
+            edit_thr_max = 0.0
+            edit_eq_val = 0.0
+            if edit_cond == "threshold":
+                c1, c2 = st.columns(2)
+                with c1:
+                    edit_thr_min = st.number_input(
+                        "下限閾値（この値未満をプロット）",
+                        value=float(cfg.get("threshold_min", 0.0)),
+                        step=0.1, format="%.3f", key=f"edit_thr_min_{idx}",
+                    )
+                with c2:
+                    edit_thr_max = st.number_input(
+                        "上限閾値（この値超過をプロット）",
+                        value=float(cfg.get("threshold_max", 0.0)),
+                        step=0.1, format="%.3f", key=f"edit_thr_max_{idx}",
+                    )
+            else:
+                edit_eq_val = st.number_input(
+                    "一致値（= この値をプロット）",
+                    value=float(cfg.get("equals_value", 0.0)),
+                    step=0.1, format="%.3f", key=f"edit_eq_val_{idx}",
+                )
+
+            edit_flat = st.checkbox(
+                "地図プロットの色を一定にする（濃淡なし）",
+                value=bool(cfg.get("use_flat_color", False)),
+                key=f"edit_flat_{idx}",
+            )
+
+            edit_label = st.text_input(
+                "ラベル（表示名）",
+                value=cfg.get("label", ""),
+                key=f"edit_label_{idx}",
+            )
+
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("更新", key=f"update_extra_{idx}"):
+                    configs[idx] = {
+                        "table_id": edit_table.strip(),
+                        "field_id": edit_field.strip() if isinstance(edit_field, str) else edit_field,
+                        "condition_type": edit_cond,
+                        "threshold_min": float(edit_thr_min),
+                        "threshold_max": float(edit_thr_max),
+                        "equals_value": float(edit_eq_val),
+                        "label": edit_label.strip() or f"{edit_table.strip()}.{(edit_field.strip() if isinstance(edit_field, str) else edit_field)}",
+                        "use_flat_color": bool(edit_flat),
+                    }
+                    st.success("更新しました")
+                    st.rerun()
+            with btn_col2:
+                if st.button("削除", key=f"del_extra_{idx}"):
+                    to_delete.append(idx)
 
     for idx in reversed(to_delete):
         configs.pop(idx)
