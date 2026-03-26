@@ -164,7 +164,20 @@ def _map_fragment(
             layers=layers,
             initial_view_state=view_state,
             tooltip=_TOOLTIP,
-            map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+            map_style={
+                "version": 8,
+                "sources": {
+                    "osm": {
+                        "type": "raster",
+                        "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                        "tileSize": 256,
+                        "attribution": "&copy; OpenStreetMap contributors",
+                    }
+                },
+                "layers": [
+                    {"id": "osm", "type": "raster", "source": "osm"}
+                ],
+            },
         ),
         height=map_height,
     )
