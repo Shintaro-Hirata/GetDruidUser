@@ -5,5 +5,3 @@ matplotlib
 openpyxl
 python-dateutil
 google-cloud-bigquery[pandas]>=3.0.0
-folium
-streamlit-folium
