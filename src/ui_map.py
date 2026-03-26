@@ -59,6 +59,117 @@ def _make_run_info(
     return " / ".join(parts)
 
 
+# -------------------------------------------------
+# ツールチップ定義（使い回すので定数化）
+# -------------------------------------------------
+_TOOLTIP = {
+    "html": (
+        "<b>{query_label}</b><br>"
+        "<b>値</b>: {value}<br>"
+        "<b>緯度</b>: {latitude}<br>"
+        "<b>経度</b>: {longitude}<br>"
+        "<b>発生時刻</b>: {time}<br>"
+        "<b>条件</b>: {run_info}"
+    ),
+    "style": {
+        "backgroundColor": "rgba(0,0,0,0.75)",
+        "color": "white",
+        "fontSize": "13px",
+        "padding": "8px",
+    },
+}
+
+
+@st.fragment
+def _map_fragment(
+    q1_data: pd.DataFrame | None,
+    q2_data: pd.DataFrame | None,
+    q1_count: int,
+    q2_count: int,
+    view_state: pdk.ViewState,
+    key_prefix: str,
+    map_height: int,
+) -> None:
+    """
+    fragment 内でチェックボックス＋地図を描画する。
+    チェックボックスの変更はこの fragment だけ再実行される
+    （ページ全体の散布図・ヒストグラムは再描画されない）。
+    """
+    # --- Q1/Q2 表示切り替えチェックボックス ---
+    col_chk1, col_chk2, _ = st.columns([1, 1, 3])
+    with col_chk1:
+        show_q1 = st.checkbox(
+            f"Q1: lateral_error ({q1_count}件)",
+            value=True,
+            key=f"map_q1_{key_prefix}",
+        )
+    with col_chk2:
+        show_q2 = st.checkbox(
+            f"Q2: acceleration ({q2_count}件)",
+            value=True,
+            key=f"map_q2_{key_prefix}",
+        )
+
+    has_q1 = q1_data is not None and show_q1
+    has_q2 = q2_data is not None and show_q2
+
+    if not has_q1 and not has_q2:
+        st.info("表示するレイヤーが選択されていません。")
+        return
+
+    # --- レイヤー構築 ---
+    layers: list[pdk.Layer] = []
+    if has_q1:
+        layers.append(
+            pdk.Layer(
+                "ScatterplotLayer",
+                data=q1_data,
+                get_position=["longitude", "latitude"],
+                get_color="color",
+                get_radius=30,
+                radius_min_pixels=4,
+                radius_max_pixels=12,
+                pickable=True,
+                auto_highlight=True,
+            )
+        )
+    if has_q2:
+        layers.append(
+            pdk.Layer(
+                "ScatterplotLayer",
+                data=q2_data,
+                get_position=["longitude", "latitude"],
+                get_color="color",
+                get_radius=30,
+                radius_min_pixels=4,
+                radius_max_pixels=12,
+                pickable=True,
+                auto_highlight=True,
+            )
+        )
+
+    # --- 凡例 ---
+    legend_parts = []
+    if has_q1:
+        legend_parts.append('<span style="color:rgb(220,40,40);">&#9679;</span> Q1: lateral_error')
+    if has_q2:
+        legend_parts.append('<span style="color:rgb(40,80,220);">&#9679;</span> Q2: acceleration')
+    if legend_parts:
+        legend_html = f'<div style="font-size:13px; margin-bottom:8px;">{"&nbsp;&nbsp;".join(legend_parts)}</div>'
+        st.markdown(legend_html, unsafe_allow_html=True)
+
+    # --- 描画 ---
+    st.pydeck_chart(
+        pdk.Deck(
+            layers=layers,
+            initial_view_state=view_state,
+            tooltip=_TOOLTIP,
+            map_style=pdk.map_styles.ROAD,
+        ),
+        height=map_height,
+    )
+
+
 def show_map(
     df1: pd.DataFrame | None,
     df2: pd.DataFrame | None,
@@ -79,84 +190,37 @@ def show_map(
         thr_lat=thr_lat, thr_acc=thr_acc,
     )
 
-    # --- データ準備 ---
-    has_q1 = df1 is not None and not df1.empty
-    has_q2 = df2 is not None and not df2.empty
+    # --- データ準備（fragment の外で 1 回だけ実行） ---
+    q1_data: pd.DataFrame | None = None
+    q2_data: pd.DataFrame | None = None
+    q1_count = 0
+    q2_count = 0
 
-    if has_q1:
-        df1 = _ensure_numeric(df1, ["latitude", "longitude", "lateral_error"])
-        has_q1 = not df1.empty
-    if has_q2:
-        df2 = _ensure_numeric(df2, ["latitude", "longitude", "acceleration"])
-        has_q2 = not df2.empty
+    if df1 is not None and not df1.empty:
+        df1_clean = _ensure_numeric(df1, ["latitude", "longitude", "lateral_error"])
+        if not df1_clean.empty:
+            q1_data = _prepare_layer_df(df1_clean, "lateral_error", "Q1 (lateral_error)", _COLOR_Q1, run_info)
+            q1_count = len(q1_data)
 
-    if not has_q1 and not has_q2:
+    if df2 is not None and not df2.empty:
+        df2_clean = _ensure_numeric(df2, ["latitude", "longitude", "acceleration"])
+        if not df2_clean.empty:
+            q2_data = _prepare_layer_df(df2_clean, "acceleration", "Q2 (acceleration)", _COLOR_Q2, run_info)
+            q2_count = len(q2_data)
+
+    if q1_data is None and q2_data is None:
         st.info("地図に表示できるデータがありません（緯度・経度が欠損）。")
         return
 
-    # --- Q1/Q2 表示切り替えチェックボックス ---
-    col_chk1, col_chk2, _ = st.columns([1, 1, 3])
-    with col_chk1:
-        show_q1 = st.checkbox(
-            f"Q1: lateral_error ({len(df1) if has_q1 else 0}件)",
-            value=True,
-            key=f"map_q1_{range_label}_{range_start}",
-        )
-    with col_chk2:
-        show_q2 = st.checkbox(
-            f"Q2: acceleration ({len(df2) if has_q2 else 0}件)",
-            value=True,
-            key=f"map_q2_{range_label}_{range_start}",
-        )
-
-    if not (show_q1 and has_q1) and not (show_q2 and has_q2):
-        st.info("表示するレイヤーが選択されていません。")
-        return
-
-    # --- レイヤー構築 ---
-    layers: list[pdk.Layer] = []
-
-    if show_q1 and has_q1:
-        q1_data = _prepare_layer_df(df1, "lateral_error", "Q1 (lateral_error)", _COLOR_Q1, run_info)
-        layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=q1_data,
-                get_position=["longitude", "latitude"],
-                get_color="color",
-                get_radius=30,
-                radius_min_pixels=4,
-                radius_max_pixels=12,
-                pickable=True,
-                auto_highlight=True,
-            )
-        )
-
-    if show_q2 and has_q2:
-        q2_data = _prepare_layer_df(df2, "acceleration", "Q2 (acceleration)", _COLOR_Q2, run_info)
-        layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=q2_data,
-                get_position=["longitude", "latitude"],
-                get_color="color",
-                get_radius=30,
-                radius_min_pixels=4,
-                radius_max_pixels=12,
-                pickable=True,
-                auto_highlight=True,
-            )
-        )
-
-    # --- ビューポート（全データが収まるように） ---
+    # --- ビューポート（全データから算出） ---
     all_lats: list[float] = []
     all_lons: list[float] = []
-    if show_q1 and has_q1:
-        all_lats.extend(df1["latitude"].tolist())
-        all_lons.extend(df1["longitude"].tolist())
-    if show_q2 and has_q2:
-        all_lats.extend(df2["latitude"].tolist())
-        all_lons.extend(df2["longitude"].tolist())
+    if q1_data is not None:
+        all_lats.extend(q1_data["latitude"].tolist())
+        all_lons.extend(q1_data["longitude"].tolist())
+    if q2_data is not None:
+        all_lats.extend(q2_data["latitude"].tolist())
+        all_lons.extend(q2_data["longitude"].tolist())
 
     view_state = pdk.ViewState(
         latitude=sum(all_lats) / len(all_lats),
@@ -165,41 +229,13 @@ def show_map(
         pitch=0,
     )
 
-    # --- ツールチップ ---
-    tooltip = {
-        "html": (
-            "<b>{query_label}</b><br>"
-            "<b>値</b>: {value}<br>"
-            "<b>緯度</b>: {latitude}<br>"
-            "<b>経度</b>: {longitude}<br>"
-            "<b>発生時刻</b>: {time}<br>"
-            "<b>条件</b>: {run_info}"
-        ),
-        "style": {
-            "backgroundColor": "rgba(0,0,0,0.75)",
-            "color": "white",
-            "fontSize": "13px",
-            "padding": "8px",
-        },
-    }
-
-    # --- 凡例 ---
-    legend_parts = []
-    if show_q1 and has_q1:
-        legend_parts.append('<span style="color:rgb(220,40,40);">&#9679;</span> Q1: lateral_error')
-    if show_q2 and has_q2:
-        legend_parts.append('<span style="color:rgb(40,80,220);">&#9679;</span> Q2: acceleration')
-    if legend_parts:
-        legend_html = f'<div style="font-size:13px; margin-bottom:8px;">{"&nbsp;&nbsp;".join(legend_parts)}</div>'
-        st.markdown(legend_html, unsafe_allow_html=True)
-
-    # --- 描画 ---
-    st.pydeck_chart(
-        pdk.Deck(
-            layers=layers,
-            initial_view_state=view_state,
-            tooltip=tooltip,
-            map_style=pdk.map_styles.ROAD,
-        ),
-        height=map_height,
+    # --- fragment 呼び出し（チェックボックス変更時はここだけ再実行） ---
+    _map_fragment(
+        q1_data=q1_data,
+        q2_data=q2_data,
+        q1_count=q1_count,
+        q2_count=q2_count,
+        view_state=view_state,
+        key_prefix=f"{range_label}_{range_start}",
+        map_height=map_height,
     )
