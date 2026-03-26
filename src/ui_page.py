@@ -4,8 +4,12 @@ import pandas as pd
 
 from src.ui_view import show_query1, show_query2, show_query3
 from src.ui_view import show_scatter_compare, show_query3_compare
+from src.ui_map import show_map
 
-from src.config import SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE
+from src.config import (
+    SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE,
+    SS_CACHE_THR_LAT, SS_CACHE_THR_ACC,
+)
 
 
 def render_period_tabs_from_cache(
@@ -55,6 +59,10 @@ def render_period_tabs_from_cache(
                 st.info("この期間の結果がありません（未実行 or 取得失敗）")
                 continue
 
+            # 地図用の実行条件
+            thr_lat = st.session_state.get(SS_CACHE_THR_LAT, None)
+            thr_acc = st.session_state.get(SS_CACHE_THR_ACC, None)
+
             # 1チャンクならそのまま表示、複数ならチャンクタブを作る
             if len(chunk_keys) == 1:
                 c = chunk_keys[0]
@@ -69,6 +77,16 @@ def render_period_tabs_from_cache(
                     show_query2(df2, xlim=xlim, ylim=ylim_q2, fig_size=fig_size)
                     st.markdown("---")
                     show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3, fig_size=fig_size)
+
+                st.markdown("---")
+                show_map(
+                    df1, df2,
+                    range_label=label,
+                    range_start=r.start.isoformat(),
+                    range_end=r.end.isoformat(),
+                    thr_lat=thr_lat,
+                    thr_acc=thr_acc,
+                )
 
             else:
                 chunk_tabs = st.tabs([f"区間{c}/{len(chunk_keys)}" for c in chunk_keys])
@@ -85,6 +103,16 @@ def render_period_tabs_from_cache(
                             show_query2(df2, xlim=xlim, ylim=ylim_q2, fig_size=fig_size)
                             st.markdown("---")
                             show_query3(df3, xlim=xlim_q3, ylim=ylim_q3, smooth_window=smooth_window_q3, fig_size=fig_size)
+
+                        st.markdown("---")
+                        show_map(
+                            df1, df2,
+                            range_label=label,
+                            range_start=r.start.isoformat(),
+                            range_end=r.end.isoformat(),
+                            thr_lat=thr_lat,
+                            thr_acc=thr_acc,
+                        )
 
 
 def render_compare_tab(
