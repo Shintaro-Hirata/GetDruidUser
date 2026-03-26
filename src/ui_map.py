@@ -2,9 +2,31 @@
 """地図プロット機能 — 散布図データの発生地点を pydeck (WebGL) で高速表示する。"""
 from __future__ import annotations
 
+import base64
+import json
+
 import pandas as pd
 import pydeck as pdk
 import streamlit as st
+
+# -------------------------------------------------
+# OSM ラスタータイル（日本語地名対応）— data URL 化して pydeck に渡す
+# -------------------------------------------------
+_OSM_STYLE = {
+    "version": 8,
+    "sources": {
+        "osm": {
+            "type": "raster",
+            "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+            "tileSize": 256,
+            "attribution": "&copy; OpenStreetMap contributors",
+        }
+    },
+    "layers": [{"id": "osm", "type": "raster", "source": "osm"}],
+}
+_OSM_STYLE_URL = "data:application/json;base64," + base64.b64encode(
+    json.dumps(_OSM_STYLE).encode()
+).decode()
 
 
 # -------------------------------------------------
@@ -164,20 +186,7 @@ def _map_fragment(
             layers=layers,
             initial_view_state=view_state,
             tooltip=_TOOLTIP,
-            map_style={
-                "version": 8,
-                "sources": {
-                    "osm": {
-                        "type": "raster",
-                        "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-                        "tileSize": 256,
-                        "attribution": "&copy; OpenStreetMap contributors",
-                    }
-                },
-                "layers": [
-                    {"id": "osm", "type": "raster", "source": "osm"}
-                ],
-            },
+            map_style=_OSM_STYLE_URL,
         ),
         height=map_height,
     )
