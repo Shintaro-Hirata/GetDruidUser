@@ -4,7 +4,6 @@ import pandas as pd
 
 from src.ui_view import show_query1, show_query2, show_query3
 from src.ui_view import show_scatter_compare, show_query3_compare
-from src.ui_view import show_custom_scatter
 from src.ui_map import show_map
 
 from src.config import (
@@ -85,13 +84,6 @@ def render_period_tabs_from_cache(
                     thr_acc=thr_acc,
                 )
 
-                st.markdown("---")
-                show_custom_scatter(
-                    df1, df2,
-                    key_prefix=f"T{i+1}_single",
-                    fig_size=fig_size,
-                )
-
             else:
                 chunk_tabs = st.tabs([f"区間{c}/{len(chunk_keys)}" for c in chunk_keys])
                 for t_idx, c in enumerate(chunk_keys):
@@ -118,12 +110,6 @@ def render_period_tabs_from_cache(
                             thr_acc=thr_acc,
                         )
 
-                        st.markdown("---")
-                        show_custom_scatter(
-                            df1, df2,
-                            key_prefix=f"T{i+1}_C{c}",
-                            fig_size=fig_size,
-                        )
 
 
 def render_compare_tab(
