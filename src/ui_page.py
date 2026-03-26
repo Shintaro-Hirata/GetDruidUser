@@ -21,17 +21,13 @@ def render_period_tabs_from_cache(
     xlim=None,
     ylim_q1=None,
     ylim_q2=None,
-    # ★追加
     xlim_q3=None,
     ylim_q3=None,
-    smooth_window_q3: int = 1,  # ★追加（デフォルト=1）
+    smooth_window_q3: int = 1,
 ):
     """
     各期間タブ：キャッシュ（Excel格納DF）から描画する（再クエリなし）
-    - T{period}_C{chunk}_Q{1..3} を復元して表示
     """
-
-    # ★追加：単体図サイズ（session_state から読む）
     fig_size = (
         float(st.session_state.get(SS_PLOT_W, 7.0)),
         float(st.session_state.get(SS_PLOT_H, 4.0)),
@@ -124,10 +120,9 @@ def render_compare_tab(
     xlim,
     ylim_q1,
     ylim_q2,
-    # ★追加
     xlim_q3=None,
     ylim_q3=None,
-    smooth_window_q3: int = 1,  # ★追加（デフォルト=1）
+    smooth_window_q3: int = 1,
 ):
     """
     比較タブ：レンジ変更が効く（再クエリなし）
@@ -135,7 +130,6 @@ def render_compare_tab(
     if compare_tab is None:
         return
 
-    # ★追加：比較図サイズ（session_state から読む）
     fig_size_cmp = (
         float(st.session_state.get(SS_PLOT_W_COMPARE, 9.0)),
         float(st.session_state.get(SS_PLOT_H_COMPARE, 4.5)),
@@ -156,7 +150,7 @@ def render_compare_tab(
                 y_label="lateral error[m]",
                 xlim=xlim,
                 ylim=ylim_q1,
-                fig_size=fig_size_cmp,  # ★追加
+                fig_size=fig_size_cmp,
             )
         with colB:
             show_scatter_compare(
@@ -168,7 +162,7 @@ def render_compare_tab(
                 y_label="加速度[m/s^2]",
                 xlim=xlim,
                 ylim=ylim_q2,
-                fig_size=fig_size_cmp,  # ★追加
+                fig_size=fig_size_cmp,
             )
 
         st.markdown("---")

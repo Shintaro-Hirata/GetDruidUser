@@ -19,7 +19,6 @@ from src.queries import (
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 # =========================
@@ -105,23 +104,7 @@ def _run_sql_adaptive_split(
 ) -> list[pd.DataFrame]:
     try:
         q = query_builder(start, end)
-        # デバッグ: 除外句が含まれているか確認 & SQLをファイルに出力
-        if "AND NOT" in q:
-            logger.info("SQL contains AND NOT clause (exclude active)")
-        else:
-            logger.info("SQL does NOT contain AND NOT clause (no exclude)")
-        logger.debug("Generated SQL:\n%s", q)
-        # デバッグ用: SQL全文をファイルに追記
-        try:
-            import pathlib
-            debug_sql_path = pathlib.Path("debug_sql.log")
-            with debug_sql_path.open("a", encoding="utf-8") as f:
-                f.write(f"\n{'='*60}\n")
-                f.write(f"-- range: {start.isoformat()} ~ {end.isoformat()}\n")
-                f.write(q)
-                f.write("\n")
-        except Exception:
-            pass
+        logger.debug("Generated SQL (%s ~ %s):\n%s", start.isoformat(), end.isoformat(), q)
         df = client.sql(q, context=context)
         return [df]
     except Exception as ex:
@@ -176,7 +159,7 @@ def _concat_make_cum_dist_continuous(
         if df is None or df.empty:
             continue
         if cum_col not in df.columns:
-            out.append(df.copy())
+            out.append(df)
             continue
 
         d = df.copy()
@@ -223,19 +206,17 @@ def _aggregate_hist_bins(dfs: list[pd.DataFrame], cnt_col: str = "cnt") -> pd.Da
 
 
 def _add_ratio(df: pd.DataFrame, cnt_col: str, ratio_col: str) -> pd.DataFrame:
-    if df is None:
+    if df is None or df.empty:
         return pd.DataFrame(columns=[cnt_col, ratio_col])
 
-    out = df.copy()
+    if cnt_col not in df.columns:
+        df[cnt_col] = 0.0
 
-    if cnt_col not in out.columns:
-        out[cnt_col] = 0.0
+    df[cnt_col] = pd.to_numeric(df[cnt_col], errors="coerce").fillna(0.0)
 
-    out[cnt_col] = pd.to_numeric(out[cnt_col], errors="coerce").fillna(0.0)
-
-    total = float(out[cnt_col].sum()) if len(out) > 0 else 0.0
-    out[ratio_col] = out[cnt_col] / total if total > 0 else 0.0
-    return out
+    total = float(df[cnt_col].sum())
+    df[ratio_col] = df[cnt_col] / total if total > 0 else 0.0
+    return df
 
 
 # =========================
@@ -265,20 +246,7 @@ def fetch_chunk_data(
     - ResourceLimit系に当たったら自動で時間を細分化して再実行
     - Query1/2 は cum_dist_km を連続化して concat
     - Query3 は分割結果をbinで合算して ratio を算出し、auto/manualをマージ
-
-    BigQuery 関連の引数は将来の BigQuery 実行経路のためのプレースホルダです。
     """
-
-    logger.debug(
-        "fetch_chunk_data called: data_source=%s dist_mode=%s excludes=%s bigquery_src_table=%s bigquery_state_table=%s bigquery_pose_table=%s",
-        data_source,
-        dist_mode,
-        bool(excludes),
-        bigquery_src_table,
-        bigquery_state_table,
-        bigquery_pose_table,
-        bigquery_speed_table,
-    )
 
     ctx = {"maxSubqueryBytes": "auto"}
 
@@ -386,10 +354,16 @@ def fetch_chunk_data(
             df3_hist[c] = 0.0
         df3_hist[c] = pd.to_numeric(df3_hist[c], errors="coerce").fillna(0.0)
 
-    # ---- JST列を追加（sec_time / win_1m → +09:00 表示） ----
-    for df in (df1, df2):
+    # ---- 数値型変換 + JST列追加（取得時に1回だけ実行、描画時の繰り返し変換を省略） ----
+    _numeric_cols_q1 = ["cum_dist_km", "lateral_error", "abs_lateral_error", "latitude", "longitude"]
+    _numeric_cols_q2 = ["cum_dist_km", "acceleration", "abs_acceleration", "latitude", "longitude"]
+
+    for df, num_cols in ((df1, _numeric_cols_q1), (df2, _numeric_cols_q2)):
         if df is None or df.empty:
             continue
+        for c in num_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
         for col in ("sec_time", "win_1m"):
             if col not in df.columns:
                 continue

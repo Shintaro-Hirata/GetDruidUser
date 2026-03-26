@@ -1,13 +1,10 @@
 # src/ui_sidebar.py
-# サイドバー入力を担当
 import streamlit as st
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
 from src.types import SidebarState
-from src.config import SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR, SS_DIST_MODE
-
-# --- 追加 import（ファイル先頭の import 群に追加） ---
 from src.config import (
+    SS_TEST_DROP_COLUMNS, SS_DEV_RAISE_ON_ERROR, SS_DIST_MODE,
     SS_PLOT_W, SS_PLOT_H, SS_PLOT_W_COMPARE, SS_PLOT_H_COMPARE,
     SS_PLOT_EDIT_W, SS_PLOT_EDIT_H, SS_PLOT_EDIT_WC, SS_PLOT_EDIT_HC,
     SS_PLOT_APPLY_REQ, SS_PLOT_LOCK,
@@ -274,26 +271,6 @@ def render_sidebar() -> SidebarState:
             st.form_submit_button("適用", disabled=locked, on_click=_plot_size_apply)
         with c4:
             st.form_submit_button("デフォルトに戻す", disabled=locked, on_click=_plot_size_reset)
-
-    # # --- デフォルトに戻す（編集値だけ更新） ---
-    # if reset_clicked:
-    #     st.session_state[SS_PLOT_EDIT_W] = 7.0
-    #     st.session_state[SS_PLOT_EDIT_H] = 4.0
-    #     st.session_state[SS_PLOT_EDIT_WC] = 9.0
-    #     st.session_state[SS_PLOT_EDIT_HC] = 4.5
-    #     st.session_state[SS_PLOT_APPLY_REQ] = True
-    #     st.session_state[SS_PLOT_LOCK] = True
-
-    #     # そのまま適用要求を立てて rerun（本値反映は app 側）
-    #     st.session_state[SS_PLOT_APPLY_REQ] = True
-    #     st.session_state[SS_PLOT_LOCK] = True
-        
-
-    # # --- 適用（本値への反映は app.py で行う） ---
-    # if apply_clicked:
-    #     st.session_state[SS_PLOT_APPLY_REQ] = True
-    #     st.session_state[SS_PLOT_LOCK] = True
-        
 
     return SidebarState(
         vehicle_id=vehicle_id,

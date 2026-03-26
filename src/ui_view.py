@@ -47,18 +47,12 @@ def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None, fig_size=(7.0, 4.0))
 
     if not _require_columns(df1, ["cum_dist_km", "lateral_error"], context="クエリ1"):
         return
-    
-    # ★追加：数値化（カテゴリ軸化を防ぐ）
-    df1 = df1.copy()
-    df1["cum_dist_km"] = pd.to_numeric(df1["cum_dist_km"], errors="coerce")
-    df1["lateral_error"] = pd.to_numeric(df1["lateral_error"], errors="coerce")
 
     # NaN を除外（matplotlibの警告・表示崩れ防止）
     df1 = df1.dropna(subset=["cum_dist_km", "lateral_error"])
     if df1.empty:
-        st.info("結果0件（数値化後に有効データがありません）")
+        st.info("結果0件（有効データがありません）")
         return
-
 
     fig = scatter(
         df1,
@@ -88,15 +82,10 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None, fig_size=(7.0, 4.0))
     if not _require_columns(df2, ["cum_dist_km", "acceleration"], context="クエリ2"):
         return
 
-    # ★追加：数値化（カテゴリ軸化を防ぐ）
-    df2 = df2.copy()
-    df2["cum_dist_km"] = pd.to_numeric(df2["cum_dist_km"], errors="coerce")
-    df2["acceleration"] = pd.to_numeric(df2["acceleration"], errors="coerce")
-
     # NaN を除外（matplotlibの警告・表示崩れ防止）
     df2 = df2.dropna(subset=["cum_dist_km", "acceleration"])
     if df2.empty:
-        st.info("結果0件（数値化後に有効データがありません）")
+        st.info("結果0件（有効データがありません）")
         return
 
     fig = scatter(
@@ -180,9 +169,8 @@ def show_scatter_compare(
         if x_col not in df.columns or y_col not in df.columns:
             continue
 
-        # ★追加：数値化（カテゴリ軸化を防ぐ）
-        x = pd.to_numeric(df[x_col], errors="coerce")
-        y = pd.to_numeric(df[y_col], errors="coerce")
+        x = df[x_col]
+        y = df[y_col]
 
         mask = x.notna() & y.notna()
         if not mask.any():
@@ -241,8 +229,8 @@ def show_query3_compare(series: list[tuple[str, pd.DataFrame]], *, xlim=None, yl
 
         df = df3_hist.sort_values("bin_start").copy()
         x = df["bin_start"]
-        y_auto = pd.to_numeric(df["ratio_auto"], errors="coerce").fillna(0.0)
-        y_manual = pd.to_numeric(df["ratio_manual"], errors="coerce").fillna(0.0)
+        y_auto = df["ratio_auto"].fillna(0.0)
+        y_manual = df["ratio_manual"].fillna(0.0)
 
         window = max(1, int(smooth_window))
         y_auto_smooth = y_auto.rolling(window=window, center=True, min_periods=1).mean()

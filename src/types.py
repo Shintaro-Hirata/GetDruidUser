@@ -31,7 +31,6 @@ class SidebarState:
     thr_lat: float = 0.2
     thr_acc: float = 1.0
 
-    # --- ここから追加：データソース選択・BigQuery 設定（サイドバー入力で編集） ---
     data_source: DataSource = "bigquery"
     bigquery_project: Optional[str] = None
     bigquery_src_table: Optional[str] = None
@@ -42,7 +41,6 @@ class SidebarState:
     # 除外時間入力（複数行テキスト）
     exclude_ranges_text: str = ""
 
-# ★追加：run_pipeline に渡す「再実行が必要な条件」を束ねる
 @dataclass(frozen=True)
 class RunConfig:
     vehicle_id: str
@@ -50,13 +48,11 @@ class RunConfig:
     thr_lat: float = 0.2
     thr_acc: float = 1.0
     raise_on_error: bool = False
-    max_workers: int = 1    # 並列実行数
+    max_workers: int = 1
     dist_mode: DistanceMode = "latlon"
     exclude_ranges_text: str = ""
-
-    # ★ ここから追加：どのデータソースから取るか、BigQuery のテーブル名等
     data_source: DataSource = "bigquery"
-    bigquery_project: Optional[str] = None   # ← この行を追加
+    bigquery_project: Optional[str] = None
     bigquery_src_table: Optional[str] = None
     bigquery_state_table: Optional[str] = None
     bigquery_pose_table: Optional[str] = None

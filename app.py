@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 
-# プロジェクトルートを sys.path に追加（src パッケージの import を確実にする）
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import streamlit as st
@@ -19,11 +18,6 @@ from src.config import (
     SS_CACHE_READY,
     SS_CACHE_VEHICLE_ID,
     SS_CACHE_SPLIT_MINUTES,
-    SS_CACHE_RANGES,
-    SS_CACHE_EXCEL_SHEETS,
-    SS_CACHE_COMPARE_Q1,
-    SS_CACHE_COMPARE_Q2,
-    SS_CACHE_COMPARE_Q3,
     SS_CACHE_THR_LAT,
     SS_CACHE_THR_ACC,
     SS_DEV_RAISE_ON_ERROR,
@@ -40,16 +34,10 @@ from src.config import (
 )
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
-
 from src.ui_sidebar import render_sidebar
 from src.run_pipeline import run_and_build_results
-
-# ★ 追加：ページ描画を切り出し
 from src.ui_page import render_period_tabs_from_cache, render_compare_tab
-
-# ★ 追加：RunConfig
 from src.types import RunConfig
-
 from src.ui_run import create_run_ui, make_progress_callback, finalize_run_log
 from src.ui_state import ensure_cache_state, save_cache, load_cache
 
@@ -78,11 +66,8 @@ if SS_CACHE_READY not in st.session_state:
 # =========================
 ui = render_sidebar()
 
-# ★ sidebar の確定値を見て client を作る
 if ui.data_source == "bigquery":
-    client = BigQueryClient(
-        project=ui.bigquery_project or None,  # None の場合はデフォルト認証のプロジェクトを使用
-    )
+    client = BigQueryClient(project=ui.bigquery_project or None)
 else:
     client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
 
@@ -93,7 +78,6 @@ if st.session_state.get(SS_PLOT_APPLY_REQ, False):
     st.session_state[SS_PLOT_H_COMPARE] = float(st.session_state[SS_PLOT_EDIT_HC])
     st.session_state[SS_PLOT_APPLY_REQ] = False
 
-
 vehicle_id = ui.vehicle_id
 split_minutes = ui.split_minutes
 run = ui.run
@@ -101,14 +85,11 @@ run = ui.run
 xlim = ui.xlim
 ylim_q1 = ui.ylim_q1
 ylim_q2 = ui.ylim_q2
-
 xlim_q3 = ui.xlim_q3
 ylim_q3 = ui.ylim_q3
-
 thr_lat = ui.thr_lat
 thr_acc = ui.thr_acc
-
-smooth_window_q3 = int(st.session_state.get("smooth_window_q3", 1))  # ★デフォルト=1
+smooth_window_q3 = int(st.session_state.get("smooth_window_q3", 1))
 
 # =========================
 # 実行ボタンが押されたときだけクエリ実行→キャッシュ更新
@@ -120,15 +101,14 @@ if run:
         st.error(f"時間帯入力エラー: {ex}")
         st.stop()
 
-    # ★ Run条件は RunConfig に束ねる
     config = RunConfig(
         vehicle_id=vehicle_id,
         split_minutes=int(split_minutes),
         thr_lat=float(thr_lat),
         thr_acc=float(thr_acc),
         raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
-        max_workers=2,  # まずは2並列
-        dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")), 
+        max_workers=2,
+        dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")),
         exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
         data_source=ui.data_source,
         bigquery_src_table=ui.bigquery_src_table,
@@ -136,8 +116,7 @@ if run:
         bigquery_pose_table=ui.bigquery_pose_table,
         bigquery_speed_table=ui.bigquery_speed_table,
     )
-     
-    # ★ Run中UI（進捗＋ログ）を外出し
+
     run_ui = create_run_ui()
     progress_cb = make_progress_callback(run_ui)
 
@@ -148,12 +127,8 @@ if run:
         progress_callback=progress_cb,
     )
 
-    # ★ Run完了後：失敗があった時だけ詳細ログを表示
     finalize_run_log(run_ui)
-
-    # ★キャッシュ保存も外出し
     save_cache(config=config, results=results)
-
     st.rerun()
 
 
@@ -177,11 +152,8 @@ if vehicle_id != st.session_state[SS_CACHE_VEHICLE_ID]:
     st.warning("vehicle_id が変更されています。反映するには『実行』が必要です。")
 if int(split_minutes) != int(st.session_state[SS_CACHE_SPLIT_MINUTES]):
     st.warning("分割幅が変更されています。反映するには『実行』が必要です。")
-
-# ★追加：閾値の変更は再実行が必要
 if float(thr_lat) != float(st.session_state[SS_CACHE_THR_LAT]):
     st.warning("Q1 閾値（|lateral_error|）が変更されています。反映するには『実行』が必要です。")
-
 if float(thr_acc) != float(st.session_state[SS_CACHE_THR_ACC]):
     st.warning("Q2 閾値（|acceleration|）が変更されています。反映するには『実行』が必要です。")
 
@@ -194,7 +166,6 @@ tabs = st.tabs(tab_names)
 compare_tab = tabs[0] if len(ranges) >= 2 else None
 offset = 1 if len(ranges) >= 2 else 0
 
-# ★ 各期間タブ描画（キャッシュから）
 render_period_tabs_from_cache(
     ranges=ranges,
     tabs=tabs,
@@ -203,13 +174,11 @@ render_period_tabs_from_cache(
     xlim=xlim,
     ylim_q1=ylim_q1,
     ylim_q2=ylim_q2,
-    # ★追加
     xlim_q3=xlim_q3,
     ylim_q3=ylim_q3,
     smooth_window_q3=smooth_window_q3,
 )
 
-# ★ 比較タブ描画（レンジ変更が効く）
 render_compare_tab(
     compare_tab=compare_tab,
     compare_q1=compare_q1,
@@ -218,13 +187,12 @@ render_compare_tab(
     xlim=xlim,
     ylim_q1=ylim_q1,
     ylim_q2=ylim_q2,
-    # ★追加
     xlim_q3=xlim_q3,
     ylim_q3=ylim_q3,
     smooth_window_q3=smooth_window_q3,
 )
 
-# Excelはキャッシュから生成（レンジ変更では再クエリしない）
+# Excel ダウンロード
 st.markdown("## Excel一括ダウンロード")
 xlsx = to_excel_bytes(all_excel_sheets)
 st.download_button(
