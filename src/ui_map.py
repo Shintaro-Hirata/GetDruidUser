@@ -199,7 +199,7 @@ def show_map(
             layers=layers,
             initial_view_state=view_state,
             tooltip=tooltip,
-            map_style="mapbox://styles/mapbox/light-v11",
+            map_style=pdk.map_styles.ROAD,
         ),
         height=map_height,
     )
