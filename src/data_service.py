@@ -341,7 +341,7 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             state_condition="s.system_state = 4",
             excludes=excludes,
-            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose",
+            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_localization_compositor_pose",
             state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
         )
 
@@ -352,7 +352,7 @@ def fetch_chunk_data(
             end_time=e.isoformat(),
             state_condition="s.system_state <> 4",
             excludes=excludes,
-            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_positioning_driver_pose",
+            pose_table=bigquery_pose_table or "t2-integration.zero_plotter.t2_localization_compositor_pose",
             state_table=bigquery_state_table or "t2-integration.zero_plotter.t2_system_state_manager_state",
         )
 

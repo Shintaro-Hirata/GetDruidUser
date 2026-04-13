@@ -617,7 +617,7 @@ def build_query3(
     start_time: str,
     end_time: str,
     state_condition: str,
-    pose_table: str = "t2-integration.zero_plotter.t2_positioning_driver_pose",
+    pose_table: str = "t2-integration.zero_plotter.t2_localization_compositor_pose",
     state_table: str = "t2-integration.zero_plotter.t2_system_state_manager_state",
     excludes: Sequence[ExcludeRange] = (),
 ) -> str:

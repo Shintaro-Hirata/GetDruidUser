@@ -381,7 +381,7 @@ def render_sidebar(*, bq_client_getter=None) -> SidebarState:
         )
         bigquery_pose_table = st.text_input(
             "BigQuery: pose table (project.dataset.table)",
-            value=st.session_state.get("bigquery_pose_table", "t2-integration.zero_plotter.t2_positioning_driver_pose"),
+            value=st.session_state.get("bigquery_pose_table", "t2-integration.zero_plotter.t2_localization_compositor_pose"),
             help="Query3 で使う pose テーブル",
         )
         bigquery_speed_table = st.text_input(
