@@ -176,6 +176,8 @@ if run:
     # ★キャッシュ保存も外出し
     save_cache(config=config, results=results)
 
+    st.session_state.pop("_png_zip_bytes", None)
+
     st.rerun()
 
 
