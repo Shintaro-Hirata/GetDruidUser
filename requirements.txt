@@ -2,6 +2,7 @@ streamlit
 requests
 pandas
 matplotlib
+plotly
 openpyxl
 python-dateutil
 google-cloud-bigquery[pandas]>=3.0.0
