@@ -53,15 +53,44 @@ def _apply_limits(ax, *, xlim=None, ylim=None):
 def _plotly_layout(
     fig: go.Figure, *, x_label: str, y_label: str,
     xlim=None, ylim=None, height: int = 450,
+    legend_inside: bool = False,
 ) -> go.Figure:
-    """Plotly figure に共通レイアウトを適用する。"""
+    """Plotly figure に共通レイアウトを適用する（matplotlib 風の外観）。"""
+    # 軸の共通設定（matplotlib 風の枠線 + 目盛り）
+    axis_common = dict(
+        showline=True,
+        linewidth=1,
+        linecolor="black",
+        mirror=True,              # 上辺・右辺にも枠線
+        ticks="outside",
+        tickwidth=1,
+        tickcolor="black",
+        showgrid=False,           # グリッドなし
+        zeroline=False,
+    )
+
+    if legend_inside:
+        legend_cfg = dict(
+            orientation="v", yanchor="top", y=0.99, xanchor="right", x=0.99,
+            bgcolor="rgba(255,255,255,0.85)", bordercolor="black", borderwidth=1,
+        )
+    else:
+        legend_cfg = dict(
+            orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02,
+            bgcolor="rgba(255,255,255,0.85)", bordercolor="black", borderwidth=1,
+        )
+
     layout_args = dict(
         xaxis_title=x_label,
         yaxis_title=y_label,
         height=height,
         margin=dict(l=60, r=40, t=30, b=50),
         hovermode="closest",
-        legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        legend=legend_cfg,
+        xaxis=axis_common,
+        yaxis=axis_common,
     )
     if xlim is not None:
         layout_args["xaxis_range"] = list(xlim)
@@ -240,6 +269,7 @@ def show_query1(df1: pd.DataFrame, *, xlim=None, ylim=None, fig_size=(7.0, 4.0))
     fig.add_trace(go.Scatter(
         x=plot_df["cum_dist_km"], y=plot_df["lateral_error"],
         mode="markers", name="lateral error",
+        marker=dict(size=7, color="#1f77b4"),
         hovertemplate="距離: %{x:.3f} km<br>lateral error: %{y:.4f} m<extra></extra>",
     ))
     _plotly_layout(fig, x_label="移動距離[km]", y_label="lateral error[m]", xlim=xlim, ylim=ylim)
@@ -270,6 +300,7 @@ def show_query2(df2: pd.DataFrame, *, xlim=None, ylim=None, fig_size=(7.0, 4.0))
     fig.add_trace(go.Scatter(
         x=plot_df["cum_dist_km"], y=plot_df["acceleration"],
         mode="markers", name="acceleration",
+        marker=dict(size=7, color="#1f77b4"),
         hovertemplate="距離: %{x:.3f} km<br>加速度: %{y:.4f} m/s²<extra></extra>",
     ))
     _plotly_layout(fig, x_label="移動距離[km]", y_label="加速度[m/s²]", xlim=xlim, ylim=ylim)
@@ -297,6 +328,7 @@ def show_extra_scatter(label: str, df: pd.DataFrame, *, xlim=None, ylim=None, fi
     fig.add_trace(go.Scatter(
         x=plot_df["cum_dist_km"], y=plot_df["field_value"],
         mode="markers", name=label,
+        marker=dict(size=7, color="#1f77b4"),
         hovertemplate="距離: %{x:.3f} km<br>" + label + ": %{y:.4f}<extra></extra>",
     ))
     _plotly_layout(fig, x_label="移動距離[km]", y_label=label, xlim=xlim, ylim=ylim)
@@ -362,7 +394,7 @@ def show_scatter_compare(
         fig.add_trace(go.Scatter(
             x=x[mask], y=y[mask],
             mode="markers", name=label,
-            marker=dict(size=5, color=color),
+            marker=dict(size=7, color=color),
             hovertemplate=f"{label}<br>{x_label}: " + "%{x:.3f}<br>" + f"{y_label}: " + "%{y:.4f}<extra></extra>",
         ))
         any_plotted = True
@@ -371,7 +403,7 @@ def show_scatter_compare(
         st.info("比較対象のデータがありません（全期間0件 or 列が不足）")
         return
 
-    _plotly_layout(fig, x_label=x_label, y_label=y_label, xlim=xlim, ylim=ylim)
+    _plotly_layout(fig, x_label=x_label, y_label=y_label, xlim=xlim, ylim=ylim, legend_inside=True)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -419,5 +451,5 @@ def show_query3_compare(
         st.info("比較対象のデータがありません（全期間0件 or 列不足）")
         return
 
-    _plotly_layout(fig, x_label="横G [m/s²]", y_label="発生頻度", xlim=xlim, ylim=ylim)
+    _plotly_layout(fig, x_label="横G [m/s²]", y_label="発生頻度", xlim=xlim, ylim=ylim, legend_inside=True)
     st.plotly_chart(fig, use_container_width=True)
