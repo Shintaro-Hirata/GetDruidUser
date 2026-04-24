@@ -11,6 +11,7 @@ from src.clients.druid import DruidClient
 from src.clients.bigquery import BigQueryClient
 
 from src.export_excel import to_excel_bytes
+from src.export_png import build_png_zip
 from src.time_ranges import parse_ranges
 
 from src.config import (
@@ -254,3 +255,41 @@ st.download_button(
     file_name="druid_results.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+
+# PNG一括ダウンロード
+st.markdown("## 画像一括ダウンロード")
+
+fig_size_png = (
+    float(st.session_state.get(SS_PLOT_W, 7.0)),
+    float(st.session_state.get(SS_PLOT_H, 4.0)),
+)
+fig_size_cmp_png = (
+    float(st.session_state.get(SS_PLOT_W_COMPARE, 9.0)),
+    float(st.session_state.get(SS_PLOT_H_COMPARE, 4.5)),
+)
+
+if st.button("PNGを生成", key="gen_png"):
+    with st.spinner("チャート画像を生成中…"):
+        st.session_state["_png_zip_bytes"] = build_png_zip(
+            all_excel_sheets=all_excel_sheets,
+            ranges=ranges,
+            compare_q1=compare_q1,
+            compare_q2=compare_q2,
+            compare_q3=compare_q3,
+            xlim=xlim,
+            ylim_q1=ylim_q1,
+            ylim_q2=ylim_q2,
+            xlim_q3=xlim_q3,
+            ylim_q3=ylim_q3,
+            smooth_window_q3=smooth_window_q3,
+            fig_size=fig_size_png,
+            fig_size_compare=fig_size_cmp_png,
+        )
+
+if "_png_zip_bytes" in st.session_state:
+    st.download_button(
+        label="全チャートをダウンロード（PNG ZIP）",
+        data=st.session_state["_png_zip_bytes"],
+        file_name="charts.zip",
+        mime="application/zip",
+    )
