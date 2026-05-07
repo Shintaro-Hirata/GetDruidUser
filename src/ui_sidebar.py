@@ -11,6 +11,7 @@ from src.config import (
     SS_PLOT_APPLY_REQ, SS_PLOT_LOCK,
     SS_EXTRA_SCATTERS,
     SS_BQ_TABLE_LIST, SS_BQ_FIELD_CACHE, SS_BQ_DATASET_ID,
+    SS_RUNNING,
 )
 
 
@@ -483,7 +484,12 @@ def render_sidebar(*, bq_client_getter=None) -> SidebarState:
         )
 
 
-        run = st.button("実行", type="primary")
+        is_running = st.session_state.get(SS_RUNNING, False)
+        run = st.button(
+            "実行中…" if is_running else "実行",
+            type="primary",
+            disabled=is_running,
+        )
 
     xlim = None if x_min >= x_max else (x_min, x_max)
     ylim_q1 = None if y1_min >= y1_max else (y1_min, y1_max)

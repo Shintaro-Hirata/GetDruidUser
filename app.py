@@ -39,6 +39,7 @@ from src.config import (
     SS_PLOT_APPLY_REQ,
     SS_DIST_MODE,
     SS_BQ_DATASET_ID,
+    SS_RUNNING,
 )
 
 from src.suggestions import suggested_split_minutes_from_ranges_text
@@ -135,49 +136,50 @@ smooth_window_q3 = int(st.session_state.get("smooth_window_q3", 1))  # ★デフ
 # 実行ボタンが押されたときだけクエリ実行→キャッシュ更新
 # =========================
 if run:
-    try:
-        ranges = parse_ranges(st.session_state["ranges_text"])
-    except Exception as ex:
-        st.error(f"時間帯入力エラー: {ex}")
-        st.stop()
+    st.session_state[SS_RUNNING] = True
+    st.rerun()
 
-    # ★ Run条件は RunConfig に束ねる
-    config = RunConfig(
-        vehicle_id=vehicle_id,
-        split_minutes=int(split_minutes),
-        thr_lat=float(thr_lat),
-        thr_acc=float(thr_acc),
-        raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
-        max_workers=2,  # まずは2並列
-        dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")), 
-        exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
-        data_source=ui.data_source,
-        bigquery_src_table=ui.bigquery_src_table,
-        bigquery_state_table=ui.bigquery_state_table,
-        bigquery_pose_table=ui.bigquery_pose_table,
-        bigquery_speed_table=ui.bigquery_speed_table,
-        extra_scatters=ui.extra_scatters,
-    )
-     
-    # ★ Run中UI（進捗＋ログ）を外出し
-    run_ui = create_run_ui()
-    progress_cb = make_progress_callback(run_ui)
+if st.session_state.get(SS_RUNNING, False):
+    with st.spinner("データを取得中です…しばらくお待ちください"):
+        try:
+            ranges = parse_ranges(st.session_state["ranges_text"])
+        except Exception as ex:
+            st.session_state[SS_RUNNING] = False
+            st.error(f"時間帯入力エラー: {ex}")
+            st.stop()
 
-    results = run_and_build_results(
-        client=client,
-        config=config,
-        ranges=ranges,
-        progress_callback=progress_cb,
-    )
+        config = RunConfig(
+            vehicle_id=vehicle_id,
+            split_minutes=int(split_minutes),
+            thr_lat=float(thr_lat),
+            thr_acc=float(thr_acc),
+            raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
+            max_workers=2,
+            dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")),
+            exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
+            data_source=ui.data_source,
+            bigquery_src_table=ui.bigquery_src_table,
+            bigquery_state_table=ui.bigquery_state_table,
+            bigquery_pose_table=ui.bigquery_pose_table,
+            bigquery_speed_table=ui.bigquery_speed_table,
+            extra_scatters=ui.extra_scatters,
+        )
 
-    # ★ Run完了後：失敗があった時だけ詳細ログを表示
-    finalize_run_log(run_ui)
+        run_ui = create_run_ui()
+        progress_cb = make_progress_callback(run_ui)
 
-    # ★キャッシュ保存も外出し
-    save_cache(config=config, results=results)
+        results = run_and_build_results(
+            client=client,
+            config=config,
+            ranges=ranges,
+            progress_callback=progress_cb,
+        )
 
-    st.session_state.pop("_png_zip_bytes", None)
+        finalize_run_log(run_ui)
+        save_cache(config=config, results=results)
+        st.session_state.pop("_png_zip_bytes", None)
 
+    st.session_state[SS_RUNNING] = False
     st.rerun()
 
 
