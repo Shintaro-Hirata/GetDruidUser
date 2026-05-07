@@ -77,6 +77,49 @@ if SS_CACHE_READY not in st.session_state:
     ensure_cache_state()
 
 # =========================
+# ★ 実行中ならサイドバー描画をスキップして即スピナー表示
+# =========================
+if st.session_state.get(SS_RUNNING, False):
+    _run_cfg = st.session_state.get("_run_config")
+    if _run_cfg is not None:
+        with st.spinner("データを取得中です…しばらくお待ちください"):
+            try:
+                ranges = parse_ranges(st.session_state["ranges_text"])
+            except Exception as ex:
+                st.session_state[SS_RUNNING] = False
+                st.session_state.pop("_run_config", None)
+                st.error(f"時間帯入力エラー: {ex}")
+                st.stop()
+
+            if _run_cfg.data_source == "bigquery":
+                client = BigQueryClient(
+                    project=st.session_state.get("_run_bq_project") or None,
+                )
+            else:
+                client = DruidClient(DRUID_SQL_URL, timeout_sec=120)
+
+            run_ui = create_run_ui()
+            progress_cb = make_progress_callback(run_ui)
+
+            results = run_and_build_results(
+                client=client,
+                config=_run_cfg,
+                ranges=ranges,
+                progress_callback=progress_cb,
+            )
+
+            finalize_run_log(run_ui)
+            save_cache(config=_run_cfg, results=results)
+            st.session_state.pop("_png_zip_bytes", None)
+
+        st.session_state[SS_RUNNING] = False
+        st.session_state.pop("_run_config", None)
+        st.session_state.pop("_run_bq_project", None)
+        st.rerun()
+    else:
+        st.session_state[SS_RUNNING] = False
+
+# =========================
 # BigQuery メタデータ用データセットID（src_table から自動導出）
 # =========================
 _default_src = st.session_state.get("bigquery_src_table", "t2-integration.zero_plotter.t2_control_debug")
@@ -133,53 +176,28 @@ thr_acc = ui.thr_acc
 smooth_window_q3 = int(st.session_state.get("smooth_window_q3", 1))  # ★デフォルト=1
 
 # =========================
-# 実行ボタンが押されたときだけクエリ実行→キャッシュ更新
+# 実行ボタンが押されたとき：設定を保存して即rerun
 # =========================
 if run:
+    config = RunConfig(
+        vehicle_id=vehicle_id,
+        split_minutes=int(split_minutes),
+        thr_lat=float(thr_lat),
+        thr_acc=float(thr_acc),
+        raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
+        max_workers=2,
+        dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")),
+        exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
+        data_source=ui.data_source,
+        bigquery_src_table=ui.bigquery_src_table,
+        bigquery_state_table=ui.bigquery_state_table,
+        bigquery_pose_table=ui.bigquery_pose_table,
+        bigquery_speed_table=ui.bigquery_speed_table,
+        extra_scatters=ui.extra_scatters,
+    )
+    st.session_state["_run_config"] = config
+    st.session_state["_run_bq_project"] = getattr(ui, "bigquery_project", "") or ""
     st.session_state[SS_RUNNING] = True
-    st.rerun()
-
-if st.session_state.get(SS_RUNNING, False):
-    with st.spinner("データを取得中です…しばらくお待ちください"):
-        try:
-            ranges = parse_ranges(st.session_state["ranges_text"])
-        except Exception as ex:
-            st.session_state[SS_RUNNING] = False
-            st.error(f"時間帯入力エラー: {ex}")
-            st.stop()
-
-        config = RunConfig(
-            vehicle_id=vehicle_id,
-            split_minutes=int(split_minutes),
-            thr_lat=float(thr_lat),
-            thr_acc=float(thr_acc),
-            raise_on_error=bool(st.session_state.get(SS_DEV_RAISE_ON_ERROR, False)),
-            max_workers=2,
-            dist_mode=str(st.session_state.get(SS_DIST_MODE, "latlon")),
-            exclude_ranges_text=str(st.session_state.get("exclude_ranges_text", "")).strip(),
-            data_source=ui.data_source,
-            bigquery_src_table=ui.bigquery_src_table,
-            bigquery_state_table=ui.bigquery_state_table,
-            bigquery_pose_table=ui.bigquery_pose_table,
-            bigquery_speed_table=ui.bigquery_speed_table,
-            extra_scatters=ui.extra_scatters,
-        )
-
-        run_ui = create_run_ui()
-        progress_cb = make_progress_callback(run_ui)
-
-        results = run_and_build_results(
-            client=client,
-            config=config,
-            ranges=ranges,
-            progress_callback=progress_cb,
-        )
-
-        finalize_run_log(run_ui)
-        save_cache(config=config, results=results)
-        st.session_state.pop("_png_zip_bytes", None)
-
-    st.session_state[SS_RUNNING] = False
     st.rerun()
 
 
