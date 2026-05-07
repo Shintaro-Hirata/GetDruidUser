@@ -77,11 +77,14 @@ if SS_CACHE_READY not in st.session_state:
     ensure_cache_state()
 
 # =========================
-# ★ 実行中ならサイドバー描画をスキップして即スピナー表示
+# ★ 実行中ならサイドバーは最小表示にして即スピナー表示
 # =========================
 if st.session_state.get(SS_RUNNING, False):
     _run_cfg = st.session_state.get("_run_config")
     if _run_cfg is not None:
+        with st.sidebar:
+            st.info("データを取得中です…")
+            st.button("実行中…", type="primary", disabled=True)
         with st.spinner("データを取得中です…しばらくお待ちください"):
             try:
                 ranges = parse_ranges(st.session_state["ranges_text"])
