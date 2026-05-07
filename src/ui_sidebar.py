@@ -33,27 +33,36 @@ def _plot_size_reset():
     st.session_state[SS_PLOT_APPLY_REQ] = True
 
 def _fetch_table_list(client_getter) -> list[str]:
-    """BigQuery のテーブル一覧をキャッシュ付きで取得する。"""
-    cached = st.session_state.get(SS_BQ_TABLE_LIST)
-    if cached is not None:
-        return cached
+    """BigQuery のテーブル一覧をキャッシュから返す（自動取得しない）。"""
+    return st.session_state.get(SS_BQ_TABLE_LIST) or []
+
+
+def _fetch_field_list(client_getter, table_id: str) -> list[str]:
+    """BigQuery のフィールド一覧をキャッシュから返す（自動取得しない）。"""
+    cache: dict = st.session_state.get(SS_BQ_FIELD_CACHE, {})
+    return cache.get(table_id) or []
+
+
+def _load_bq_metadata(client_getter) -> None:
+    """テーブル一覧を BigQuery から取得してキャッシュに保存する。"""
+    if client_getter is None:
+        st.warning("BigQuery クライアントが利用できません。")
+        return
     try:
         with st.spinner("テーブル一覧を読み込み中…"):
             client = client_getter()
             dataset_id = st.session_state.get(SS_BQ_DATASET_ID, "t2-integration.zero_plotter")
             tables = client.list_tables(dataset_id)
             st.session_state[SS_BQ_TABLE_LIST] = tables
-            return tables
     except Exception as ex:
         st.warning(f"テーブル一覧の取得に失敗: {ex}")
-        return []
 
 
-def _fetch_field_list(client_getter, table_id: str) -> list[str]:
-    """BigQuery のフィールド一覧をキャッシュ付きで取得する。"""
+def _load_field_list(client_getter, table_id: str) -> None:
+    """フィールド一覧を BigQuery から取得してキャッシュに保存する。"""
+    if client_getter is None:
+        return
     cache: dict = st.session_state.setdefault(SS_BQ_FIELD_CACHE, {})
-    if table_id in cache:
-        return cache[table_id]
     try:
         with st.spinner(f"フィールド一覧を読み込み中（{table_id}）…"):
             client = client_getter()
@@ -61,10 +70,8 @@ def _fetch_field_list(client_getter, table_id: str) -> list[str]:
             full_table = f"{dataset_id}.{table_id}"
             fields = client.get_table_fields(full_table)
             cache[table_id] = fields
-            return fields
     except Exception as ex:
         st.warning(f"フィールド一覧の取得に失敗 ({table_id}): {ex}")
-        return []
 
 
 def _render_extra_scatter_ui(client_getter=None) -> None:
@@ -115,6 +122,10 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
                 edit_field = st.text_input(
                     "フィールドID", value=cur_field, key=f"edit_field_{idx}",
                 )
+                if edit_table and client_getter is not None:
+                    if st.button("フィールド一覧を取得", key=f"fetch_field_{idx}"):
+                        _load_field_list(client_getter, edit_table)
+                        st.rerun()
 
             # 条件タイプ
             cur_cond = cfg.get("condition_type", "threshold")
@@ -223,6 +234,10 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
                 key="new_extra_field",
                 help="例: :debug_for_mcap:lateral_error（バッククォート不要）",
             )
+            if new_table and client_getter is not None:
+                if st.button("フィールド一覧を取得", key="fetch_new_field"):
+                    _load_field_list(client_getter, new_table)
+                    st.rerun()
 
         # 条件タイプ選択
         condition_type = st.radio(
@@ -297,10 +312,17 @@ def _render_extra_scatter_ui(client_getter=None) -> None:
             else:
                 st.warning("テーブルIDとフィールドIDを入力してください。")
 
-        # メタデータキャッシュのリフレッシュ
-        if st.button("テーブル/フィールド一覧を再取得", key="refresh_bq_meta"):
+        # メタデータの取得/リフレッシュ
+        has_cache = bool(st.session_state.get(SS_BQ_TABLE_LIST))
+        btn_label = "テーブル/フィールド一覧を再取得" if has_cache else "テーブル/フィールド一覧を取得"
+        if has_cache:
+            st.caption("✓ テーブル一覧を取得済み（ドロップダウンで選択可能）")
+        else:
+            st.caption("テーブル一覧を取得すると、ドロップダウンで選択できるようになります。")
+        if st.button(btn_label, key="refresh_bq_meta"):
             st.session_state.pop(SS_BQ_TABLE_LIST, None)
             st.session_state.pop(SS_BQ_FIELD_CACHE, None)
+            _load_bq_metadata(client_getter)
             st.rerun()
 
 
