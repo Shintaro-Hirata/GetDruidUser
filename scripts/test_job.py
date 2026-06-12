@@ -1,5 +1,5 @@
 # test_job.py
-from src.bigquery_client import BigQueryClient
+from src.backends.bigquery import BigQueryBackend as BigQueryClient
 
 client = BigQueryClient(project="t2-integration")
 try:

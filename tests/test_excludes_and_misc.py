@@ -4,13 +4,15 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from src.run_pipeline import _parse_exclude_ranges_text
-from src.suggestions import suggested_split_minutes_from_ranges_text
-from src.export_excel import to_excel_bytes
+from src.domain.time_ranges import (
+    parse_exclude_ranges_text,
+    suggested_split_minutes_from_ranges_text,
+)
+from src.export.excel import to_excel_bytes
 
 
 def test_parse_exclude_ranges_comma():
-    out = _parse_exclude_ranges_text(
+    out = parse_exclude_ranges_text(
         "2025-12-15T08:00:00+09:00,2025-12-15T08:10:00+09:00"
     )
     assert len(out) == 1
@@ -24,20 +26,20 @@ def test_parse_exclude_ranges_hyphen_and_comment_and_sort():
         "2025-12-15T09:00:00+09:00 - 2025-12-15T09:10:00+09:00\n"
         "2025-12-15T08:00:00+09:00, 2025-12-15T08:10:00+09:00\n"
     )
-    out = _parse_exclude_ranges_text(text)
+    out = parse_exclude_ranges_text(text)
     assert len(out) == 2
     assert out[0].start < out[1].start  # ソートされる
 
 
 def test_parse_exclude_ranges_rejects_reversed():
     with pytest.raises(ValueError):
-        _parse_exclude_ranges_text(
+        parse_exclude_ranges_text(
             "2025-12-15T08:10:00+09:00,2025-12-15T08:00:00+09:00"
         )
 
 
 def test_parse_exclude_ranges_empty():
-    assert _parse_exclude_ranges_text("") == []
+    assert parse_exclude_ranges_text("") == []
 
 
 def test_suggested_split_minutes_max_duration():

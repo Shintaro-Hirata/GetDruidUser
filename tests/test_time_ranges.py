@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from src.time_ranges import TimeRange, parse_ranges, split_range
+from src.domain.models import TimeRange
+from src.domain.time_ranges import parse_ranges, split_range
 
 JST = timezone(timedelta(hours=9))
 

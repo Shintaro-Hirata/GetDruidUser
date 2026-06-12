@@ -1,6 +1,6 @@
 # match_stats.py
 import pandas as pd
-from src.bigquery_client import BigQueryClient
+from src.backends.bigquery import BigQueryBackend as BigQueryClient
 
 def fetch_sample():
     client = BigQueryClient(project="t2-integration")
