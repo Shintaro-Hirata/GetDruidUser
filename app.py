@@ -162,7 +162,15 @@ if st.button("画像を生成", key="gen_images"):
             )
     except Exception as ex:
         state.image_zip = None
-        if "Chrome" in str(ex) or "chrome" in str(ex):
+        msg = str(ex)
+        if "Kaleido" in msg or "kaleido" in msg:
+            st.error(
+                "画像の生成に失敗しました。PNG書き出し用のパッケージ kaleido が"
+                "インストールされていません。仮想環境を有効にした状態で以下を実行し、"
+                "アプリを再起動してください。"
+            )
+            st.code("pip install -r requirements.txt", language="bash")
+        elif "Chrome" in msg or "chrome" in msg:
             st.error(
                 "画像の生成に失敗しました。PNG書き出しには Chrome が必要です。"
                 "Chrome をインストールするか、ターミナルで `plotly_get_chrome` を実行してください。"
