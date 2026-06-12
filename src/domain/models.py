@@ -34,7 +34,7 @@ class TableConfig:
     """
     control_table: str = "t2_control_debug"                  # Q1/Q2・緯度経度・latlon距離
     state_table: str = "t2_system_state_manager_state"       # 自動/手動判定（system_state）
-    pose_table: str = "t2_positioning_driver_pose"           # 横G（クエリ3）
+    pose_table: str = "t2_localization_compositor_pose"      # 横G（クエリ3）
     speed_table: str = "t2_localization_compositor_pose"     # 速度平均距離（dist_mode=speed）
 
 

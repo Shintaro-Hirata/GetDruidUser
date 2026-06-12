@@ -81,7 +81,7 @@ def test_settings_dict_contents():
         "2025-12-09T01:10:00+09:00, 2025-12-09T01:20:00+09:00"
     ]
     assert fetch["クエリ条件"]["dist_mode"] == "latlon"
-    assert fetch["取得テーブル"]["pose"] == "t2_positioning_driver_pose"
+    assert fetch["取得テーブル"]["pose"] == "t2_localization_compositor_pose"
 
     disp = d["表示設定"]
     assert disp["表示レンジ"]["X（移動距離km）"] == [0.0, 100.0]

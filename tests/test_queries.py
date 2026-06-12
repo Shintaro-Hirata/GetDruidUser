@@ -80,7 +80,7 @@ def test_build_metric_query_without_excludes_has_no_not_clause():
 def test_build_hist_query_state_condition_and_pose_excludes():
     sql = build_hist_query(_params(EXCLUDES), state_condition="s.system_state = 4")
     _assert_no_leftover_placeholders(sql)
-    assert "t2_positioning_driver_pose" in sql
+    assert "t2_localization_compositor_pose" in sql
     assert ".pose.linear_acceleration_vrf.y" in sql
     assert "s.system_state = 4" in sql
     # pose 側の除外は p.__time に対して入る
@@ -130,7 +130,7 @@ def test_default_tables_unchanged():
     assert '"t2_control_debug"' in sql
     assert '"t2_system_state_manager_state"' in sql
     sql_hist = build_hist_query(_params(), state_condition="s.system_state = 4")
-    assert '"t2_positioning_driver_pose"' in sql_hist
+    assert '"t2_localization_compositor_pose"' in sql_hist
 
 
 # ============================================================
@@ -179,7 +179,7 @@ def test_bq_metric_query_speed_mode():
 
 def test_bq_hist_query_dialect():
     sql = build_hist_query(_bq_params(EXCLUDES), state_condition="s.system_state = 4")
-    assert "`t2-integration.zero_plotter.t2_positioning_driver_pose`" in sql
+    assert "`t2-integration.zero_plotter.t2_localization_compositor_pose`" in sql
     assert "`:pose:linear_acceleration_vrf:y`" in sql
     assert "FLOAT64" in sql and "DOUBLE" not in sql
     # 別名付き時刻列と除外句
