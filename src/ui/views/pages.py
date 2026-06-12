@@ -176,6 +176,10 @@ def render_period_tab(
 ) -> None:
     st.subheader(f"{period.label}: {period.range.start.isoformat()} 〜 {period.range.end.isoformat()}")
 
+    meta_str = " / ".join(f"{k}: {v}" for k, v in period.meta.items() if v)
+    if meta_str:
+        st.caption(f"運行情報（zero-plotter）: {meta_str}")
+
     if not period.chunks:
         st.info("この期間の結果がありません（未実行 or 取得失敗）")
         return

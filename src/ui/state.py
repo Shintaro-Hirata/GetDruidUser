@@ -31,6 +31,10 @@ class AppState:
     # 除外編集モードでクリックした「開始」候補（2クリック方式の1点目）
     exclude_pick_start: str | None = None
 
+    # zero-plotter の運行（leg）から取り込んだメタデータ（期間ラベル -> meta）。
+    # 実行時に PeriodResult.meta へ引き継がれ、バージョン比較等に使う。
+    leg_meta: dict[str, dict] = field(default_factory=dict)
+
 
 def get_state() -> AppState:
     """session_state 上の AppState シングルトンを返す。"""

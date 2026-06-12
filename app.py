@@ -64,6 +64,11 @@ if sb.run:
     )
     finalize_run_log(run_ui)
 
+    # 運行（legs）由来のメタデータを期間に引き継ぐ（バージョン比較等に使う）
+    for period in results.periods:
+        if period.label in state.leg_meta:
+            period.meta = state.leg_meta[period.label]
+
     state.results = results
     st.rerun()
 
