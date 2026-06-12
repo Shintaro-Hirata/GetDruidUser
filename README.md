@@ -1,7 +1,9 @@
 # GetDruidUser
 
-Druid 上の FOT 運行データから lateral error / acceleration / 横G を取得し、
+FOT 運行データ（BigQuery / Druid）から lateral error / acceleration / 横G を取得し、
 散布図・地図・表・Excel で可視化／比較する Streamlit アプリです。
+データ取得先は **BigQuery がデフォルト**で、サイドバーから Druid にも切り替えられます
+（SQL は方言対応で自動生成されます）。
 
 ## セットアップ
 
@@ -15,9 +17,9 @@ streamlit run app.py
 
 | 変数 | 説明 | 既定値 |
 |------|------|--------|
-| `BACKEND` | 計測クエリのバックエンド（`druid` / `bq`） | `druid` |
+| `BACKEND` | 計測クエリのバックエンドの初期値（`bq` / `druid`。UIから切替可能） | `bq` |
 | `DRUID_SQL_URL` | Druid SQL API の URL | `http://t2-integ-2:8888/druid/v2/sql` |
-| `BQ_PROJECT_NAME` | BigQuery プロジェクト（legs_table 読み取りに使用） | `t2-integration` |
+| `BQ_PROJECT_NAME` | BigQuery プロジェクト（計測クエリ・legs_table に使用） | `t2-integration` |
 | `BQ_DATASET_NAME` | BigQuery データセット | `zero_plotter` |
 | `LEGS_JSONL_URL` | Druid モード時の legs_index.jsonl 配信URL（任意） | （未設定） |
 | `DEFAULT_VEHICLE_ID` | vehicle_id 入力の初期値 | `giga07` |
@@ -52,7 +54,7 @@ src/
     time_ranges.py      時間帯テキストのパース・分割
   queries/
     specs.py            MetricSpec（指標の定義。指標追加はここに1つ足すだけ）
-    builder.py          Druid SQL の組み立て（距離CTE・除外句）
+    builder.py          SQL の組み立て（BigQuery/Druid 方言対応・距離CTE・除外句）
   backends/
     base.py             QueryBackend Protocol
     druid.py / bigquery.py / factory.py

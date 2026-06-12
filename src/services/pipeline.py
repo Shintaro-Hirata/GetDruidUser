@@ -23,7 +23,7 @@ from src.domain.results import (
     aggregate_hist_bins,
 )
 from src.domain.time_ranges import split_range
-from src.queries.builder import QueryParams, build_hist_query, build_metric_query
+from src.queries.builder import Dialect, QueryParams, build_hist_query, build_metric_query
 from src.queries.specs import METRICS
 
 ProgressCallback = Callable[[dict], None]
@@ -92,6 +92,18 @@ def _run_sql_adaptive_split(
         return left + right
 
 
+
+def _query_params(config: RunConfig, s: datetime, e: datetime) -> QueryParams:
+    return QueryParams(
+        vehicle_id=config.vehicle_id,
+        start_time=s.isoformat(),
+        end_time=e.isoformat(),
+        excludes=config.excludes,
+        tables=config.tables,
+        dialect=Dialect(kind=config.backend, bq_prefix=config.bq_table_prefix),
+    )
+
+
 # =========================
 # 1チャンク分の取得
 # =========================
@@ -109,13 +121,7 @@ def fetch_chunk(
         def builder(s: datetime, e: datetime, _spec=spec) -> str:
             return build_metric_query(
                 _spec,
-                QueryParams(
-                    vehicle_id=config.vehicle_id,
-                    start_time=s.isoformat(),
-                    end_time=e.isoformat(),
-                    excludes=config.excludes,
-                    tables=config.tables,
-                ),
+                _query_params(config, s, e),
                 threshold=config.threshold(_spec.key, _spec.default_threshold),
                 dist_mode=config.dist_mode,
             )
@@ -129,13 +135,7 @@ def fetch_chunk(
     def hist_builder(state_condition: str) -> Callable[[datetime, datetime], str]:
         def builder(s: datetime, e: datetime) -> str:
             return build_hist_query(
-                QueryParams(
-                    vehicle_id=config.vehicle_id,
-                    start_time=s.isoformat(),
-                    end_time=e.isoformat(),
-                    excludes=config.excludes,
-                    tables=config.tables,
-                ),
+                _query_params(config, s, e),
                 state_condition=state_condition,
             )
         return builder

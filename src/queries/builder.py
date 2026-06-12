@@ -1,8 +1,15 @@
 # src/queries/builder.py
-# Druid SQL の組み立て（1パス）。
-# 旧実装は Q1/Q2 でほぼ同一のテンプレートを2つ持ち、距離CTEを2段format
-# （プレースホルダを残したまま埋め込み→再format）していたが、ここでは
-# MetricSpec によるパラメータ化と、値を確定させてからの1パス組み立てに統一する。
+# SQL の組み立て（1パス・方言対応）。
+# 同じロジックのクエリを BigQuery（デフォルト）と Druid の両方に生成できるよう、
+# 識別子の引用・時刻列・時刻丸め・関数差分を Dialect に集約している。
+#
+# 主な方言差:
+#   - テーブル参照: BQ `project.dataset.table` / Druid "table"
+#   - 時刻列:      BQ `#timestamp`            / Druid __time
+#   - 列名:        BQ はドットがコロン（`:debug_for_mcap:lateral_error`）
+#   - 秒/分丸め:   BQ TIMESTAMP_TRUNC         / Druid FLOOR(.. TO SECOND), TIME_FLOOR
+#   - 時刻リテラル: BQ TIMESTAMP('...')        / Druid '...'
+#   - RADIANS:     BQ に無いため定数乗算で代替
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +17,58 @@ from typing import Sequence
 
 from src.domain.models import DEFAULT_TABLES, DistanceMode, ExcludeRange, TableConfig
 from src.queries.specs import MetricSpec
+
+_DEG2RAD = "0.017453292519943295"  # pi / 180
+
+
+@dataclass(frozen=True)
+class Dialect:
+    """SQL方言（"bq" | "druid"）と BigQuery のテーブル接頭辞"""
+    kind: str = "bq"
+    bq_prefix: str = ""  # BigQuery の "project.dataset"
+
+    @property
+    def is_bq(self) -> bool:
+        return self.kind == "bq"
+
+    def table(self, name: str) -> str:
+        if self.is_bq:
+            prefix = f"{self.bq_prefix}." if self.bq_prefix else ""
+            return f"`{prefix}{name}`"
+        return f'"{name}"'
+
+    def col(self, name: str) -> str:
+        """列参照。BQ はドット区切りがコロンに置き換わる。"""
+        if self.is_bq:
+            return f"`{name.replace('.', ':')}`"
+        return f'"{name}"'
+
+    @property
+    def time_col(self) -> str:
+        return "`#timestamp`" if self.is_bq else "__time"
+
+    def ts(self, iso: str) -> str:
+        return f"TIMESTAMP('{iso}')" if self.is_bq else f"'{iso}'"
+
+    def floor_sec(self, expr: str) -> str:
+        if self.is_bq:
+            return f"TIMESTAMP_TRUNC({expr}, SECOND)"
+        return f"FLOOR({expr} TO SECOND)"
+
+    def floor_min(self, expr: str) -> str:
+        if self.is_bq:
+            return f"TIMESTAMP_TRUNC({expr}, MINUTE)"
+        return f"TIME_FLOOR({expr}, 'PT1M')"
+
+    @property
+    def double_type(self) -> str:
+        return "FLOAT64" if self.is_bq else "DOUBLE"
+
+    def pow(self, x: str, y: str) -> str:
+        return f"POW({x}, {y})" if self.is_bq else f"POWER({x}, {y})"
+
+    def radians(self, x: str) -> str:
+        return f"(({x}) * {_DEG2RAD})" if self.is_bq else f"RADIANS({x})"
 
 
 @dataclass(frozen=True)
@@ -20,28 +79,43 @@ class QueryParams:
     end_time: str
     excludes: Sequence[ExcludeRange] = ()
     tables: TableConfig = DEFAULT_TABLES
+    dialect: Dialect = Dialect()
 
 
 # ============================================================
-# 除外句
+# WHERE 句の共通部品
 # ============================================================
 
-def _exclude_clause(excludes: Sequence[ExcludeRange], time_expr: str = "__time") -> str:
+def _exclude_clause(p: QueryParams, time_expr: str) -> str:
     """
     例:
       AND NOT (
-        (__time >= '...' AND __time < '...') OR ...
+        (t >= TIMESTAMP('...') AND t < TIMESTAMP('...')) OR ...
       )
     除外なしなら空文字。
     """
-    if not excludes:
+    if not p.excludes:
         return ""
 
+    d = p.dialect
     parts = [
-        f"({time_expr} >= '{r.start.isoformat()}' AND {time_expr} < '{r.end.isoformat()}')"
-        for r in excludes
+        f"({time_expr} >= {d.ts(r.start.isoformat())} AND {time_expr} < {d.ts(r.end.isoformat())})"
+        for r in p.excludes
     ]
     return f"\n    AND NOT ({' OR '.join(parts)})"
+
+
+def _time_filter(p: QueryParams, *, alias: str = "") -> str:
+    """vehicle_id・期間・除外の WHERE 条件。alias はテーブル別名（例 "p"）。"""
+    d = p.dialect
+    prefix = f"{alias}." if alias else ""
+    time_expr = f"{prefix}{d.time_col}"
+    return (
+        f"{prefix}{d.col('#vehicle_id')} = '{p.vehicle_id}'\n"
+        f"    AND {time_expr} >= {d.ts(p.start_time)}\n"
+        f"    AND {time_expr} <  {d.ts(p.end_time)}"
+        f"{_exclude_clause(p, time_expr)}"
+    )
 
 
 # ============================================================
@@ -50,19 +124,17 @@ def _exclude_clause(excludes: Sequence[ExcludeRange], time_expr: str = "__time")
 # ============================================================
 
 def _distance_cte_latlon(p: QueryParams) -> str:
-    exclude_sql = _exclude_clause(p.excludes)
+    d = p.dialect
     return f"""
 /* distance mode=latlon */
 pos_1s AS (
   SELECT
-    FLOOR(__time TO SECOND) AS sec_time,
-    AVG("#latitude")  AS lat,
-    AVG("#longitude") AS lon
-  FROM "{p.tables.control_table}"
-  WHERE "#vehicle_id" = '{p.vehicle_id}'
-    AND __time >= '{p.start_time}'
-    AND __time <  '{p.end_time}'{exclude_sql}
-  GROUP BY FLOOR(__time TO SECOND)
+    {d.floor_sec(d.time_col)} AS sec_time,
+    AVG({d.col("#latitude")})  AS lat,
+    AVG({d.col("#longitude")}) AS lon
+  FROM {d.table(p.tables.control_table)}
+  WHERE {_time_filter(p)}
+  GROUP BY {d.floor_sec(d.time_col)}
 ),
 
 seg AS (
@@ -83,9 +155,9 @@ dist_1s AS (
       ELSE
         2.0 * 6371000.0 * ASIN(
           SQRT(
-            POWER(SIN((RADIANS(lat - prev_lat)) / 2.0), 2.0)
-            + COS(RADIANS(prev_lat)) * COS(RADIANS(lat))
-            * POWER(SIN((RADIANS(lon - prev_lon)) / 2.0), 2.0)
+            {d.pow(f"SIN(({d.radians('lat - prev_lat')}) / 2.0)", "2.0")}
+            + COS({d.radians('prev_lat')}) * COS({d.radians('lat')})
+            * {d.pow(f"SIN(({d.radians('lon - prev_lon')}) / 2.0)", "2.0")}
           )
         )
     END AS delta_m
@@ -102,18 +174,16 @@ cum AS (
 
 
 def _distance_cte_speed(p: QueryParams) -> str:
-    exclude_sql = _exclude_clause(p.excludes)
+    d = p.dialect
     return f"""
 /* distance mode=speed (1s) */
 speed_1s AS (
   SELECT
-    FLOOR(__time TO SECOND) AS sec_time,
-    AVG(".pose.poslv_speed") AS avg_speed_mps
-  FROM "{p.tables.speed_table}"
-  WHERE "#vehicle_id" = '{p.vehicle_id}'
-    AND __time >= '{p.start_time}'
-    AND __time <  '{p.end_time}'{exclude_sql}
-  GROUP BY FLOOR(__time TO SECOND)
+    {d.floor_sec(d.time_col)} AS sec_time,
+    AVG({d.col(".pose.poslv_speed")}) AS avg_speed_mps
+  FROM {d.table(p.tables.speed_table)}
+  WHERE {_time_filter(p)}
+  GROUP BY {d.floor_sec(d.time_col)}
 ),
 
 dist_1s AS (
@@ -140,6 +210,17 @@ def _distance_cte(dist_mode: DistanceMode, p: QueryParams) -> str:
     raise ValueError(f"Unknown dist_mode: {dist_mode}")
 
 
+def _state_per_sec_cte(p: QueryParams) -> str:
+    """1秒ごとの system_state（自動/手動判定用）"""
+    d = p.dialect
+    return f"""SELECT
+    {d.floor_sec(d.time_col)} AS sec_time,
+    MAX({d.col(".system_state")}) AS system_state
+  FROM {d.table(p.tables.state_table)}
+  WHERE {_time_filter(p)}
+  GROUP BY {d.floor_sec(d.time_col)}"""
+
+
 # ============================================================
 # メトリクス散布図クエリ（旧 Query1 / Query2 を統合）
 #   1秒ごとに |値| 最大の行を採り、自動運転（system_state=4）の秒に絞り、
@@ -153,26 +234,25 @@ def build_metric_query(
     threshold: float,
     dist_mode: DistanceMode = "latlon",
 ) -> str:
-    exclude_sql = _exclude_clause(p.excludes)
+    d = p.dialect
+    metric_col = d.col(spec.column)
     distance_cte = _distance_cte(dist_mode, p)
 
     return f"""
 WITH per_sec AS (
   SELECT
-    FLOOR(__time TO SECOND) AS sec_time,
-    "#latitude"  AS latitude,
-    "#longitude" AS longitude,
-    "{spec.column}" AS {spec.name},
-    ABS("{spec.column}") AS {spec.abs_name},
+    {d.floor_sec(d.time_col)} AS sec_time,
+    {d.col("#latitude")}  AS latitude,
+    {d.col("#longitude")} AS longitude,
+    {metric_col} AS {spec.name},
+    ABS({metric_col}) AS {spec.abs_name},
     ROW_NUMBER() OVER (
-      PARTITION BY FLOOR(__time TO SECOND)
-      ORDER BY ABS("{spec.column}") DESC
+      PARTITION BY {d.floor_sec(d.time_col)}
+      ORDER BY ABS({metric_col}) DESC
     ) AS rn
-  FROM "{p.tables.control_table}"
-  WHERE "#vehicle_id" = '{p.vehicle_id}'
-    AND __time >= '{p.start_time}'
-    AND __time <  '{p.end_time}'{exclude_sql}
-    AND ABS("{spec.column}") >= {float(threshold)}
+  FROM {d.table(p.tables.control_table)}
+  WHERE {_time_filter(p)}
+    AND ABS({metric_col}) >= {float(threshold)}
 ),
 
 sec_pick AS (
@@ -183,19 +263,12 @@ sec_pick AS (
 ),
 
 state_per_sec AS (
-  SELECT
-    FLOOR(__time TO SECOND) AS sec_time,
-    MAX(".system_state") AS system_state
-  FROM "{p.tables.state_table}"
-  WHERE "#vehicle_id" = '{p.vehicle_id}'
-    AND __time >= '{p.start_time}'
-    AND __time <  '{p.end_time}'{exclude_sql}
-  GROUP BY FLOOR(__time TO SECOND)
+  {_state_per_sec_cte(p)}
 ),
 
 filtered AS (
   SELECT
-    TIME_FLOOR(p.sec_time, 'PT1M') AS win_1m,
+    {d.floor_min("p.sec_time")} AS win_1m,
     p.sec_time, p.latitude, p.longitude,
     p.{spec.name}, p.{spec.abs_name}
   FROM sec_pick p
@@ -242,29 +315,21 @@ def build_hist_query(
     *,
     state_condition: str,
 ) -> str:
-    exclude_state = _exclude_clause(p.excludes)
-    exclude_pose = _exclude_clause(p.excludes, time_expr="p.__time")
+    d = p.dialect
+    accel_col = f"p.{d.col('.pose.linear_acceleration_vrf.y')}"
+    p_time = f"p.{d.time_col}"
 
     return f"""
 SELECT
-  CAST(FLOOR(p.".pose.linear_acceleration_vrf.y" / 0.2) * 0.2 AS DOUBLE) AS bin_start,
-  CAST(FLOOR(p.".pose.linear_acceleration_vrf.y" / 0.2) * 0.2 + 0.2 AS DOUBLE) AS bin_end,
+  CAST(FLOOR({accel_col} / 0.2) * 0.2 AS {d.double_type}) AS bin_start,
+  CAST(FLOOR({accel_col} / 0.2) * 0.2 + 0.2 AS {d.double_type}) AS bin_end,
   COUNT(*) AS cnt
-FROM "{p.tables.pose_table}" p
+FROM {d.table(p.tables.pose_table)} p
 JOIN (
-  SELECT
-    FLOOR(__time TO SECOND) AS sec_time,
-    MAX(".system_state") AS system_state
-  FROM "{p.tables.state_table}"
-  WHERE "#vehicle_id" = '{p.vehicle_id}'
-    AND __time >= '{p.start_time}'
-    AND __time <  '{p.end_time}'{exclude_state}
-  GROUP BY FLOOR(__time TO SECOND)
+  {_state_per_sec_cte(p)}
 ) s
-  ON FLOOR(p.__time TO SECOND) = s.sec_time
-WHERE p."#vehicle_id" = '{p.vehicle_id}'
-  AND p.__time >= '{p.start_time}'
-  AND p.__time <  '{p.end_time}'{exclude_pose}
+  ON {d.floor_sec(p_time)} = s.sec_time
+WHERE {_time_filter(p, alias="p")}
   AND {state_condition}
 GROUP BY 1, 2
 ORDER BY 1

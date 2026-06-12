@@ -104,6 +104,7 @@ class SidebarValues:
     dist_mode: str
     thresholds: dict[str, float]
     tables: TableConfig
+    backend: str               # "bq" | "druid"
     raise_on_error: bool
     run: bool
 
@@ -121,15 +122,26 @@ class SidebarValues:
 
 
 @st.cache_data(ttl=300, show_spinner="テーブル一覧を取得中…")
-def _list_druid_tables(druid_sql_url: str, timeout_sec: int) -> pd.DataFrame:
-    from src.backends.druid import DruidBackend
+def _list_tables(backend_kind: str, druid_sql_url: str, bq_project: str, bq_dataset: str, timeout_sec: int) -> pd.DataFrame:
+    if backend_kind == "druid":
+        from src.backends.druid import DruidBackend
 
-    backend = DruidBackend(url=druid_sql_url, timeout_sec=timeout_sec)
-    try:
-        return backend.sql(
+        backend = DruidBackend(url=druid_sql_url, timeout_sec=timeout_sec)
+        sql = (
             "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
             "WHERE TABLE_SCHEMA = 'druid' ORDER BY TABLE_NAME"
         )
+    else:
+        from src.backends.bigquery import BigQueryBackend
+
+        backend = BigQueryBackend(project=bq_project, timeout_sec=timeout_sec)
+        sql = (
+            f"SELECT table_name AS TABLE_NAME "
+            f"FROM `{bq_project}.{bq_dataset}.INFORMATION_SCHEMA.TABLES` "
+            f"ORDER BY table_name"
+        )
+    try:
+        return backend.sql(sql)
     finally:
         backend.close()
 
@@ -140,10 +152,13 @@ def _table_input(label: str, key: str, default: str) -> str:
     return v or default
 
 
-def _render_table_config(settings: Settings) -> TableConfig:
+def _render_table_config(settings: Settings, backend_kind: str) -> TableConfig:
     """データ取得テーブルの設定。データのバージョンによってテーブル名が異なる場合に上書きする。"""
     st.markdown("##### データ取得テーブル")
-    st.caption("取得するデータのバージョンによってテーブル名が異なる場合に変更してください（反映には実行が必要）。")
+    st.caption(
+        "取得するデータのバージョンによってテーブル名が異なる場合に変更してください（反映には実行が必要）。"
+        "BigQuery ではデータセット内のテーブル名、Druid ではデータソース名を指定します。"
+    )
 
     d = DEFAULT_TABLES
     tables = TableConfig(
@@ -153,15 +168,18 @@ def _render_table_config(settings: Settings) -> TableConfig:
         speed_table=_table_input("速度（距離=速度平均時）", "tbl_speed", d.speed_table),
     )
 
-    if st.toggle("Druidのテーブル一覧を表示", key="show_druid_tables"):
-        if settings.backend != "druid":
-            st.info("テーブル一覧表示は Druid バックエンド時のみ対応しています。")
-        else:
-            try:
-                df = _list_druid_tables(settings.druid_sql_url, settings.timeout_sec)
-                st.dataframe(df, width="stretch", height=240)
-            except Exception as ex:
-                st.error(f"テーブル一覧の取得に失敗しました: {ex}")
+    if st.toggle("テーブル一覧を表示", key="show_tables"):
+        try:
+            df = _list_tables(
+                backend_kind,
+                settings.druid_sql_url,
+                settings.bq_project,
+                settings.bq_dataset,
+                settings.timeout_sec,
+            )
+            st.dataframe(df, width="stretch", height=240)
+        except Exception as ex:
+            st.error(f"テーブル一覧の取得に失敗しました: {ex}")
 
     return tables
 
@@ -251,6 +269,16 @@ def _render_exclude_editor(state: AppState) -> None:
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     with st.sidebar:
         st.header("取得条件（反映には実行が必要）")
+
+        backend = st.radio(
+            "データ取得先",
+            options=["bq", "druid"],
+            format_func=lambda v: "BigQuery" if v == "bq" else "Druid",
+            index=0 if settings.backend != "druid" else 1,
+            key="backend_choice",
+            horizontal=True,
+            help="通常は BigQuery を使用します。Druid はリアルタイム寄りのデータ確認用です。",
+        )
 
         vehicle_id = st.text_input("vehicle_id", value=settings.default_vehicle_id)
 
@@ -349,7 +377,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                 )
 
         with st.expander("開発用（任意）"):
-            tables = _render_table_config(settings)
+            tables = _render_table_config(settings, str(backend))
 
             raise_on_error = st.checkbox(
                 "例外が出たら止める（握りつぶさずにraise）",
@@ -364,6 +392,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         dist_mode=str(dist_mode),
         thresholds=thresholds,
         tables=tables,
+        backend=str(backend),
         raise_on_error=bool(raise_on_error),
         run=bool(run),
         scatter_xlim=_range_or_none(x_min, x_max),

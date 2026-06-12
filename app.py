@@ -14,7 +14,7 @@ from src.ui.state import get_state
 from src.ui.views.pages import render_compare_tab, render_period_tab
 
 st.set_page_config(page_title="Druid Query Runner", layout="wide")
-st.title("Druid: 期間（複数ペア）×（基本は非分割）× 可視化 × Excel一括DL")
+st.title("運行データ可視化: 期間（複数ペア）× 散布図/地図/表 × Excel一括DL")
 
 settings = load_settings()
 state = get_state()
@@ -50,11 +50,13 @@ if sb.run:
         dist_mode=sb.dist_mode,  # type: ignore[arg-type]
         excludes=tuple(state.excludes),
         tables=sb.tables,
+        backend=sb.backend,
+        bq_table_prefix=f"{settings.bq_project}.{settings.bq_dataset}",
         raise_on_error=sb.raise_on_error,
         max_workers=2,
     )
 
-    backend = create_backend(settings)
+    backend = create_backend(settings, kind=sb.backend)
     run_ui = create_run_ui()
 
     results = run_pipeline(
@@ -85,7 +87,8 @@ if results is None:
 # ここからは描画のみ（表示設定の変更で再クエリしない）
 # =========================
 cached = results.config
-st.caption(f"表示中の結果：vehicle_id={cached.vehicle_id} / split={cached.split_minutes}分")
+s_backend = "BigQuery" if cached.backend == "bq" else "Druid"
+st.caption(f"表示中の結果：vehicle_id={cached.vehicle_id} / split={cached.split_minutes}分 / 取得先={s_backend}")
 
 # 取得条件が変わっていたら再実行を促す
 drift_msgs = []
@@ -102,6 +105,8 @@ if tuple(state.excludes) != cached.excludes:
     drift_msgs.append("除外時間帯")
 if sb.tables != cached.tables:
     drift_msgs.append("取得テーブル")
+if sb.backend != cached.backend:
+    drift_msgs.append("データ取得先")
 if drift_msgs:
     st.warning("、".join(drift_msgs) + " が変更されています。反映するには『実行』が必要です。")
 

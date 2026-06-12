@@ -50,6 +50,8 @@ class RunConfig:
     dist_mode: DistanceMode = "latlon"
     excludes: tuple[ExcludeRange, ...] = ()
     tables: TableConfig = DEFAULT_TABLES
+    backend: str = "bq"           # "bq" | "druid"（SQL方言と接続先の両方を決める）
+    bq_table_prefix: str = ""     # BigQuery の "project.dataset"
     raise_on_error: bool = False
     max_workers: int = 2
 

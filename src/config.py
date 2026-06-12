@@ -26,8 +26,8 @@ def _ensure_env_loaded() -> None:
 
 @dataclass(frozen=True)
 class Settings:
-    # 計測クエリのバックエンド（"druid" | "bq"）
-    backend: str = "druid"
+    # 計測クエリのバックエンド（"bq" | "druid"）。UIからも切替可能
+    backend: str = "bq"
     druid_sql_url: str = "http://t2-integ-2:8888/druid/v2/sql"
     timeout_sec: int = 120
 

@@ -23,8 +23,12 @@ EXCLUDES = (
 
 
 def _params(excludes=()) -> QueryParams:
+    # このファイル前半は Druid 方言のテスト（BQ 方言は後半）
+    from src.queries.builder import Dialect
+
     return QueryParams(
-        vehicle_id="giga07", start_time=START, end_time=END, excludes=excludes
+        vehicle_id="giga07", start_time=START, end_time=END, excludes=excludes,
+        dialect=Dialect(kind="druid"),
     )
 
 
@@ -99,8 +103,11 @@ def test_build_queries_with_custom_tables():
         pose_table="t2_driver_pose_v2",
         speed_table="t2_compositor_pose_v2",
     )
+    from src.queries.builder import Dialect
+
     p = QueryParams(
-        vehicle_id="giga07", start_time=START, end_time=END, tables=tables
+        vehicle_id="giga07", start_time=START, end_time=END, tables=tables,
+        dialect=Dialect(kind="druid"),
     )
 
     sql = build_metric_query(LATERAL_ERROR, p, threshold=0.2, dist_mode="latlon")
@@ -124,3 +131,71 @@ def test_default_tables_unchanged():
     assert '"t2_system_state_manager_state"' in sql
     sql_hist = build_hist_query(_params(), state_condition="s.system_state = 4")
     assert '"t2_positioning_driver_pose"' in sql_hist
+
+
+# ============================================================
+# BigQuery 方言
+# ============================================================
+
+def _bq_params(excludes=()) -> QueryParams:
+    from src.queries.builder import Dialect
+
+    return QueryParams(
+        vehicle_id="giga07",
+        start_time=START,
+        end_time=END,
+        excludes=excludes,
+        dialect=Dialect(kind="bq", bq_prefix="t2-integration.zero_plotter"),
+    )
+
+
+def test_bq_metric_query_dialect():
+    sql = build_metric_query(LATERAL_ERROR, _bq_params(), threshold=0.2, dist_mode="latlon")
+    # テーブルは project.dataset 付きバッククォート
+    assert "`t2-integration.zero_plotter.t2_control_debug`" in sql
+    assert "`t2-integration.zero_plotter.t2_system_state_manager_state`" in sql
+    # 時刻列・リテラル・丸め
+    assert "`#timestamp`" in sql and "__time" not in sql
+    assert f"TIMESTAMP('{START}')" in sql
+    assert "TIMESTAMP_TRUNC(`#timestamp`, SECOND)" in sql
+    assert "TIMESTAMP_TRUNC(p.sec_time, MINUTE)" in sql
+    assert "TIME_FLOOR" not in sql and "FLOOR(`#timestamp` TO SECOND)" not in sql
+    # 列名はコロン区切り
+    assert "`:debug_for_mcap:lateral_error`" in sql
+    assert "`:system_state`" in sql
+    assert "`#latitude`" in sql and "`#vehicle_id`" in sql
+    # Druid 形式の二重引用符識別子が残っていない
+    assert '"t2_control_debug"' not in sql
+    # BQ に無い RADIANS / POWER を使っていない
+    assert "RADIANS(" not in sql
+    assert "POWER(" not in sql and "POW(" in sql
+
+
+def test_bq_metric_query_speed_mode():
+    sql = build_metric_query(LATERAL_ERROR, _bq_params(), threshold=0.2, dist_mode="speed")
+    assert "`t2-integration.zero_plotter.t2_localization_compositor_pose`" in sql
+    assert "`:pose:poslv_speed`" in sql
+
+
+def test_bq_hist_query_dialect():
+    sql = build_hist_query(_bq_params(EXCLUDES), state_condition="s.system_state = 4")
+    assert "`t2-integration.zero_plotter.t2_positioning_driver_pose`" in sql
+    assert "`:pose:linear_acceleration_vrf:y`" in sql
+    assert "FLOAT64" in sql and "DOUBLE" not in sql
+    # 別名付き時刻列と除外句
+    assert "p.`#timestamp`" in sql
+    assert "AND NOT (" in sql
+    assert "TIMESTAMP('2025-12-09T01:10:00+09:00')" in sql
+
+
+def test_druid_dialect_unchanged_by_default_kind():
+    from src.queries.builder import Dialect
+
+    p = QueryParams(
+        vehicle_id="giga07", start_time=START, end_time=END,
+        dialect=Dialect(kind="druid"),
+    )
+    sql = build_metric_query(LATERAL_ERROR, p, threshold=0.2, dist_mode="latlon")
+    assert '"t2_control_debug"' in sql
+    assert "__time" in sql and "`#timestamp`" not in sql
+    assert "RADIANS(" in sql and "POWER(" in sql
