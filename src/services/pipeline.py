@@ -21,6 +21,7 @@ from src.domain.results import (
     _concat_cum_dist_continuous,
     add_ratio,
     aggregate_hist_bins,
+    merge_auto_manual_hist,
 )
 from src.domain.time_ranges import split_range
 from src.queries.builder import Dialect, QueryParams, build_hist_query, build_metric_query
@@ -152,13 +153,7 @@ def fetch_chunk(
         agg = aggregate_hist_bins(dfs, cnt_col="cnt").rename(columns={"cnt": f"cnt_{mode}"})
         hist_parts[mode] = add_ratio(agg, cnt_col=f"cnt_{mode}", ratio_col=f"ratio_{mode}")
 
-    hist = pd.merge(hist_parts["auto"], hist_parts["manual"], on=["bin_start", "bin_end"], how="outer")
-    hist = hist.sort_values("bin_start").reset_index(drop=True) if not hist.empty else hist
-    for c in ["cnt_auto", "ratio_auto", "cnt_manual", "ratio_manual"]:
-        if c not in hist.columns:
-            hist[c] = 0.0
-        hist[c] = pd.to_numeric(hist[c], errors="coerce").fillna(0.0)
-    chunk.hist_df = hist
+    chunk.hist_df = merge_auto_manual_hist(hist_parts["auto"], hist_parts["manual"])
 
     return chunk
 

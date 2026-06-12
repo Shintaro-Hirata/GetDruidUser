@@ -64,3 +64,28 @@ def test_is_resource_limit_error_detection():
     assert _is_resource_limit_error(RuntimeError("... ResourceLimitExceededException ..."))
     assert _is_resource_limit_error(RuntimeError("maxSubqueryRows exceeded"))
     assert not _is_resource_limit_error(RuntimeError("connection refused"))
+
+
+def test_merge_auto_manual_hist_one_side_empty():
+    from src.domain.results import merge_auto_manual_hist
+
+    auto = pd.DataFrame(
+        {"bin_start": [0.0], "bin_end": [0.2], "cnt_auto": [5], "ratio_auto": [1.0]}
+    )
+    out = merge_auto_manual_hist(auto, pd.DataFrame())
+    assert list(out["cnt_auto"]) == [5.0]
+    assert list(out["cnt_manual"]) == [0.0]
+
+    out2 = merge_auto_manual_hist(pd.DataFrame(), auto.rename(
+        columns={"cnt_auto": "cnt_manual", "ratio_auto": "ratio_manual"}
+    ))
+    assert list(out2["cnt_manual"]) == [5.0]
+    assert list(out2["cnt_auto"]) == [0.0]
+
+
+def test_merge_auto_manual_hist_both_empty():
+    from src.domain.results import merge_auto_manual_hist
+
+    out = merge_auto_manual_hist(pd.DataFrame(), None)
+    assert out.empty
+    assert {"cnt_auto", "cnt_manual"}.issubset(out.columns)

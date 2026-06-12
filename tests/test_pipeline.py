@@ -173,3 +173,48 @@ def test_custom_tables_propagate_into_sql():
     assert hist_queries
     assert all("t2_driver_pose_v2" in q for q in hist_queries)
     assert all("t2_positioning_driver_pose" not in q for q in hist_queries)
+
+
+class NoManualStubBackend(StubBackend):
+    """手動運転（system_state <> 4）のヒストグラムが0件になるバックエンド"""
+
+    def sql(self, query: str, context=None) -> pd.DataFrame:
+        if "bin_start" in query and "<>" in query:
+            return pd.DataFrame()  # 0件（列なし）
+        return super().sql(query, context)
+
+
+def test_hist_with_no_manual_driving_does_not_fail():
+    # 期間内に手動運転が無い場合に KeyError 'bin_start' にならない（回帰）
+    results = run_pipeline(
+        backend=NoManualStubBackend(),
+        config=_config(),
+        ranges=[_range()],
+        progress_callback=None,
+    )
+    chunk = results.periods[0].chunks[0]
+    assert chunk.ok, chunk.error
+    hist = chunk.hist_df
+    assert list(hist["cnt_auto"]) == [2.0, 6.0]
+    assert (hist["cnt_manual"] == 0.0).all()
+    assert (hist["ratio_manual"] == 0.0).all()
+    # 結合（比較用）でも落ちない
+    assert not results.periods[0].combined_hist_df().empty
+
+
+def test_hist_with_no_data_at_all():
+    class EmptyHistBackend(StubBackend):
+        def sql(self, query, context=None):
+            if "bin_start" in query:
+                return pd.DataFrame()
+            return super().sql(query, context)
+
+    results = run_pipeline(
+        backend=EmptyHistBackend(),
+        config=_config(),
+        ranges=[_range()],
+        progress_callback=None,
+    )
+    chunk = results.periods[0].chunks[0]
+    assert chunk.ok, chunk.error
+    assert chunk.hist_df.empty

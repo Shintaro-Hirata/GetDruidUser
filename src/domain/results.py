@@ -82,6 +82,32 @@ def add_ratio(df: pd.DataFrame, cnt_col: str, ratio_col: str) -> pd.DataFrame:
     return out
 
 
+def merge_auto_manual_hist(auto: pd.DataFrame, manual: pd.DataFrame) -> pd.DataFrame:
+    """
+    自動運転/手動運転のヒストグラムを bin で外部結合し、欠損を0で補う。
+    片方が0件（列なしの空DF。例: 期間内に手動運転が無い）でも安全に動く。
+    """
+    def _ensure_columns(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+        cols = ["bin_start", "bin_end", f"cnt_{mode}", f"ratio_{mode}"]
+        if df is None or df.empty or not {"bin_start", "bin_end"}.issubset(df.columns):
+            return pd.DataFrame(columns=cols)
+        return df
+
+    merged = pd.merge(
+        _ensure_columns(auto, "auto"),
+        _ensure_columns(manual, "manual"),
+        on=["bin_start", "bin_end"],
+        how="outer",
+    )
+    if not merged.empty:
+        merged = merged.sort_values("bin_start").reset_index(drop=True)
+    for c in ["cnt_auto", "ratio_auto", "cnt_manual", "ratio_manual"]:
+        if c not in merged.columns:
+            merged[c] = 0.0
+        merged[c] = pd.to_numeric(merged[c], errors="coerce").fillna(0.0)
+    return merged
+
+
 @dataclass
 class PeriodResult:
     """1期間（入力1行）の結果。チャンク分割されていても全チャンクを保持する。"""
@@ -107,14 +133,7 @@ class PeriodResult:
         manual = aggregate_hist_bins(dfs, cnt_col="cnt_manual")
         auto = add_ratio(auto, cnt_col="cnt_auto", ratio_col="ratio_auto")
         manual = add_ratio(manual, cnt_col="cnt_manual", ratio_col="ratio_manual")
-
-        merged = pd.merge(auto, manual, on=["bin_start", "bin_end"], how="outer")
-        merged = merged.sort_values("bin_start").reset_index(drop=True)
-        for c in ["cnt_auto", "ratio_auto", "cnt_manual", "ratio_manual"]:
-            if c not in merged.columns:
-                merged[c] = 0.0
-            merged[c] = pd.to_numeric(merged[c], errors="coerce").fillna(0.0)
-        return merged
+        return merge_auto_manual_hist(auto, manual)
 
     @property
     def failed_chunks(self) -> list[ChunkData]:
