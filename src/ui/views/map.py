@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import math
+from typing import Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.domain.models import ExcludeRange
 from src.queries.specs import MetricSpec
+from src.ui.views.common import split_by_excludes
 
 ColorBy = str  # "period"（期間色） | "value"（値グラデーション）
+EXCLUDE_PREVIEW_COLOR = "#9e9e9e"
 
 
 def _clean_df(df: pd.DataFrame, spec: MetricSpec) -> pd.DataFrame:
@@ -34,6 +38,38 @@ def _zoom_for_bbox(lat_span: float, lon_span: float, center_lat: float) -> float
     return max(3.0, min(16.0, zoom))
 
 
+def _map_trace(
+    d: pd.DataFrame,
+    spec: MetricSpec,
+    name: str,
+    marker: dict,
+) -> go.Scattermap:
+    cum = d["cum_dist_km"] if "cum_dist_km" in d.columns else pd.Series([float("nan")] * len(d))
+    custom = pd.DataFrame(
+        {
+            "sec_time": d.get("sec_time", pd.Series([""] * len(d))).astype(str),
+            "value": d[spec.name],
+            "cum": cum,
+        }
+    ).values
+    return go.Scattermap(
+        lat=d["latitude"],
+        lon=d["longitude"],
+        mode="markers",
+        name=name,
+        marker=marker,
+        customdata=custom,
+        hovertemplate=(
+            f"<b>{name}</b><br>"
+            "時刻: %{customdata[0]}<br>"
+            f"{spec.y_label}: %{{customdata[1]:.4f}}<br>"
+            "移動距離[km]: %{customdata[2]:.3f}<br>"
+            "緯度: %{lat:.6f} / 経度: %{lon:.6f}"
+            "<extra></extra>"
+        ),
+    )
+
+
 def metric_map_fig(
     spec: MetricSpec,
     series: list[tuple[str, pd.DataFrame]],
@@ -41,12 +77,14 @@ def metric_map_fig(
     colors: dict[str, str],
     color_by: ColorBy = "period",
     height: int = 560,
+    pending_excludes: Sequence[ExcludeRange] = (),
 ) -> go.Figure | None:
     """
     series: [(期間ラベル, df), ...]
     color_by:
       - "period": 期間ごとの色（カラーピッカーの色）
       - "value" : 値の絶対値でグラデーション（どこで大きい値が出たかが分かる）
+    pending_excludes: 未実行の除外時間帯（該当点をグレーでプレビュー表示）
     """
     fig = go.Figure()
     any_plotted = False
@@ -58,44 +96,31 @@ def metric_map_fig(
         if d.empty:
             continue
 
-        cum = d["cum_dist_km"] if "cum_dist_km" in d.columns else pd.Series([float("nan")] * len(d))
-        custom = pd.DataFrame(
-            {
-                "sec_time": d.get("sec_time", pd.Series([""] * len(d))).astype(str),
-                "value": d[spec.name],
-                "cum": cum,
-            }
-        ).values
+        active, excluded = split_by_excludes(d, pending_excludes)
 
-        if color_by == "value":
-            marker = dict(
-                size=10,
-                color=d[spec.name].abs(),
-                colorscale="YlOrRd",
-                showscale=(idx == 0),
-                colorbar=dict(title=f"|{spec.name}|") if idx == 0 else None,
-            )
-        else:
-            marker = dict(size=10, color=colors.get(label))
+        if not active.empty:
+            if color_by == "value":
+                marker = dict(
+                    size=10,
+                    color=active[spec.name].abs(),
+                    colorscale="YlOrRd",
+                    showscale=(idx == 0),
+                    colorbar=dict(title=f"|{spec.name}|") if idx == 0 else None,
+                )
+            else:
+                marker = dict(size=10, color=colors.get(label))
+            fig.add_trace(_map_trace(active, spec, label, marker))
 
-        fig.add_trace(
-            go.Scattermap(
-                lat=d["latitude"],
-                lon=d["longitude"],
-                mode="markers",
-                name=label,
-                marker=marker,
-                customdata=custom,
-                hovertemplate=(
-                    f"<b>{label}</b><br>"
-                    "時刻: %{customdata[0]}<br>"
-                    f"{spec.y_label}: %{{customdata[1]:.4f}}<br>"
-                    "移動距離[km]: %{customdata[2]:.3f}<br>"
-                    "緯度: %{lat:.6f} / 経度: %{lon:.6f}"
-                    "<extra></extra>"
-                ),
+        if not excluded.empty:
+            fig.add_trace(
+                _map_trace(
+                    excluded,
+                    spec,
+                    f"{label}（除外予定）",
+                    dict(size=10, color=EXCLUDE_PREVIEW_COLOR, opacity=0.35),
+                )
             )
-        )
+
         all_lats.append(d["latitude"])
         all_lons.append(d["longitude"])
         any_plotted = True
@@ -121,7 +146,7 @@ def metric_map_fig(
         ),
         height=height,
         margin=dict(l=0, r=0, t=30, b=0),
-        showlegend=len(series) > 1 and color_by == "period",
+        showlegend=len(fig.data) > 1 and color_by == "period",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
     return fig

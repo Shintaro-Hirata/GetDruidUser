@@ -107,12 +107,12 @@ tabs = st.tabs(tab_names)
 
 if has_compare:
     with tabs[0]:
-        render_compare_tab(results, sb, colors)
+        render_compare_tab(results, sb, colors, state)
 
 offset = 1 if has_compare else 0
 for i, period in enumerate(results.periods):
     with tabs[i + offset]:
-        render_period_tab(period, sb, colors, key_prefix=f"t{i + 1}")
+        render_period_tab(period, sb, colors, state, key_prefix=f"t{i + 1}")
 
 # =========================
 # Excel一括ダウンロード（結果モデルから導出）

@@ -55,9 +55,21 @@ def _range_or_none(min_v: float, max_v: float) -> tuple[float, float] | None:
 
 
 def _render_exclude_editor(state: AppState) -> None:
-    """除外時間帯の編集（表形式）＋テキスト貼り付け取り込み。"""
+    """除外時間帯の編集（表形式）＋クリック選択モード＋テキスト貼り付け取り込み。"""
     st.subheader("除外時間帯（完全除外）")
     st.caption("この時間帯のデータは距離計算も含めて完全に除外されます（反映には実行が必要）。")
+
+    state.exclude_edit_mode = st.toggle(
+        "除外編集モード（グラフ/地図から選択）",
+        value=state.exclude_edit_mode,
+        key="exclude_edit_mode_toggle",
+        help=(
+            "ONにすると、散布図・地図上の点をクリック（1点目=開始、2点目=終了）"
+            "または box/lasso 選択して除外時間帯を登録できます。"
+        ),
+    )
+    if not state.exclude_edit_mode:
+        state.exclude_pick_start = None
 
     df = pd.DataFrame(
         [{"開始": r.start, "終了": r.end} for r in state.excludes],

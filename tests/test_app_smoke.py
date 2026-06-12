@@ -91,3 +91,15 @@ def test_app_view_switch_map_and_table():
         at.session_state["view_t1_c1_q1"] = "表"
         at.run()
         assert not at.exception
+
+
+def test_app_exclude_edit_mode_renders():
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 除外編集モードをONにしても例外なく描画される
+        at.toggle(key="exclude_edit_mode_toggle").set_value(True).run()
+        assert not at.exception

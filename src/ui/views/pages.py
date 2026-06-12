@@ -10,7 +10,9 @@ import streamlit as st
 
 from src.domain.results import ChunkData, PeriodResult, RunResults
 from src.queries.specs import HIST_TITLE, METRICS, MetricSpec
+from src.ui.exclude_editor import handle_exclude_selection, selection_sec_times
 from src.ui.sidebar import SidebarValues
+from src.ui.state import AppState
 from src.ui.views.histogram import hist_fig
 from src.ui.views.map import metric_map_fig
 from src.ui.views.scatter import metric_scatter_fig
@@ -18,14 +20,34 @@ from src.ui.views.scatter import metric_scatter_fig
 VIEW_MODES = ["散布図", "地図", "表"]
 
 
-def _show_fig_or_empty(fig, *, key: str, width: int | None = None) -> None:
+def _show_fig_or_empty(
+    fig,
+    *,
+    key: str,
+    width: int | None = None,
+    state: AppState | None = None,
+) -> None:
+    """図を表示する。除外編集モード中は選択イベントを受けて除外候補を提案する。"""
     if fig is None:
         st.info("結果0件")
         return
+
+    kwargs: dict = {"key": key}
     if width is None:
-        st.plotly_chart(fig, width="stretch", key=key)
+        kwargs["width"] = "stretch"
     else:
-        st.plotly_chart(fig, width=width, key=key)
+        kwargs["width"] = width
+
+    if state is not None and state.exclude_edit_mode:
+        event = st.plotly_chart(
+            fig,
+            on_select="rerun",
+            selection_mode=("points", "box", "lasso"),
+            **kwargs,
+        )
+        handle_exclude_selection(state, selection_sec_times(event), key=key)
+    else:
+        st.plotly_chart(fig, **kwargs)
 
 
 def _view_selector(key: str) -> str:
@@ -44,6 +66,7 @@ def render_metric_views(
     series: list[tuple[str, pd.DataFrame]],
     sb: SidebarValues,
     colors: dict[str, str],
+    state: AppState,
     *,
     key: str,
     title_suffix: str = "",
@@ -52,6 +75,10 @@ def render_metric_views(
     st.markdown(f"### {spec.title}{title_suffix}")
     mode = _view_selector(key)
 
+    # 直近実行後に追加された除外（未反映分）はグレーでプレビュー表示する
+    applied = set(state.results.config.excludes) if state.results else set()
+    pending = tuple(r for r in state.excludes if r not in applied)
+
     if mode == "地図":
         fig = metric_map_fig(
             spec,
@@ -59,8 +86,9 @@ def render_metric_views(
             colors=colors,
             color_by=sb.map_color_by,
             height=sb.map_height,
+            pending_excludes=pending,
         )
-        _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width)
+        _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width, state=state)
         return
 
     if mode == "表":
@@ -81,8 +109,9 @@ def render_metric_views(
         colors=colors,
         xlim=sb.scatter_xlim,
         ylim=sb.scatter_ylims.get(spec.key),
+        pending_excludes=pending,
     )
-    _show_fig_or_empty(fig, key=f"plot_{key}_scatter")
+    _show_fig_or_empty(fig, key=f"plot_{key}_scatter", state=state)
 
 
 def _render_hist_block(
@@ -114,6 +143,7 @@ def _render_chunk_content(
     chunk: ChunkData,
     sb: SidebarValues,
     colors: dict[str, str],
+    state: AppState,
     *,
     key_prefix: str,
 ) -> None:
@@ -129,6 +159,7 @@ def _render_chunk_content(
                 [(period.label, chunk.metric_dfs.get(spec.key, pd.DataFrame()))],
                 sb,
                 colors,
+                state,
                 key=f"{key_prefix}_{spec.key}",
             )
 
@@ -139,6 +170,7 @@ def render_period_tab(
     period: PeriodResult,
     sb: SidebarValues,
     colors: dict[str, str],
+    state: AppState,
     *,
     key_prefix: str,
 ) -> None:
@@ -149,19 +181,20 @@ def render_period_tab(
         return
 
     if len(period.chunks) == 1:
-        _render_chunk_content(period, period.chunks[0], sb, colors, key_prefix=f"{key_prefix}_c1")
+        _render_chunk_content(period, period.chunks[0], sb, colors, state, key_prefix=f"{key_prefix}_c1")
         return
 
     chunk_tabs = st.tabs([f"区間{i + 1}/{len(period.chunks)}" for i in range(len(period.chunks))])
     for i, (tab, chunk) in enumerate(zip(chunk_tabs, period.chunks)):
         with tab:
-            _render_chunk_content(period, chunk, sb, colors, key_prefix=f"{key_prefix}_c{i + 1}")
+            _render_chunk_content(period, chunk, sb, colors, state, key_prefix=f"{key_prefix}_c{i + 1}")
 
 
 def render_compare_tab(
     results: RunResults,
     sb: SidebarValues,
     colors: dict[str, str],
+    state: AppState,
 ) -> None:
     st.subheader("比較（全期間）")
     st.caption("各テスト期間の結果を同じグラフ・同じ地図上に重ねて表示します。")
@@ -174,6 +207,7 @@ def render_compare_tab(
                 results.compare_metric_series(spec.key),
                 sb,
                 colors,
+                state,
                 key=f"cmp_{spec.key}",
                 title_suffix="（比較）",
             )
