@@ -57,3 +57,27 @@ def test_metric_map_fig_missing_latlon_returns_none():
 def test_zoom_clamped():
     assert _zoom_for_bbox(0.0, 0.0, 35.0) == 16.0
     assert _zoom_for_bbox(180.0, 360.0, 0.0) == 3.0
+
+
+def test_scatter_uses_svg_for_small_data_and_webgl_for_large():
+    import pandas as pd
+
+    from src.queries.specs import LATERAL_ERROR
+    from src.ui.views.scatter import metric_scatter_fig
+
+    def _df(n):
+        return pd.DataFrame(
+            {
+                "sec_time": ["2025-12-09T01:00:00Z"] * n,
+                "latitude": [35.43] * n,
+                "longitude": [139.62] * n,
+                "lateral_error": [0.5] * n,
+                "cum_dist_km": [float(i) for i in range(n)],
+            }
+        )
+
+    small = metric_scatter_fig(LATERAL_ERROR, [("A", _df(100))], colors={})
+    assert small.data[0].type == "scatter"  # SVG（WebGL初期化コストを回避）
+
+    large = metric_scatter_fig(LATERAL_ERROR, [("A", _df(6000))], colors={})
+    assert large.data[0].type == "scattergl"  # 大量データはWebGL

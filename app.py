@@ -145,15 +145,14 @@ st.download_button(
 # =========================
 st.markdown("## 画像一括ダウンロード")
 st.caption(
-    "散布図と横Gヒストグラム（期間ごと＋比較）を、表示中の軸レンジ・色のままPNGにしてZIPでまとめます。"
-    "地図は各グラフ右上のカメラアイコンから個別に保存できます。"
+    "散布図と横Gヒストグラム（期間ごと＋比較）を、従来の matplotlib 形式のPNGにしてZIPでまとめます"
+    "（軸レンジ・平滑化は表示中の設定を反映）。地図は各グラフ右上のカメラアイコンから個別に保存できます。"
 )
 if st.button("画像を生成", key="gen_images"):
     try:
-        with st.spinner("画像を生成中…（初回は数十秒かかることがあります）"):
+        with st.spinner("画像を生成中…"):
             state.image_zip = results_to_image_zip(
                 results,
-                colors=colors,
                 scatter_xlim=sb.scatter_xlim,
                 scatter_ylims=sb.scatter_ylims,
                 hist_xlim=sb.hist_xlim,
@@ -163,17 +162,10 @@ if st.button("画像を生成", key="gen_images"):
     except Exception as ex:
         state.image_zip = None
         msg = str(ex)
-        if "Kaleido" in msg or "kaleido" in msg:
+        if "matplotlib" in msg.lower():
             st.error(
-                "画像の生成に失敗しました。PNG書き出し用のパッケージ kaleido が"
-                "インストールされていません。仮想環境を有効にした状態で以下を実行し、"
-                "アプリを再起動してください。"
-            )
-            st.code("pip install -r requirements.txt", language="bash")
-        elif "Chrome" in msg or "chrome" in msg:
-            st.error(
-                "画像の生成に失敗しました。PNG書き出しには Chrome が必要です。"
-                "Chrome をインストールするか、ターミナルで `plotly_get_chrome` を実行してください。"
+                "画像の生成に失敗しました。matplotlib がインストールされていません。"
+                "仮想環境で `pip install -r requirements.txt` を実行して再起動してください。"
             )
         else:
             st.error(f"画像の生成に失敗しました: {ex}")

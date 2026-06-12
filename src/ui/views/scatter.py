@@ -15,6 +15,12 @@ from src.ui.views.common import split_by_excludes
 X_LABEL = "移動距離[km]"
 EXCLUDE_PREVIEW_COLOR = "#9e9e9e"
 
+# この点数以下なら SVG（go.Scatter）で描く。
+# WebGL（Scattergl）はチャート1枚ごとにWebGLコンテキストを初期化するため、
+# チャート数が多い本アプリでは描画が遅くなり、ブラウザのコンテキスト上限にも
+# かかりやすい。Q1/Q2 は1分窓の最大値抽出で点数が少ないので通常は SVG で足りる。
+WEBGL_THRESHOLD_POINTS = 5000
+
 
 def _clean_df(df: pd.DataFrame, spec: MetricSpec) -> pd.DataFrame:
     """数値化と NaN 除去（カテゴリ軸化・表示崩れ防止）"""
@@ -36,10 +42,11 @@ def _add_trace(
     *,
     color: str | None,
     opacity: float = 1.0,
+    trace_cls: type = go.Scatter,
 ) -> None:
     custom = d[["sec_time", "latitude", "longitude"]].astype(str).values
     fig.add_trace(
-        go.Scattergl(
+        trace_cls(
             x=d["cum_dist_km"],
             y=d[spec.name],
             mode="markers",
@@ -76,18 +83,21 @@ def metric_scatter_fig(
     fig = go.Figure()
     any_plotted = False
 
-    for label, df in series:
-        d = _clean_df(df, spec)
+    cleaned = [(label, _clean_df(df, spec)) for label, df in series]
+    total_points = sum(len(d) for _, d in cleaned)
+    trace_cls = go.Scattergl if total_points > WEBGL_THRESHOLD_POINTS else go.Scatter
+
+    for label, d in cleaned:
         if d.empty:
             continue
 
         active, excluded = split_by_excludes(d, pending_excludes)
         if not active.empty:
-            _add_trace(fig, active, spec, label, color=colors.get(label))
+            _add_trace(fig, active, spec, label, color=colors.get(label), trace_cls=trace_cls)
         if not excluded.empty:
             _add_trace(
                 fig, excluded, spec, f"{label}（除外予定）",
-                color=EXCLUDE_PREVIEW_COLOR, opacity=0.35,
+                color=EXCLUDE_PREVIEW_COLOR, opacity=0.35, trace_cls=trace_cls,
             )
         any_plotted = True
 
