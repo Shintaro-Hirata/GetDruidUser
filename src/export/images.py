@@ -221,10 +221,12 @@ def results_to_image_zip(
     smooth_window: int = 1,
     figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
     figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+    extra_files: dict[str, bytes] | None = None,
 ) -> bytes:
     """
     期間ごと＋比較（2期間以上のとき）の図を従来の matplotlib 形式で PNG 化し、
     ZIP バイト列を返す。軸レンジ・平滑化・画像サイズは表示中の設定をそのまま反映する。
+    extra_files: ZIP直下に追加するファイル（例: settings.json）
     """
     _setup_style()
     scatter_ylims = scatter_ylims or {}
@@ -281,6 +283,8 @@ def results_to_image_zip(
 
     bio = BytesIO()
     with zipfile.ZipFile(bio, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path, data in (extra_files or {}).items():
+            zf.writestr(path, data)
         for path, png in images:
             zf.writestr(path, png)
     return bio.getvalue()

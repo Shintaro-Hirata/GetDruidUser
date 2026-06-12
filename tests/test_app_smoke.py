@@ -120,3 +120,19 @@ def test_app_image_view_and_hist_image_view():
         at.session_state["histview_t1_c1_hist"] = "画像"
         at.run()
         assert not at.exception
+
+
+def test_app_bq_dataset_input_propagates_to_queries():
+    from tests.test_pipeline import StubBackend as RecordingBackend
+
+    stub = RecordingBackend()
+    with patch("src.backends.factory.create_backend", return_value=stub):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        at.text_input(key="bq_dataset").set_value("zero_plotter_dev").run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        assert stub.queries
+        assert all("zero_plotter_dev." in q for q in stub.queries)
+        assert all(".zero_plotter." not in q for q in stub.queries)

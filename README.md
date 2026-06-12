@@ -20,7 +20,7 @@ streamlit run app.py
 | `BACKEND` | 計測クエリのバックエンドの初期値（`bq` / `druid`。UIから切替可能） | `bq` |
 | `DRUID_SQL_URL` | Druid SQL API の URL | `http://t2-integ-2:8888/druid/v2/sql` |
 | `BQ_PROJECT_NAME` | BigQuery プロジェクト（計測クエリ・legs_table に使用） | `t2-integration` |
-| `BQ_DATASET_NAME` | BigQuery データセット | `zero_plotter` |
+| `BQ_DATASET_NAME` | BigQuery データセットの初期値（UIから変更可能） | `zero_plotter` |
 | `LEGS_JSONL_URL` | Druid モード時の legs_index.jsonl 配信URL（任意） | （未設定） |
 | `DEFAULT_VEHICLE_ID` | vehicle_id 入力の初期値 | `giga07` |
 
@@ -40,8 +40,8 @@ streamlit run app.py
 - **Excel一括ダウンロード**: 従来互換のシート構成（`T{期間}_C{区間}_Q{1..3}`）
 - **画像一括ダウンロード**: 散布図・横Gヒストグラム（期間ごと＋比較）を
   従来の matplotlib 形式の PNG にして ZIP でダウンロード
-  （軸レンジ・平滑化は表示中の設定を反映。地図は各グラフの
-  カメラアイコンから個別保存）
+  （軸レンジ・平滑化は表示中の設定を反映。ZIP直下に設定スナップショット
+  settings.json を同梱。地図は各グラフのカメラアイコンから個別保存）
 - **取得テーブルの変更（開発用）**: データのバージョンによって Druid 上の
   テーブル名が異なる場合、サイドバーの「開発用」からテーブル名を上書きできます。
   「Druidのテーブル一覧を表示」で実際に存在するテーブル名を確認可能

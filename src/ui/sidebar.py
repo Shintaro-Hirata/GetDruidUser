@@ -24,10 +24,11 @@ JST = timezone(timedelta(hours=9))
 
 @st.cache_data(ttl=600, show_spinner="運行一覧を取得中…")
 def _load_legs_cached(bq_project: str, bq_dataset: str, legs_jsonl_url: str) -> list[Leg]:
-    # 引数はキャッシュキー用（設定が変わったら取り直す）
-    from src.config import load_settings
+    from src.services.legs import fetch_legs_from_bigquery, fetch_legs_from_jsonl
 
-    return load_legs(load_settings())
+    if legs_jsonl_url:
+        return fetch_legs_from_jsonl(legs_jsonl_url)
+    return fetch_legs_from_bigquery(bq_project, bq_dataset)
 
 
 def _append_legs_to_ranges(selected: list[Leg], state: AppState) -> None:
@@ -46,7 +47,9 @@ def _append_legs_to_ranges(selected: list[Leg], state: AppState) -> None:
         state.leg_meta[leg.display_name] = leg.meta
 
 
-def _render_legs_picker(settings: Settings, state: AppState, current_vehicle: str) -> None:
+def _render_legs_picker(
+    settings: Settings, state: AppState, current_vehicle: str, bq_dataset: str
+) -> None:
     """zero-plotter の運行（legs）から時間帯を取り込むUI。"""
     with st.expander("運行から選択（zero-plotter連携）"):
         st.caption("zero-plotter に登録された運行（legs）の開始/終了時刻を時間帯入力に取り込みます。")
@@ -56,7 +59,7 @@ def _render_legs_picker(settings: Settings, state: AppState, current_vehicle: st
 
         try:
             legs = _load_legs_cached(
-                settings.bq_project, settings.bq_dataset, settings.legs_jsonl_url
+                settings.bq_project, bq_dataset, settings.legs_jsonl_url
             )
         except Exception as ex:
             st.error(f"運行一覧の取得に失敗しました: {ex}")
@@ -106,6 +109,7 @@ class SidebarValues:
     thresholds: dict[str, float]
     tables: TableConfig
     backend: str               # "bq" | "druid"
+    bq_dataset: str            # BigQuery データセット名
     raise_on_error: bool
     run: bool
 
@@ -157,7 +161,7 @@ def _table_input(label: str, key: str, default: str) -> str:
     return v or default
 
 
-def _render_table_config(settings: Settings, backend_kind: str) -> TableConfig:
+def _render_table_config(settings: Settings, backend_kind: str, bq_dataset: str) -> TableConfig:
     """データ取得テーブルの設定。データのバージョンによってテーブル名が異なる場合に上書きする。"""
     st.markdown("##### データ取得テーブル")
     st.caption(
@@ -179,7 +183,7 @@ def _render_table_config(settings: Settings, backend_kind: str) -> TableConfig:
                 backend_kind,
                 settings.druid_sql_url,
                 settings.bq_project,
-                settings.bq_dataset,
+                bq_dataset,
                 settings.timeout_sec,
             )
             st.dataframe(df, width="stretch", height=240)
@@ -285,9 +289,19 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
             help="通常は BigQuery を使用します。Druid はリアルタイム寄りのデータ確認用です。",
         )
 
+        bq_dataset = st.text_input(
+            "BigQuery データセット",
+            value=settings.bq_dataset,
+            key="bq_dataset",
+            help=(
+                "計測クエリ・運行一覧（legs）の取得元データセット。"
+                "例: zero_plotter / zero_plotter_dev。空にすると既定値に戻ります。"
+            ),
+        ).strip() or settings.bq_dataset
+
         vehicle_id = st.text_input("vehicle_id", value=settings.default_vehicle_id)
 
-        _render_legs_picker(settings, state, vehicle_id)
+        _render_legs_picker(settings, state, vehicle_id, bq_dataset)
 
         st.caption("時間帯は 1行に1つ：`開始,終了` または `開始,終了,ラベル`")
         st.caption("例：2025-12-09T01:57:00+09:00, 2025-12-09T05:48:53+09:00, 1203昼勤")
@@ -382,7 +396,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                 )
 
         with st.expander("開発用（任意）"):
-            tables = _render_table_config(settings, str(backend))
+            tables = _render_table_config(settings, str(backend), bq_dataset)
 
             raise_on_error = st.checkbox(
                 "例外が出たら止める（握りつぶさずにraise）",
@@ -401,6 +415,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         thresholds=thresholds,
         tables=tables,
         backend=str(backend),
+        bq_dataset=bq_dataset,
         raise_on_error=bool(raise_on_error),
         run=bool(run),
         scatter_xlim=_range_or_none(x_min, x_max),

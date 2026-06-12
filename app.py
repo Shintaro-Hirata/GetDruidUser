@@ -7,6 +7,7 @@ from src.domain.models import RunConfig
 from src.domain.time_ranges import parse_ranges, suggested_split_minutes_from_ranges_text
 from src.export.excel import results_to_excel_bytes
 from src.export.images import results_to_image_zip
+from src.export.settings_file import build_settings_json_bytes
 from src.services.pipeline import run_pipeline
 from src.ui.colors import render_color_pickers
 from src.ui.figure_settings import render_figure_size_settings
@@ -53,7 +54,7 @@ if sb.run:
         excludes=tuple(state.excludes),
         tables=sb.tables,
         backend=sb.backend,
-        bq_table_prefix=f"{settings.bq_project}.{settings.bq_dataset}",
+        bq_table_prefix=f"{settings.bq_project}.{sb.bq_dataset}",
         raise_on_error=sb.raise_on_error,
         max_workers=2,
     )
@@ -110,6 +111,8 @@ if sb.tables != cached.tables:
     drift_msgs.append("取得テーブル")
 if sb.backend != cached.backend:
     drift_msgs.append("データ取得先")
+if f"{settings.bq_project}.{sb.bq_dataset}" != cached.bq_table_prefix:
+    drift_msgs.append("BigQueryデータセット")
 if drift_msgs:
     st.warning("、".join(drift_msgs) + " が変更されています。反映するには『実行』が必要です。")
 
@@ -148,11 +151,15 @@ st.download_button(
 st.markdown("## 画像一括ダウンロード")
 st.caption(
     "散布図と横Gヒストグラム（期間ごと＋比較）を、従来の matplotlib 形式のPNGにしてZIPでまとめます"
-    "（軸レンジ・平滑化は表示中の設定を反映）。地図は各グラフ右上のカメラアイコンから個別に保存できます。"
+    "（軸レンジ・平滑化は表示中の設定を反映）。ZIP直下に設定スナップショット（settings.json）も同梱します。"
+    "地図は各グラフ右上のカメラアイコンから個別に保存できます。"
 )
 if st.button("画像を生成", key="gen_images"):
     try:
         with st.spinner("画像を生成中…"):
+            settings_json = build_settings_json_bytes(
+                results, state, sb, bq_project=settings.bq_project
+            )
             state.image_zip = results_to_image_zip(
                 results,
                 scatter_xlim=sb.scatter_xlim,
@@ -162,6 +169,7 @@ if st.button("画像を生成", key="gen_images"):
                 smooth_window=sb.smooth_window,
                 figsize_single=sb.fig_size_single,
                 figsize_compare=sb.fig_size_compare,
+                extra_files={"settings.json": settings_json},
             )
     except Exception as ex:
         state.image_zip = None
