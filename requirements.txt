@@ -1,7 +1,13 @@
-streamlit
-requests
-pandas
-matplotlib
-openpyxl
-python-dateutil
-google-cloud-bigquery[pandas]
+# アプリ本体
+streamlit>=1.45        # st.plotly_chart(on_select=...) / st.segmented_control に必要
+requests>=2.31
+pandas>=2.0
+plotly>=5.24
+openpyxl>=3.1
+python-dateutil>=2.8
+
+# zero-plotter 連携（legs_table 読み取り）・BigQuery バックエンド
+google-cloud-bigquery[pandas]>=3.11
+
+# 開発用
+pytest>=8.0
