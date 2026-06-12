@@ -66,3 +66,30 @@ def test_to_excel_bytes_roundtrip():
     assert "T1_C1_Q1" in loaded
     assert len(loaded) == 2
     assert list(loaded["T1_C1_Q1"]["a"]) == [1, 2]
+
+
+def test_to_excel_bytes_with_tz_aware_datetimes():
+    # BigQuery の結果は tz付き datetime で返るが、Excel は tz付きを書けない（回帰）。
+    # JST に変換して tz を外した値が書き込まれる。
+    sheets = {
+        "T1_C1_Q1": pd.DataFrame(
+            {
+                "win_1m": pd.to_datetime(
+                    ["2025-12-09T01:00:00Z", "2025-12-09T01:01:00Z"], utc=True
+                ),
+                "sec_time": pd.to_datetime(
+                    ["2025-12-09T01:00:30+09:00", "2025-12-09T01:01:30+09:00"]
+                ),
+                "lateral_error": [0.5, -0.3],
+            }
+        ),
+    }
+    data = to_excel_bytes(sheets)
+
+    from io import BytesIO
+    loaded = pd.read_excel(BytesIO(data), sheet_name="T1_C1_Q1")
+    # UTC 01:00 → JST 10:00（tzなし）
+    assert loaded["win_1m"].dt.tz is None
+    assert str(loaded["win_1m"].iloc[0]) == "2025-12-09 10:00:00"
+    # 元から JST のものは時刻そのまま
+    assert str(loaded["sec_time"].iloc[0]) == "2025-12-09 01:00:30"

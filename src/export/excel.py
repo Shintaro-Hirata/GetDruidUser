@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta, timezone
 from io import BytesIO
 from typing import Dict
 
@@ -12,6 +13,20 @@ from openpyxl.utils import get_column_letter
 
 from src.domain.results import RunResults
 from src.queries.specs import METRICS
+
+JST = timezone(timedelta(hours=9))
+
+
+def _strip_timezones(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    tz付き datetime 列を JST に変換してから tz 情報を外す。
+    Excel は tz付き datetime を書き込めない（BigQuery の結果は tz付きで返る）。
+    """
+    out = df.copy()
+    for col in out.columns:
+        if isinstance(out[col].dtype, pd.DatetimeTZDtype):
+            out[col] = out[col].dt.tz_convert(JST).dt.tz_localize(None)
+    return out
 
 
 def results_to_sheets(results: RunResults) -> Dict[str, pd.DataFrame]:
@@ -40,7 +55,7 @@ def to_excel_bytes(sheets: Dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
         for name, df in sheets.items():
             safe = re.sub(r"[\[\]\:\*\?\/\\]", "_", name)[:31]
-            df.to_excel(writer, sheet_name=safe, index=False)
+            _strip_timezones(df).to_excel(writer, sheet_name=safe, index=False)
             _autosize_worksheet(writer.book[safe])
     return bio.getvalue()
 
