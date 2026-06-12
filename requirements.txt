@@ -6,6 +6,7 @@ plotly>=5.24
 openpyxl>=3.1
 python-dateutil>=2.8
 python-dotenv>=1.0
+kaleido>=1.0           # 画像一括ダウンロード（PNG書き出し。Chrome が必要）
 
 # zero-plotter 連携（legs_table 読み取り）・BigQuery バックエンド
 google-cloud-bigquery[pandas]>=3.11

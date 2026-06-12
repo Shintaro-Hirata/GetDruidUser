@@ -35,6 +35,9 @@ class AppState:
     # 実行時に PeriodResult.meta へ引き継がれ、バージョン比較等に使う。
     leg_meta: dict[str, dict] = field(default_factory=dict)
 
+    # 「画像を生成」で作った画像ZIP（新しい実行で無効化される）
+    image_zip: bytes | None = None
+
 
 def get_state() -> AppState:
     """session_state 上の AppState シングルトンを返す。"""

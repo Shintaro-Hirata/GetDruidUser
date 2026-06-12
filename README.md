@@ -38,6 +38,10 @@ streamlit run app.py
   legs_table（車両・日付・運行）から運行時間を取り込み、手入力を省略。
   運行のバージョン等のメタデータも結果に表示
 - **Excel一括ダウンロード**: 従来互換のシート構成（`T{期間}_C{区間}_Q{1..3}`）
+- **画像一括ダウンロード**: 散布図・横Gヒストグラム（期間ごと＋比較）を
+  表示中の軸レンジ・色のまま PNG にして ZIP でダウンロード
+  （kaleido を使用。PNG書き出しには Chrome が必要。地図は各グラフの
+  カメラアイコンから個別保存）
 - **取得テーブルの変更（開発用）**: データのバージョンによって Druid 上の
   テーブル名が異なる場合、サイドバーの「開発用」からテーブル名を上書きできます。
   「Druidのテーブル一覧を表示」で実際に存在するテーブル名を確認可能
@@ -70,6 +74,7 @@ src/
     views/              散布図・地図・ヒストグラム・タブ構成
   export/
     excel.py            RunResults → Excel
+    images.py           RunResults → 画像ZIP（PNG）
 scripts/                実験・検証用スクリプト（アプリからは未使用）
 tests/                  pytest（pytest tests/ で実行）
 docs/REFACTORING_PLAN.md  本構成に至ったリファクタリング計画

@@ -6,6 +6,7 @@ from src.config import load_settings
 from src.domain.models import RunConfig
 from src.domain.time_ranges import parse_ranges, suggested_split_minutes_from_ranges_text
 from src.export.excel import results_to_excel_bytes
+from src.export.images import results_to_image_zip
 from src.services.pipeline import run_pipeline
 from src.ui.colors import render_color_pickers
 from src.ui.run_progress import create_run_ui, finalize_run_log, make_progress_callback
@@ -73,6 +74,7 @@ if sb.run:
             period.meta = state.leg_meta[period.label]
 
     state.results = results
+    state.image_zip = None  # 画像ZIPは前回結果のものなので無効化
     st.rerun()
 
 # =========================
@@ -137,3 +139,42 @@ st.download_button(
     file_name="druid_results.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+
+# =========================
+# 画像一括ダウンロード（散布図・横G を PNG 化して ZIP）
+# =========================
+st.markdown("## 画像一括ダウンロード")
+st.caption(
+    "散布図と横Gヒストグラム（期間ごと＋比較）を、表示中の軸レンジ・色のままPNGにしてZIPでまとめます。"
+    "地図は各グラフ右上のカメラアイコンから個別に保存できます。"
+)
+if st.button("画像を生成", key="gen_images"):
+    try:
+        with st.spinner("画像を生成中…（初回は数十秒かかることがあります）"):
+            state.image_zip = results_to_image_zip(
+                results,
+                colors=colors,
+                scatter_xlim=sb.scatter_xlim,
+                scatter_ylims=sb.scatter_ylims,
+                hist_xlim=sb.hist_xlim,
+                hist_ylim=sb.hist_ylim,
+                smooth_window=sb.smooth_window,
+            )
+    except Exception as ex:
+        state.image_zip = None
+        if "Chrome" in str(ex) or "chrome" in str(ex):
+            st.error(
+                "画像の生成に失敗しました。PNG書き出しには Chrome が必要です。"
+                "Chrome をインストールするか、ターミナルで `plotly_get_chrome` を実行してください。"
+            )
+        else:
+            st.error(f"画像の生成に失敗しました: {ex}")
+
+if state.image_zip is not None:
+    st.download_button(
+        label="画像ZIPをダウンロード",
+        data=state.image_zip,
+        file_name="druid_plots.zip",
+        mime="application/zip",
+        key="dl_images",
+    )
