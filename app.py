@@ -30,6 +30,7 @@ if "split_minutes" not in st.session_state:
         st.session_state["ranges_text"]
     )
 st.session_state.setdefault("dist_mode", "latlon")
+st.session_state.setdefault("vehicle_id", settings.default_vehicle_id)
 
 # =========================
 # サイドバー

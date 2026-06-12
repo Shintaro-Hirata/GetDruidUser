@@ -47,6 +47,13 @@ def _append_legs_to_ranges(selected: list[Leg], state: AppState) -> None:
         state.leg_meta[leg.display_name] = leg.meta
 
 
+def _sync_vehicle_id_from_legs() -> None:
+    """運行一覧の車両選択に合わせて vehicle_id 入力を連動させる（on_change コールバック）。"""
+    v = st.session_state.get("legs_vehicle")
+    if v:
+        st.session_state["vehicle_id"] = v
+
+
 def _render_legs_picker(
     settings: Settings, state: AppState, current_vehicle: str, bq_dataset: str
 ) -> None:
@@ -79,7 +86,14 @@ def _render_legs_picker(
             return
 
         v_idx = vs.index(current_vehicle) if current_vehicle in vs else 0
-        v = st.selectbox("車両", vs, index=v_idx, key="legs_vehicle")
+        v = st.selectbox(
+            "車両",
+            vs,
+            index=v_idx,
+            key="legs_vehicle",
+            on_change=_sync_vehicle_id_from_legs,
+            help="選ぶと vehicle_id 入力も連動して切り替わります。",
+        )
 
         days = dates_for_vehicle(legs, v)
         day = st.selectbox("日付", days, key="legs_date")
@@ -299,7 +313,11 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
             ),
         ).strip() or settings.bq_dataset
 
-        vehicle_id = st.text_input("vehicle_id", value=settings.default_vehicle_id)
+        vehicle_id = st.text_input(
+            "vehicle_id",
+            key="vehicle_id",
+            help="「運行から選択」で車両を選ぶと連動して切り替わります。",
+        )
 
         _render_legs_picker(settings, state, vehicle_id, bq_dataset)
 

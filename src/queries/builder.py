@@ -60,6 +60,12 @@ class Dialect:
             return f"TIMESTAMP_TRUNC({expr}, MINUTE)"
         return f"TIME_FLOOR({expr}, 'PT1M')"
 
+    def floor_to_seconds(self, expr: str, n: int) -> str:
+        """n秒単位の時刻丸め（zero-plotter 点群の5秒バケット等）"""
+        if self.is_bq:
+            return f"TIMESTAMP_SECONDS(DIV(UNIX_SECONDS({expr}), {n}) * {n})"
+        return f"TIME_FLOOR({expr}, 'PT{n}S')"
+
     @property
     def double_type(self) -> str:
         return "FLOAT64" if self.is_bq else "DOUBLE"
@@ -332,5 +338,32 @@ JOIN (
 WHERE {_time_filter(p, alias="p")}
   AND {state_condition}
 GROUP BY 1, 2
+ORDER BY 1
+"""
+
+# ============================================================
+# zero-plotter 点群クエリ
+#   zero-plotter の地図表示と同じ仕様:
+#   t2_system_state_manager_state を5秒バケットで取得し、
+#   バケットごとの位置（緯度経度）と system_state を返す。
+#   表示側で system_state ごとに色分けする。
+# ============================================================
+
+ZP_TRACK_BUCKET_SEC = 5
+
+
+def build_zp_track_query(p: QueryParams, *, bucket_sec: int = ZP_TRACK_BUCKET_SEC) -> str:
+    d = p.dialect
+    bucket = d.floor_to_seconds(d.time_col, bucket_sec)
+
+    return f"""
+SELECT
+  {bucket} AS sec_time,
+  MAX({d.col(".system_state")}) AS system_state,
+  AVG({d.col("#latitude")})  AS latitude,
+  AVG({d.col("#longitude")}) AS longitude
+FROM {d.table(p.tables.state_table)}
+WHERE {_time_filter(p)}
+GROUP BY 1
 ORDER BY 1
 """

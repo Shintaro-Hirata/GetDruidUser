@@ -23,6 +23,15 @@ class StubBackend:
             return pd.DataFrame(
                 {"bin_start": [0.0, 0.2], "bin_end": [0.2, 0.4], "cnt": [2, 6]}
             )
+        if "PT5S" in query or "UNIX_SECONDS" in query:  # Zero-Plotter 点群クエリ
+            return pd.DataFrame(
+                {
+                    "sec_time": ["2025-12-09T01:00:00Z", "2025-12-09T01:00:05Z"],
+                    "system_state": [4, 0],
+                    "latitude": [35.43, 35.44],
+                    "longitude": [139.62, 139.63],
+                }
+            )
         # メトリクスクエリ
         value_col = "lateral_error" if "lateral_error" in query else "acceleration"
         return pd.DataFrame(

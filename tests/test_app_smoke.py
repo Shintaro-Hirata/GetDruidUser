@@ -155,3 +155,47 @@ def test_app_excel_cached_and_invalidated_on_new_run():
         # 再実行で無効化→再生成される
         next(b for b in at.button if b.label == "実行").click().run()
         assert at.session_state["app_state"].excel_bytes is not first
+
+
+def test_app_zero_plotter_view_renders():
+    from tests.test_pipeline import StubBackend as RecordingBackend
+
+    stub = RecordingBackend()
+    with patch("src.backends.factory.create_backend", return_value=stub):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # Zero-Plotter ビューに切替（期間タブのみの選択肢・一番右）
+        at.session_state["view_t1_c1_q1"] = "Zero-Plotter"
+        at.run()
+        assert not at.exception
+        # 点群クエリ（5秒バケット）が発行されている
+        assert any("PT5S" in q or "UNIX_SECONDS" in q for q in stub.queries)
+
+
+def test_legs_vehicle_selection_syncs_vehicle_id():
+    from datetime import datetime, timezone
+
+    from src.services.legs import Leg
+
+    legs = [
+        Leg(vehicle_id="giga07", display_name="A",
+            start=datetime(2025, 12, 9, 1, 0, tzinfo=timezone.utc),
+            end=datetime(2025, 12, 9, 3, 0, tzinfo=timezone.utc)),
+        Leg(vehicle_id="giga09", display_name="B",
+            start=datetime(2025, 12, 9, 1, 0, tzinfo=timezone.utc),
+            end=datetime(2025, 12, 9, 3, 0, tzinfo=timezone.utc)),
+    ]
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()), \
+         patch("src.ui.sidebar._load_legs_cached", return_value=legs):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        at.toggle(key="use_legs").set_value(True).run()
+        assert not at.exception
+
+        # 車両を giga09 に変更 → vehicle_id 入力も連動
+        at.selectbox(key="legs_vehicle").select("giga09").run()
+        assert not at.exception
+        assert at.session_state["vehicle_id"] == "giga09"

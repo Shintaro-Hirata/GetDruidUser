@@ -20,6 +20,8 @@ from src.ui.views.map import metric_map_fig
 from src.ui.views.scatter import metric_scatter_fig
 
 VIEW_MODES = ["散布図", "画像", "地図", "表"]
+# Zero-Plotter 点群ビューは期間タブのみ（比較タブは複数日付のため対象外）。一番右に置く
+VIEW_MODES_WITH_ZP = VIEW_MODES + ["Zero-Plotter"]
 HIST_VIEW_MODES = ["グラフ", "画像"]
 
 
@@ -71,15 +73,38 @@ def _show_fig_or_empty(
         st.plotly_chart(fig, **kwargs)
 
 
-def _view_selector(key: str) -> str:
+def _view_selector(key: str, options: list[str]) -> str:
     mode = st.segmented_control(
         "表示",
-        VIEW_MODES,
-        default=VIEW_MODES[0],
+        options,
+        default=options[0],
         key=f"view_{key}",
         label_visibility="collapsed",
     )
-    return mode or VIEW_MODES[0]
+    return mode or options[0]
+
+
+def _render_zero_plotter_view(period: PeriodResult, sb: SidebarValues, state: AppState, *, key: str) -> None:
+    """Zero-Plotter 点群（期間の日付に含まれる全運行・state色分け）を表示する。"""
+    from src.ui.views.zero_plotter import fetch_zp_day_track, zp_track_fig
+
+    results = state.results
+    if results is None:
+        st.info("結果がありません")
+        return
+
+    try:
+        df, day_start = fetch_zp_day_track(results.config, period.range.start)
+    except Exception as ex:
+        st.error(f"Zero-Plotter点群の取得に失敗しました: {ex}")
+        return
+
+    st.caption(
+        f"日付: {day_start:%Y-%m-%d}（JST）の全運行点群"
+        "（5秒間隔・zero-plotter と同じ system_state 色分け）"
+    )
+    fig = zp_track_fig(df, height=sb.map_height)
+    _show_fig_or_empty(fig, key=f"plot_{key}_zp", width=sb.map_width, state=state)
 
 
 def render_metric_views(
@@ -91,10 +116,16 @@ def render_metric_views(
     *,
     key: str,
     title_suffix: str = "",
+    period: PeriodResult | None = None,
 ) -> None:
-    """1メトリクス分のブロック（散布図⇔地図⇔表の切替つき）を描画する。"""
+    """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表⇔Zero-Plotterの切替つき）を描画する。"""
     st.markdown(f"### {spec.title}{title_suffix}")
-    mode = _view_selector(key)
+    options = VIEW_MODES_WITH_ZP if period is not None else VIEW_MODES
+    mode = _view_selector(key, options)
+
+    if mode == "Zero-Plotter" and period is not None:
+        _render_zero_plotter_view(period, sb, state, key=key)
+        return
 
     # 直近実行後に追加された除外（未反映分）はグレーでプレビュー表示する
     applied = set(state.results.config.excludes) if state.results else set()
@@ -221,6 +252,7 @@ def _render_chunk_content(
                 colors,
                 state,
                 key=f"{key_prefix}_{spec.key}",
+                period=period,
             )
 
     _render_hist_block([(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist")
