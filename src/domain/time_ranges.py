@@ -11,8 +11,19 @@ from dateutil import parser as dtparser
 from src.domain.models import ExcludeRange, TimeRange
 
 
-def parse_iso8601(s: str) -> datetime:
+def parse_datetime(s: str) -> datetime:
+    """
+    日時文字列をパースする。ISO8601 に加えて、日付と時刻の間が
+    空白区切り（例: 2026-06-01 19:30:42.000+09:00）でも受け付ける。
+    """
+    s = s.strip()
+    if " " in s:
+        s = s.replace(" ", "T", 1)
     return dtparser.isoparse(s)
+
+
+# 後方互換のための別名（既存コードは parse_iso8601 を参照）
+parse_iso8601 = parse_datetime
 
 
 def parse_ranges(text: str) -> list[TimeRange]:
@@ -70,8 +81,8 @@ def parse_exclude_ranges_text(text: str) -> list[ExcludeRange]:
                 raise ValueError(f"除外時間帯: 解析できない行: {line}")
             a, b = toks[0], toks[1]
 
-        s = datetime.fromisoformat(a)
-        e = datetime.fromisoformat(b)
+        s = parse_datetime(a)
+        e = parse_datetime(b)
         if e <= s:
             raise ValueError(f"除外時間帯: 終了 <= 開始 になっています: {line}")
         out.append(ExcludeRange(start=s, end=e))

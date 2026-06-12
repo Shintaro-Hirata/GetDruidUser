@@ -14,6 +14,7 @@ from src.queries.specs import HIST_TITLE, METRICS, MetricSpec
 from src.ui.exclude_editor import handle_exclude_selection, selection_sec_times
 from src.ui.sidebar import SidebarValues
 from src.ui.state import AppState
+from src.ui.views.common import df_times_to_jst
 from src.ui.views.histogram import hist_fig
 from src.ui.views.map import metric_map_fig
 from src.ui.views.scatter import metric_scatter_fig
@@ -135,7 +136,8 @@ def render_metric_views(
         df_all = pd.concat(dfs, ignore_index=True)
         if len(series) == 1:
             df_all = df_all.drop(columns=["期間"])
-        st.dataframe(df_all, width="stretch", key=f"table_{key}")
+        # 時刻列は JST（+09:00）表示にする（元データは不変）
+        st.dataframe(df_times_to_jst(df_all), width="stretch", key=f"table_{key}")
         return
 
     # 散布図（デフォルト）

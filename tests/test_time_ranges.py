@@ -74,3 +74,27 @@ def test_time_range_is_frozen_dataclass():
     r = TimeRange(start=datetime(2025, 1, 1), end=datetime(2025, 1, 2), label="x")
     with pytest.raises(Exception):
         r.label = "y"  # type: ignore[misc]
+
+
+def test_parse_ranges_accepts_space_separator():
+    # 日付と時刻の間が T でなく空白でも受け付ける
+    text = "2026-06-01 19:30:42.000+09:00, 2026-06-01 21:00:00+09:00, 夜勤"
+    out = parse_ranges(text)
+    assert out[0].label == "夜勤"
+    assert out[0].start.hour == 19 and out[0].start.minute == 30
+
+
+def test_parse_exclude_ranges_accepts_space_separator():
+    from src.domain.time_ranges import parse_exclude_ranges_text
+
+    out = parse_exclude_ranges_text(
+        "2026-06-01 19:30:42+09:00, 2026-06-01 19:40:00+09:00"
+    )
+    assert len(out) == 1
+    assert out[0].start.minute == 30
+
+    # " - " 区切りでも空白入り日時を受け付ける
+    out2 = parse_exclude_ranges_text(
+        "2026-06-01 19:30:42+09:00 - 2026-06-01 19:40:00+09:00"
+    )
+    assert out2 == out

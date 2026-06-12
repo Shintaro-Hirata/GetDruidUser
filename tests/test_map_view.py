@@ -81,3 +81,29 @@ def test_scatter_uses_svg_for_small_data_and_webgl_for_large():
 
     large = metric_scatter_fig(LATERAL_ERROR, [("A", _df(6000))], colors={})
     assert large.data[0].type == "scattergl"  # 大量データはWebGL
+
+
+def test_hover_shows_jst_but_selection_keeps_raw_utc():
+    import pandas as pd
+
+    from src.queries.specs import LATERAL_ERROR
+    from src.ui.views.map import metric_map_fig as map_fig
+    from src.ui.views.scatter import metric_scatter_fig as sc_fig
+
+    df = pd.DataFrame(
+        {
+            "sec_time": ["2025-12-09T01:00:30Z"],
+            "latitude": [35.43],
+            "longitude": [139.62],
+            "lateral_error": [0.5],
+            "cum_dist_km": [1.2],
+        }
+    )
+
+    for fig in (sc_fig(LATERAL_ERROR, [("A", df)], colors={}),
+                map_fig(LATERAL_ERROR, [("A", df)], colors={})):
+        cd = fig.data[0].customdata[0]
+        assert cd[0] == "2025-12-09T01:00:30Z"      # 選択イベント用の生値（UTC）
+        assert cd[1] == "2025-12-09 10:00:30"        # ホバー表示はJST
+        assert "時刻(JST)" in fig.data[0].hovertemplate
+        assert "%{customdata[1]}" in fig.data[0].hovertemplate

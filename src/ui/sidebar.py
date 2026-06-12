@@ -257,7 +257,7 @@ def _render_exclude_editor(state: AppState) -> None:
 
     with st.expander("テキストから取り込み（開始,終了 を複数行）"):
         text = st.text_area(
-            "例: 2025-12-15T08:10:00+09:00, 2025-12-15T08:20:00+09:00",
+            "例: 2025-12-15 08:10:00+09:00, 2025-12-15 08:20:00+09:00（T区切りでも可）",
             key="exclude_import_text",
             height=80,
         )
@@ -303,8 +303,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
 
         _render_legs_picker(settings, state, vehicle_id, bq_dataset)
 
-        st.caption("時間帯は 1行に1つ：`開始,終了` または `開始,終了,ラベル`")
-        st.caption("例：2025-12-09T01:57:00+09:00, 2025-12-09T05:48:53+09:00, 1203昼勤")
+        st.caption("時間帯は 1行に1つ：`開始,終了` または `開始,終了,ラベル`（日付と時刻の間は T でも空白でも可）")
+        st.caption("例：2025-12-09 01:57:00+09:00, 2025-12-09 05:48:53+09:00, 1203昼勤")
         st.text_area(
             "開始,終了,ラベル（複数行）",
             key="ranges_text",

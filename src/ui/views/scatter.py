@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 
 from src.domain.models import ExcludeRange
 from src.queries.specs import MetricSpec
-from src.ui.views.common import split_by_excludes
+from src.ui.views.common import jst_display_series, split_by_excludes
 
 X_LABEL = "移動距離[km]"
 EXCLUDE_PREVIEW_COLOR = "#9e9e9e"
@@ -44,7 +44,16 @@ def _add_trace(
     opacity: float = 1.0,
     trace_cls: type = go.Scatter,
 ) -> None:
-    custom = d[["sec_time", "latitude", "longitude"]].astype(str).values
+    # customdata[0] は除外編集の選択イベントで使う生の時刻（UTC）。
+    # ホバー表示には JST 文字列（customdata[1]）を使う。
+    custom = pd.DataFrame(
+        {
+            "raw": d["sec_time"].astype(str),
+            "jst": jst_display_series(d["sec_time"]),
+            "lat": d["latitude"].astype(str),
+            "lon": d["longitude"].astype(str),
+        }
+    ).values
     fig.add_trace(
         trace_cls(
             x=d["cum_dist_km"],
@@ -55,10 +64,10 @@ def _add_trace(
             customdata=custom,
             hovertemplate=(
                 f"<b>{name}</b><br>"
-                "時刻: %{customdata[0]}<br>"
+                "時刻(JST): %{customdata[1]}<br>"
                 f"{spec.y_label}: %{{y:.4f}}<br>"
                 f"{X_LABEL}: %{{x:.3f}}<br>"
-                "緯度: %{customdata[1]} / 経度: %{customdata[2]}"
+                "緯度: %{customdata[2]} / 経度: %{customdata[3]}"
                 "<extra></extra>"
             ),
         )

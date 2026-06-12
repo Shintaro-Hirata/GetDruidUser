@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 
 from src.domain.models import ExcludeRange
 from src.queries.specs import MetricSpec
-from src.ui.views.common import split_by_excludes
+from src.ui.views.common import jst_display_series, split_by_excludes
 
 ColorBy = str  # "period"（期間色） | "value"（値グラデーション）
 EXCLUDE_PREVIEW_COLOR = "#9e9e9e"
@@ -45,9 +45,13 @@ def _map_trace(
     marker: dict,
 ) -> go.Scattermap:
     cum = d["cum_dist_km"] if "cum_dist_km" in d.columns else pd.Series([float("nan")] * len(d))
+    sec_time = d.get("sec_time", pd.Series([""] * len(d)))
+    # customdata[0] は除外編集の選択イベントで使う生の時刻（UTC）。
+    # ホバー表示には JST 文字列（customdata[1]）を使う。
     custom = pd.DataFrame(
         {
-            "sec_time": d.get("sec_time", pd.Series([""] * len(d))).astype(str),
+            "raw": sec_time.astype(str),
+            "jst": jst_display_series(sec_time),
             "value": d[spec.name],
             "cum": cum,
         }
@@ -61,9 +65,9 @@ def _map_trace(
         customdata=custom,
         hovertemplate=(
             f"<b>{name}</b><br>"
-            "時刻: %{customdata[0]}<br>"
-            f"{spec.y_label}: %{{customdata[1]:.4f}}<br>"
-            "移動距離[km]: %{customdata[2]:.3f}<br>"
+            "時刻(JST): %{customdata[1]}<br>"
+            f"{spec.y_label}: %{{customdata[2]:.4f}}<br>"
+            "移動距離[km]: %{customdata[3]:.3f}<br>"
             "緯度: %{lat:.6f} / 経度: %{lon:.6f}"
             "<extra></extra>"
         ),
