@@ -49,6 +49,7 @@ if sb.run:
         thresholds=sb.thresholds,
         dist_mode=sb.dist_mode,  # type: ignore[arg-type]
         excludes=tuple(state.excludes),
+        tables=sb.tables,
         raise_on_error=sb.raise_on_error,
         max_workers=2,
     )
@@ -99,6 +100,8 @@ if sb.dist_mode != cached.dist_mode:
     drift_msgs.append("距離算出方式")
 if tuple(state.excludes) != cached.excludes:
     drift_msgs.append("除外時間帯")
+if sb.tables != cached.tables:
+    drift_msgs.append("取得テーブル")
 if drift_msgs:
     st.warning("、".join(drift_msgs) + " が変更されています。反映するには『実行』が必要です。")
 

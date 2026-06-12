@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from src.config import Settings
-from src.domain.models import ExcludeRange
+from src.domain.models import DEFAULT_TABLES, ExcludeRange, TableConfig
 from src.domain.time_ranges import (
     parse_exclude_ranges_text,
     suggested_split_minutes_from_ranges_text,
@@ -103,6 +103,7 @@ class SidebarValues:
     split_minutes: int
     dist_mode: str
     thresholds: dict[str, float]
+    tables: TableConfig
     raise_on_error: bool
     run: bool
 
@@ -117,6 +118,52 @@ class SidebarValues:
     map_color_by: str          # "period" | "value"
     map_height: int
     map_width: int | None      # None = 画面幅に合わせる
+
+
+@st.cache_data(ttl=300, show_spinner="テーブル一覧を取得中…")
+def _list_druid_tables(druid_sql_url: str, timeout_sec: int) -> pd.DataFrame:
+    from src.backends.druid import DruidBackend
+
+    backend = DruidBackend(url=druid_sql_url, timeout_sec=timeout_sec)
+    try:
+        return backend.sql(
+            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = 'druid' ORDER BY TABLE_NAME"
+        )
+    finally:
+        backend.close()
+
+
+def _table_input(label: str, key: str, default: str) -> str:
+    """テーブル名入力（空白は除去、空ならデフォルトに戻す）。"""
+    v = st.text_input(label, value=default, key=key).strip()
+    return v or default
+
+
+def _render_table_config(settings: Settings) -> TableConfig:
+    """データ取得テーブルの設定。データのバージョンによってテーブル名が異なる場合に上書きする。"""
+    st.markdown("##### データ取得テーブル")
+    st.caption("取得するデータのバージョンによってテーブル名が異なる場合に変更してください（反映には実行が必要）。")
+
+    d = DEFAULT_TABLES
+    tables = TableConfig(
+        control_table=_table_input("Q1/Q2・緯度経度（control）", "tbl_control", d.control_table),
+        state_table=_table_input("自動/手動状態（state）", "tbl_state", d.state_table),
+        pose_table=_table_input("横G（pose）", "tbl_pose", d.pose_table),
+        speed_table=_table_input("速度（距離=速度平均時）", "tbl_speed", d.speed_table),
+    )
+
+    if st.toggle("Druidのテーブル一覧を表示", key="show_druid_tables"):
+        if settings.backend != "druid":
+            st.info("テーブル一覧表示は Druid バックエンド時のみ対応しています。")
+        else:
+            try:
+                df = _list_druid_tables(settings.druid_sql_url, settings.timeout_sec)
+                st.dataframe(df, width="stretch", height=240)
+            except Exception as ex:
+                st.error(f"テーブル一覧の取得に失敗しました: {ex}")
+
+    return tables
 
 
 def _on_ranges_text_change() -> None:
@@ -302,6 +349,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                 )
 
         with st.expander("開発用（任意）"):
+            tables = _render_table_config(settings)
+
             raise_on_error = st.checkbox(
                 "例外が出たら止める（握りつぶさずにraise）",
                 value=False,
@@ -314,6 +363,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         split_minutes=int(split_minutes),
         dist_mode=str(dist_mode),
         thresholds=thresholds,
+        tables=tables,
         raise_on_error=bool(raise_on_error),
         run=bool(run),
         scatter_xlim=_range_or_none(x_min, x_max),

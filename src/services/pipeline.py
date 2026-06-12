@@ -114,6 +114,7 @@ def fetch_chunk(
                     start_time=s.isoformat(),
                     end_time=e.isoformat(),
                     excludes=config.excludes,
+                    tables=config.tables,
                 ),
                 threshold=config.threshold(_spec.key, _spec.default_threshold),
                 dist_mode=config.dist_mode,
@@ -133,6 +134,7 @@ def fetch_chunk(
                     start_time=s.isoformat(),
                     end_time=e.isoformat(),
                     excludes=config.excludes,
+                    tables=config.tables,
                 ),
                 state_condition=state_condition,
             )

@@ -88,3 +88,39 @@ def test_build_metric_query_unknown_dist_mode_raises():
         build_metric_query(
             LATERAL_ERROR, _params(), threshold=0.2, dist_mode="unknown",  # type: ignore[arg-type]
         )
+
+
+def test_build_queries_with_custom_tables():
+    from src.domain.models import TableConfig
+
+    tables = TableConfig(
+        control_table="t2_control_debug_v2",
+        state_table="t2_state_v2",
+        pose_table="t2_driver_pose_v2",
+        speed_table="t2_compositor_pose_v2",
+    )
+    p = QueryParams(
+        vehicle_id="giga07", start_time=START, end_time=END, tables=tables
+    )
+
+    sql = build_metric_query(LATERAL_ERROR, p, threshold=0.2, dist_mode="latlon")
+    assert '"t2_control_debug_v2"' in sql
+    assert '"t2_state_v2"' in sql
+    assert "t2_control_debug\"" not in sql  # デフォルト名が残っていない
+
+    sql_speed = build_metric_query(LATERAL_ERROR, p, threshold=0.2, dist_mode="speed")
+    assert '"t2_compositor_pose_v2"' in sql_speed
+
+    sql_hist = build_hist_query(p, state_condition="s.system_state = 4")
+    assert '"t2_driver_pose_v2"' in sql_hist
+    assert '"t2_state_v2"' in sql_hist
+    assert "t2_positioning_driver_pose" not in sql_hist
+
+
+def test_default_tables_unchanged():
+    # デフォルトは従来のテーブル名のまま
+    sql = build_metric_query(LATERAL_ERROR, _params(), threshold=0.2, dist_mode="latlon")
+    assert '"t2_control_debug"' in sql
+    assert '"t2_system_state_manager_state"' in sql
+    sql_hist = build_hist_query(_params(), state_condition="s.system_state = 4")
+    assert '"t2_positioning_driver_pose"' in sql_hist

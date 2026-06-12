@@ -156,3 +156,20 @@ def test_results_to_sheets_naming_compat():
     # 2期間 × 2チャンク × 3クエリ = 12シート（従来互換の命名）
     assert len(sheets) == 12
     assert "T1_C1_Q1" in sheets and "T2_C2_Q3" in sheets
+
+
+def test_custom_tables_propagate_into_sql():
+    from src.domain.models import TableConfig
+
+    backend = StubBackend()
+    tables = TableConfig(pose_table="t2_driver_pose_v2")
+    run_pipeline(
+        backend=backend,
+        config=_config(tables=tables),
+        ranges=[_range()],
+        progress_callback=None,
+    )
+    hist_queries = [q for q in backend.queries if "bin_start" in q]
+    assert hist_queries
+    assert all("t2_driver_pose_v2" in q for q in hist_queries)
+    assert all("t2_positioning_driver_pose" not in q for q in hist_queries)

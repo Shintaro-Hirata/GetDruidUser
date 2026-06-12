@@ -16,7 +16,6 @@ class MetricSpec:
     y_label: str          # Y軸ラベル
     threshold_label: str  # しきい値入力のラベル
     default_threshold: float
-    table: str = "t2_control_debug"
 
     @property
     def abs_name(self) -> str:

@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from src.domain.models import DistanceMode, ExcludeRange
+from src.domain.models import DEFAULT_TABLES, DistanceMode, ExcludeRange, TableConfig
 from src.queries.specs import MetricSpec
 
 
@@ -19,6 +19,7 @@ class QueryParams:
     start_time: str  # ISO8601 文字列
     end_time: str
     excludes: Sequence[ExcludeRange] = ()
+    tables: TableConfig = DEFAULT_TABLES
 
 
 # ============================================================
@@ -57,7 +58,7 @@ pos_1s AS (
     FLOOR(__time TO SECOND) AS sec_time,
     AVG("#latitude")  AS lat,
     AVG("#longitude") AS lon
-  FROM "t2_control_debug"
+  FROM "{p.tables.control_table}"
   WHERE "#vehicle_id" = '{p.vehicle_id}'
     AND __time >= '{p.start_time}'
     AND __time <  '{p.end_time}'{exclude_sql}
@@ -108,7 +109,7 @@ speed_1s AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
     AVG(".pose.poslv_speed") AS avg_speed_mps
-  FROM "t2_localization_compositor_pose"
+  FROM "{p.tables.speed_table}"
   WHERE "#vehicle_id" = '{p.vehicle_id}'
     AND __time >= '{p.start_time}'
     AND __time <  '{p.end_time}'{exclude_sql}
@@ -167,7 +168,7 @@ WITH per_sec AS (
       PARTITION BY FLOOR(__time TO SECOND)
       ORDER BY ABS("{spec.column}") DESC
     ) AS rn
-  FROM "{spec.table}"
+  FROM "{p.tables.control_table}"
   WHERE "#vehicle_id" = '{p.vehicle_id}'
     AND __time >= '{p.start_time}'
     AND __time <  '{p.end_time}'{exclude_sql}
@@ -185,7 +186,7 @@ state_per_sec AS (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
     MAX(".system_state") AS system_state
-  FROM "t2_system_state_manager_state"
+  FROM "{p.tables.state_table}"
   WHERE "#vehicle_id" = '{p.vehicle_id}'
     AND __time >= '{p.start_time}'
     AND __time <  '{p.end_time}'{exclude_sql}
@@ -249,12 +250,12 @@ SELECT
   CAST(FLOOR(p.".pose.linear_acceleration_vrf.y" / 0.2) * 0.2 AS DOUBLE) AS bin_start,
   CAST(FLOOR(p.".pose.linear_acceleration_vrf.y" / 0.2) * 0.2 + 0.2 AS DOUBLE) AS bin_end,
   COUNT(*) AS cnt
-FROM "t2_positioning_driver_pose" p
+FROM "{p.tables.pose_table}" p
 JOIN (
   SELECT
     FLOOR(__time TO SECOND) AS sec_time,
     MAX(".system_state") AS system_state
-  FROM "t2_system_state_manager_state"
+  FROM "{p.tables.state_table}"
   WHERE "#vehicle_id" = '{p.vehicle_id}'
     AND __time >= '{p.start_time}'
     AND __time <  '{p.end_time}'{exclude_state}
