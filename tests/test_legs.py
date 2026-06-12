@@ -39,6 +39,33 @@ def test_to_dt_invalid():
     assert _to_dt("garbage") is None
 
 
+def test_to_dt_nat_and_nan():
+    # BigQuery の NULL タイムスタンプは pd.NaT / NaN で返る。
+    # pd.NaT は datetime のサブクラスなので、すり抜けると
+    # date_jst の astimezone で ValueError になる（回帰テスト）。
+    import pandas as pd
+
+    assert _to_dt(pd.NaT) is None
+    assert _to_dt(float("nan")) is None
+
+
+def test_row_with_nat_timestamp_is_dropped():
+    import pandas as pd
+
+    from src.services.legs import _row_to_leg
+
+    assert _row_to_leg({
+        "vehicle_id": "giga07", "display_name": "X",
+        "data_start_time": pd.NaT,
+        "data_end_time": pd.Timestamp("2025-12-09", tz="UTC"),
+    }) is None
+    assert _row_to_leg({
+        "vehicle_id": "giga07", "display_name": "X",
+        "data_start_time": pd.Timestamp("2025-12-09", tz="UTC"),
+        "data_end_time": pd.NaT,
+    }) is None
+
+
 def _leg(vehicle="giga07", name="昼勤", start_h=1, day=9) -> Leg:
     return Leg(
         vehicle_id=vehicle,

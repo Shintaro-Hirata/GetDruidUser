@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+import pandas as pd
 import requests
 from dateutil import parser as dtparser
 
@@ -63,6 +64,13 @@ def _to_dt(v: Any) -> datetime | None:
     """
     if v is None:
         return None
+    # BigQuery の NULL は pd.NaT / NaN で返る。
+    # pd.NaT は datetime のサブクラスなので isinstance 判定より先に弾く必要がある。
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(v, datetime):
         return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
 
