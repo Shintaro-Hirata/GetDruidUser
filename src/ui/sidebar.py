@@ -37,6 +37,11 @@ class SidebarValues:
     hist_ylim: tuple[float, float] | None
     smooth_window: int
 
+    # 地図設定（再実行不要）
+    map_color_by: str          # "period" | "value"
+    map_height: int
+    map_width: int | None      # None = 画面幅に合わせる
+
 
 def _on_ranges_text_change() -> None:
     """開始/終了入力が変わったら推奨分割幅に自動で戻す。"""
@@ -191,6 +196,21 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
             help="1=平滑化なし。大きいほど滑らかになります。",
         )
 
+        with st.expander("地図設定"):
+            map_color_by = st.radio(
+                "プロット色",
+                options=["period", "value"],
+                format_func=lambda v: "期間ごとの色" if v == "period" else "値の大きさ（グラデーション）",
+                key="map_color_by",
+            )
+            map_height = st.slider("地図の高さ(px)", 300, 1000, value=560, step=20, key="map_height")
+            map_full_width = st.checkbox("幅を画面に合わせる", value=True, key="map_full_width")
+            map_width: int | None = None
+            if not map_full_width:
+                map_width = int(
+                    st.slider("地図の幅(px)", 400, 1600, value=800, step=20, key="map_width")
+                )
+
         with st.expander("開発用（任意）"):
             raise_on_error = st.checkbox(
                 "例外が出たら止める（握りつぶさずにraise）",
@@ -214,4 +234,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         hist_xlim=_range_or_none(q3_x_min, q3_x_max),
         hist_ylim=_range_or_none(q3_y_min, q3_y_max),
         smooth_window=int(smooth_window),
+        map_color_by=str(map_color_by),
+        map_height=int(map_height),
+        map_width=map_width,
     )

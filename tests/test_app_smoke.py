@@ -74,3 +74,20 @@ def test_app_drift_warning_after_run():
         # vehicle_id を変えると再実行を促す警告が出る
         at.text_input[0].set_value("giga99").run()
         assert any("実行』が必要" in w.value for w in at.warning)
+
+
+def test_app_view_switch_map_and_table():
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 散布図 → 地図
+        at.session_state["view_t1_c1_q1"] = "地図"
+        at.run()
+        assert not at.exception
+        # 散布図 → 表
+        at.session_state["view_t1_c1_q1"] = "表"
+        at.run()
+        assert not at.exception

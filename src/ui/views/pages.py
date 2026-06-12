@@ -2,46 +2,111 @@
 # タブ構成（比較タブ＋各期間タブ）の組み立て。
 # 一次データモデル（RunResults）を直接走査して描画する
 # （旧実装のように Excel シートキーの存在からチャンク数を逆算しない）。
+# 各メトリクスは 散布図⇔地図⇔表 をセグメントコントロールで行き来できる。
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
 from src.domain.results import ChunkData, PeriodResult, RunResults
-from src.queries.specs import HIST_TITLE, METRICS
+from src.queries.specs import HIST_TITLE, METRICS, MetricSpec
 from src.ui.sidebar import SidebarValues
 from src.ui.views.histogram import hist_fig
+from src.ui.views.map import metric_map_fig
 from src.ui.views.scatter import metric_scatter_fig
 
+VIEW_MODES = ["散布図", "地図", "表"]
 
-def _show_fig_or_empty(fig, *, key: str) -> None:
+
+def _show_fig_or_empty(fig, *, key: str, width: int | None = None) -> None:
     if fig is None:
         st.info("結果0件")
         return
-    st.plotly_chart(fig, width="stretch", key=key)
+    if width is None:
+        st.plotly_chart(fig, width="stretch", key=key)
+    else:
+        st.plotly_chart(fig, width=width, key=key)
 
 
-def _render_metric_block(
-    spec,
-    label: str,
-    df: pd.DataFrame,
+def _view_selector(key: str) -> str:
+    mode = st.segmented_control(
+        "表示",
+        VIEW_MODES,
+        default=VIEW_MODES[0],
+        key=f"view_{key}",
+        label_visibility="collapsed",
+    )
+    return mode or VIEW_MODES[0]
+
+
+def render_metric_views(
+    spec: MetricSpec,
+    series: list[tuple[str, pd.DataFrame]],
     sb: SidebarValues,
     colors: dict[str, str],
     *,
     key: str,
+    title_suffix: str = "",
 ) -> None:
-    st.markdown(f"### {spec.title}")
+    """1メトリクス分のブロック（散布図⇔地図⇔表の切替つき）を描画する。"""
+    st.markdown(f"### {spec.title}{title_suffix}")
+    mode = _view_selector(key)
+
+    if mode == "地図":
+        fig = metric_map_fig(
+            spec,
+            series,
+            colors=colors,
+            color_by=sb.map_color_by,
+            height=sb.map_height,
+        )
+        _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width)
+        return
+
+    if mode == "表":
+        dfs = [d.assign(期間=label) for label, d in series if d is not None and not d.empty]
+        if not dfs:
+            st.info("結果0件")
+            return
+        df_all = pd.concat(dfs, ignore_index=True)
+        if len(series) == 1:
+            df_all = df_all.drop(columns=["期間"])
+        st.dataframe(df_all, width="stretch", key=f"table_{key}")
+        return
+
+    # 散布図（デフォルト）
     fig = metric_scatter_fig(
         spec,
-        [(label, df)],
+        series,
         colors=colors,
         xlim=sb.scatter_xlim,
         ylim=sb.scatter_ylims.get(spec.key),
     )
-    _show_fig_or_empty(fig, key=key)
-    if df is not None and not df.empty:
+    _show_fig_or_empty(fig, key=f"plot_{key}_scatter")
+
+
+def _render_hist_block(
+    series: list[tuple[str, pd.DataFrame]],
+    sb: SidebarValues,
+    *,
+    key: str,
+    title_suffix: str = "",
+) -> None:
+    st.markdown(f"### {HIST_TITLE}（自動/手動）{title_suffix}")
+    fig3 = hist_fig(
+        series,
+        smooth_window=sb.smooth_window,
+        xlim=sb.hist_xlim,
+        ylim=sb.hist_ylim,
+    )
+    _show_fig_or_empty(fig3, key=f"plot_{key}")
+    non_empty = [(label, df) for label, df in series if df is not None and not df.empty]
+    if non_empty:
         with st.expander("データ（表）", expanded=False):
-            st.dataframe(df, width="stretch")
+            for label, df in non_empty:
+                if len(non_empty) > 1:
+                    st.caption(label)
+                st.dataframe(df, width="stretch")
 
 
 def _render_chunk_content(
@@ -59,26 +124,15 @@ def _render_chunk_content(
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
         with col:
-            _render_metric_block(
+            render_metric_views(
                 spec,
-                period.label,
-                chunk.metric_dfs.get(spec.key, pd.DataFrame()),
+                [(period.label, chunk.metric_dfs.get(spec.key, pd.DataFrame()))],
                 sb,
                 colors,
                 key=f"{key_prefix}_{spec.key}",
             )
 
-    st.markdown(f"### {HIST_TITLE}（自動/手動）")
-    fig3 = hist_fig(
-        [(period.label, chunk.hist_df)],
-        smooth_window=sb.smooth_window,
-        xlim=sb.hist_xlim,
-        ylim=sb.hist_ylim,
-    )
-    _show_fig_or_empty(fig3, key=f"{key_prefix}_hist")
-    if chunk.hist_df is not None and not chunk.hist_df.empty:
-        with st.expander("データ（表）", expanded=False):
-            st.dataframe(chunk.hist_df, width="stretch")
+    _render_hist_block([(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist")
 
 
 def render_period_tab(
@@ -110,26 +164,23 @@ def render_compare_tab(
     colors: dict[str, str],
 ) -> None:
     st.subheader("比較（全期間）")
-    st.caption("各テスト期間の結果を同じグラフ上に重ねて表示します。")
+    st.caption("各テスト期間の結果を同じグラフ・同じ地図上に重ねて表示します。")
 
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
         with col:
-            st.markdown(f"### {spec.title}（比較）")
-            fig = metric_scatter_fig(
+            render_metric_views(
                 spec,
                 results.compare_metric_series(spec.key),
-                colors=colors,
-                xlim=sb.scatter_xlim,
-                ylim=sb.scatter_ylims.get(spec.key),
+                sb,
+                colors,
+                key=f"cmp_{spec.key}",
+                title_suffix="（比較）",
             )
-            _show_fig_or_empty(fig, key=f"cmp_{spec.key}")
 
-    st.markdown(f"### {HIST_TITLE}（比較：自動/手動）")
-    fig3 = hist_fig(
+    _render_hist_block(
         results.compare_hist_series(),
-        smooth_window=sb.smooth_window,
-        xlim=sb.hist_xlim,
-        ylim=sb.hist_ylim,
+        sb,
+        key="cmp_hist",
+        title_suffix="（比較）",
     )
-    _show_fig_or_empty(fig3, key="cmp_hist")
