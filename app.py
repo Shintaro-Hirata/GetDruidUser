@@ -158,6 +158,8 @@ if st.button("画像を生成", key="gen_images"):
                 hist_xlim=sb.hist_xlim,
                 hist_ylim=sb.hist_ylim,
                 smooth_window=sb.smooth_window,
+                figsize_single=sb.fig_size_single,
+                figsize_compare=sb.fig_size_compare,
             )
     except Exception as ex:
         state.image_zip = None

@@ -120,6 +120,10 @@ class SidebarValues:
     map_height: int
     map_width: int | None      # None = 画面幅に合わせる
 
+    # 画像サイズ（インチ。画像タブ・画像一括DL共通、再実行不要）
+    fig_size_single: tuple[float, float]
+    fig_size_compare: tuple[float, float]
+
 
 @st.cache_data(ttl=300, show_spinner="テーブル一覧を取得中…")
 def _list_tables(backend_kind: str, druid_sql_url: str, bq_project: str, bq_dataset: str, timeout_sec: int) -> pd.DataFrame:
@@ -376,6 +380,16 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                     st.slider("地図の幅(px)", 400, 1600, value=800, step=20, key="map_width")
                 )
 
+        with st.expander("画像サイズ（画像タブ・一括DL共通）"):
+            st.caption("matplotlib 形式画像のサイズ（インチ）。")
+            c1, c2 = st.columns(2)
+            with c1:
+                fig_w_s = st.slider("単体 幅", 4.0, 16.0, value=7.0, step=0.5, key="fig_w_single")
+                fig_w_c = st.slider("比較 幅", 5.0, 20.0, value=9.0, step=0.5, key="fig_w_compare")
+            with c2:
+                fig_h_s = st.slider("単体 高さ", 3.0, 12.0, value=4.0, step=0.5, key="fig_h_single")
+                fig_h_c = st.slider("比較 高さ", 3.0, 14.0, value=4.5, step=0.5, key="fig_h_compare")
+
         with st.expander("開発用（任意）"):
             tables = _render_table_config(settings, str(backend))
 
@@ -406,4 +420,6 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         map_color_by=str(map_color_by),
         map_height=int(map_height),
         map_width=map_width,
+        fig_size_single=(float(fig_w_s), float(fig_h_s)),
+        fig_size_compare=(float(fig_w_c), float(fig_h_c)),
     )

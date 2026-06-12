@@ -103,3 +103,20 @@ def test_app_exclude_edit_mode_renders():
         # 除外編集モードをONにしても例外なく描画される
         at.toggle(key="exclude_edit_mode_toggle").set_value(True).run()
         assert not at.exception
+
+
+def test_app_image_view_and_hist_image_view():
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 散布図 → 画像（matplotlib静止画）
+        at.session_state["view_t1_c1_q1"] = "画像"
+        at.run()
+        assert not at.exception
+        # 横G: グラフ → 画像
+        at.session_state["histview_t1_c1_hist"] = "画像"
+        at.run()
+        assert not at.exception

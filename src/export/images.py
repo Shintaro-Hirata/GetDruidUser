@@ -48,9 +48,16 @@ def _safe(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", name).strip() or "_"
 
 
+DEFAULT_FIGSIZE_SINGLE = (7.0, 4.0)
+DEFAULT_FIGSIZE_COMPARE = (9.0, 4.5)
+
+
 def _fig_to_png(fig, *, dpi: int = 150) -> bytes:
     bio = BytesIO()
-    fig.savefig(bio, format="png", dpi=dpi)
+    # bbox_inches="tight": 内容＋凡例にフィットさせて余白を最小化
+    #（旧実装の tight_layout(rect=[0,0,0.78,1]) は凡例用に固定22%を確保して
+    #  しまい、凡例が小さいときに右側の余白が大きくなりすぎていた）
+    fig.savefig(bio, format="png", dpi=dpi, bbox_inches="tight", pad_inches=0.15)
     plt.close(fig)
     return bio.getvalue()
 
@@ -62,9 +69,8 @@ def _apply_limits(ax, xlim, ylim) -> None:
         ax.set_ylim(*ylim)
 
 
-def _legend_outside(ax, fig) -> None:
+def _legend_outside(ax) -> None:
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0, frameon=True)
-    fig.tight_layout(rect=[0, 0, 0.78, 1])
 
 
 def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec) -> pd.DataFrame:
@@ -76,25 +82,28 @@ def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec) -> pd.DataFrame:
     return d.dropna(subset=["cum_dist_km", spec.name])
 
 
-def _scatter_single_png(df: pd.DataFrame, spec: MetricSpec, *, xlim, ylim) -> bytes | None:
-    """旧 show_query1/2 と同じ単体散布図（デフォルト色・凡例なし・figsize 7x4）"""
+def _scatter_single_png(
+    df: pd.DataFrame, spec: MetricSpec, *, xlim, ylim,
+    figsize: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
+) -> bytes | None:
+    """旧 show_query1/2 と同じ単体散布図（デフォルト色・凡例なし）"""
     d = _clean_metric_df(df, spec)
     if d.empty:
         return None
-    fig, ax = plt.subplots(figsize=(7.0, 4.0))
+    fig, ax = plt.subplots(figsize=figsize)
     ax.scatter(d["cum_dist_km"], d[spec.name])
     ax.set_xlabel(X_LABEL)
     ax.set_ylabel(spec.y_label)
     _apply_limits(ax, xlim, ylim)
-    fig.tight_layout()
     return _fig_to_png(fig)
 
 
 def _scatter_compare_png(
-    series: list[tuple[str, pd.DataFrame]], spec: MetricSpec, *, xlim, ylim
+    series: list[tuple[str, pd.DataFrame]], spec: MetricSpec, *, xlim, ylim,
+    figsize: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
 ) -> bytes | None:
-    """旧 show_scatter_compare と同じ比較散布図（色サイクル・凡例右外・figsize 9x4.5）"""
-    fig, ax = plt.subplots(figsize=(9.0, 4.5))
+    """旧 show_scatter_compare と同じ比較散布図（色サイクル・凡例右外）"""
+    fig, ax = plt.subplots(figsize=figsize)
     any_plotted = False
     for label, df in series:
         d = _clean_metric_df(df, spec)
@@ -108,7 +117,7 @@ def _scatter_compare_png(
     ax.set_xlabel(X_LABEL)
     ax.set_ylabel(spec.y_label)
     _apply_limits(ax, xlim, ylim)
-    _legend_outside(ax, fig)
+    _legend_outside(ax)
     return _fig_to_png(fig)
 
 
@@ -124,9 +133,12 @@ def _hist_png(
     xlim,
     ylim,
     compare: bool,
+    figsize: tuple[float, float] | None = None,
 ) -> bytes | None:
     """旧 show_query3 / show_query3_compare と同じ横G図（自動=オレンジ/手動=青）"""
-    fig, ax = plt.subplots(figsize=(9.0, 4.5) if compare else (7.0, 4.0))
+    if figsize is None:
+        figsize = DEFAULT_FIGSIZE_COMPARE if compare else DEFAULT_FIGSIZE_SINGLE
+    fig, ax = plt.subplots(figsize=figsize)
     any_plotted = False
 
     for i, (label, df) in enumerate(series):
@@ -152,8 +164,51 @@ def _hist_png(
     ax.set_xlabel(HIST_X_LABEL)
     ax.set_ylabel(HIST_Y_LABEL)
     _apply_limits(ax, xlim, ylim)
-    _legend_outside(ax, fig)
+    _legend_outside(ax)
     return _fig_to_png(fig)
+
+
+# ============================================================
+# 公開API（画像タブ／一括ダウンロード共通）
+# ============================================================
+
+def scatter_png(
+    series: list[tuple[str, pd.DataFrame]],
+    spec: MetricSpec,
+    *,
+    xlim=None,
+    ylim=None,
+    figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
+    figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+) -> bytes | None:
+    """散布図PNG。系列数で単体（凡例なし）/比較（凡例右外）を自動選択する。"""
+    _setup_style()
+    if len(series) <= 1:
+        df = series[0][1] if series else None
+        return _scatter_single_png(df, spec, xlim=xlim, ylim=ylim, figsize=figsize_single)
+    return _scatter_compare_png(series, spec, xlim=xlim, ylim=ylim, figsize=figsize_compare)
+
+
+def hist_png(
+    series: list[tuple[str, pd.DataFrame]],
+    *,
+    smooth_window: int = 1,
+    xlim=None,
+    ylim=None,
+    figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
+    figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+) -> bytes | None:
+    """横GヒストグラムPNG。系列数で単体/比較を自動選択する。"""
+    _setup_style()
+    compare = len(series) > 1
+    return _hist_png(
+        series,
+        smooth_window=smooth_window,
+        xlim=xlim,
+        ylim=ylim,
+        compare=compare,
+        figsize=figsize_compare if compare else figsize_single,
+    )
 
 
 def results_to_image_zip(
@@ -164,10 +219,12 @@ def results_to_image_zip(
     hist_xlim=None,
     hist_ylim=None,
     smooth_window: int = 1,
+    figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
+    figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
 ) -> bytes:
     """
     期間ごと＋比較（2期間以上のとき）の図を従来の matplotlib 形式で PNG 化し、
-    ZIP バイト列を返す。軸レンジ・平滑化は表示中の設定をそのまま反映する。
+    ZIP バイト列を返す。軸レンジ・平滑化・画像サイズは表示中の設定をそのまま反映する。
     """
     _setup_style()
     scatter_ylims = scatter_ylims or {}
@@ -186,6 +243,7 @@ def results_to_image_zip(
                 spec,
                 xlim=scatter_xlim,
                 ylim=scatter_ylims.get(spec.key),
+                figsize=figsize_single,
             )
             add(png, f"{folder}/Q{q_idx}_{spec.name}.png")
 
@@ -195,6 +253,7 @@ def results_to_image_zip(
             xlim=hist_xlim,
             ylim=hist_ylim,
             compare=False,
+            figsize=figsize_single,
         )
         add(png, f"{folder}/Q3_横G.png")
 
@@ -206,6 +265,7 @@ def results_to_image_zip(
                 spec,
                 xlim=scatter_xlim,
                 ylim=scatter_ylims.get(spec.key),
+                figsize=figsize_compare,
             )
             add(png, f"比較/Q{q_idx}_{spec.name}_比較.png")
 
@@ -215,6 +275,7 @@ def results_to_image_zip(
             xlim=hist_xlim,
             ylim=hist_ylim,
             compare=True,
+            figsize=figsize_compare,
         )
         add(png, "比較/Q3_横G_比較.png")
 

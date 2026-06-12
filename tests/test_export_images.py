@@ -59,3 +59,39 @@ def test_image_zip_respects_axis_limits():
     )
     with zipfile.ZipFile(BytesIO(data)) as zf:
         assert len(zf.namelist()) == 3
+
+
+def _png_size(data: bytes) -> tuple[int, int]:
+    import struct
+    w, h = struct.unpack(">II", data[16:24])
+    return w, h
+
+
+def test_scatter_png_figsize_applied():
+    import pandas as pd
+
+    from src.export.images import scatter_png
+    from src.queries.specs import LATERAL_ERROR
+
+    df = pd.DataFrame({"cum_dist_km": [1.0, 2.0], "lateral_error": [0.1, -0.2]})
+    small = scatter_png([("A", df)], LATERAL_ERROR, figsize_single=(5.0, 3.0))
+    large = scatter_png([("A", df)], LATERAL_ERROR, figsize_single=(10.0, 6.0))
+    sw, sh = _png_size(small)
+    lw, lh = _png_size(large)
+    assert lw > sw and lh > sh
+
+
+def test_compare_png_legend_margin_is_tight():
+    # bbox_inches="tight" により、凡例右側の固定22%余白が無くなっている。
+    # 旧方式（rect=[0,0,0.78,1]）なら画像幅は figsize 幅×dpi のままになるが、
+    # tight では内容＋凡例ぶんだけになる（小さな凡例なら幅が縮む）。
+    import pandas as pd
+
+    from src.export.images import scatter_png
+    from src.queries.specs import LATERAL_ERROR
+
+    df = pd.DataFrame({"cum_dist_km": [1.0, 2.0], "lateral_error": [0.1, -0.2]})
+    png = scatter_png([("A", df), ("B", df)], LATERAL_ERROR, figsize_compare=(9.0, 4.5))
+    w, h = _png_size(png)
+    # 9インチ×150dpi=1350px。tight なら凡例込みでもこれを大きく超えない
+    assert w <= 9.0 * 150 * 1.05

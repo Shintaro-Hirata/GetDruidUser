@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from src.domain.results import ChunkData, PeriodResult, RunResults
+from src.export.images import hist_png, scatter_png
 from src.queries.specs import HIST_TITLE, METRICS, MetricSpec
 from src.ui.exclude_editor import handle_exclude_selection, selection_sec_times
 from src.ui.sidebar import SidebarValues
@@ -17,7 +18,8 @@ from src.ui.views.histogram import hist_fig
 from src.ui.views.map import metric_map_fig
 from src.ui.views.scatter import metric_scatter_fig
 
-VIEW_MODES = ["散布図", "地図", "表"]
+VIEW_MODES = ["散布図", "画像", "地図", "表"]
+HIST_VIEW_MODES = ["グラフ", "画像"]
 
 
 def _show_fig_or_empty(
@@ -91,6 +93,22 @@ def render_metric_views(
         _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width, state=state)
         return
 
+    if mode == "画像":
+        # ダウンロードと同じ matplotlib 形式の静止画（レポート互換の見た目）
+        png = scatter_png(
+            series,
+            spec,
+            xlim=sb.scatter_xlim,
+            ylim=sb.scatter_ylims.get(spec.key),
+            figsize_single=sb.fig_size_single,
+            figsize_compare=sb.fig_size_compare,
+        )
+        if png is None:
+            st.info("結果0件")
+        else:
+            st.image(png)
+        return
+
     if mode == "表":
         dfs = [d.assign(期間=label) for label, d in series if d is not None and not d.empty]
         if not dfs:
@@ -122,13 +140,35 @@ def _render_hist_block(
     title_suffix: str = "",
 ) -> None:
     st.markdown(f"### {HIST_TITLE}（自動/手動）{title_suffix}")
-    fig3 = hist_fig(
-        series,
-        smooth_window=sb.smooth_window,
-        xlim=sb.hist_xlim,
-        ylim=sb.hist_ylim,
-    )
-    _show_fig_or_empty(fig3, key=f"plot_{key}")
+    hist_mode = st.segmented_control(
+        "表示",
+        HIST_VIEW_MODES,
+        default=HIST_VIEW_MODES[0],
+        key=f"histview_{key}",
+        label_visibility="collapsed",
+    ) or HIST_VIEW_MODES[0]
+
+    if hist_mode == "画像":
+        png = hist_png(
+            series,
+            smooth_window=sb.smooth_window,
+            xlim=sb.hist_xlim,
+            ylim=sb.hist_ylim,
+            figsize_single=sb.fig_size_single,
+            figsize_compare=sb.fig_size_compare,
+        )
+        if png is None:
+            st.info("結果0件")
+        else:
+            st.image(png)
+    else:
+        fig3 = hist_fig(
+            series,
+            smooth_window=sb.smooth_window,
+            xlim=sb.hist_xlim,
+            ylim=sb.hist_ylim,
+        )
+        _show_fig_or_empty(fig3, key=f"plot_{key}")
     non_empty = [(label, df) for label, df in series if df is not None and not df.empty]
     if non_empty:
         with st.expander("データ（表）", expanded=False):
