@@ -38,6 +38,9 @@ class AppState:
     # 「画像を生成」で作った画像ZIP（新しい実行で無効化される）
     image_zip: bytes | None = None
 
+    # Excelバイト列のキャッシュ（結果ごとに1回だけ生成。新しい実行で無効化）
+    excel_bytes: bytes | None = None
+
 
 def get_state() -> AppState:
     """session_state 上の AppState シングルトンを返す。"""

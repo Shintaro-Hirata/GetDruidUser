@@ -136,3 +136,22 @@ def test_app_bq_dataset_input_propagates_to_queries():
         assert stub.queries
         assert all("zero_plotter_dev." in q for q in stub.queries)
         assert all(".zero_plotter." not in q for q in stub.queries)
+
+
+def test_app_excel_cached_and_invalidated_on_new_run():
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        state = at.session_state["app_state"]
+        first = state.excel_bytes
+        assert first is not None  # 初回描画で生成・キャッシュ
+
+        at.run()  # 再描画ではキャッシュをそのまま使う（同一オブジェクト）
+        assert at.session_state["app_state"].excel_bytes is first
+
+        # 再実行で無効化→再生成される
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert at.session_state["app_state"].excel_bytes is not first

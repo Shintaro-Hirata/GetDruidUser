@@ -48,7 +48,7 @@ def handle_exclude_selection(state: AppState, sec_times: list[str], *, key: str)
             )
             if st.button("開始点をクリア", key=f"{key}_clear_pick"):
                 state.exclude_pick_start = None
-                st.rerun()
+                st.rerun(scope="app")
         return
 
     times = sorted(dtparser.isoparse(s) for s in sec_times)
@@ -75,8 +75,8 @@ def handle_exclude_selection(state: AppState, sec_times: list[str], *, key: str)
     with c1:
         if st.button("この範囲を除外に追加", type="primary", key=f"{key}_add_exclude"):
             _add_exclude(state, start, end)
-            st.rerun()
+            st.rerun(scope="app")
     with c2:
         if st.button("選択をやり直す", key=f"{key}_cancel"):
             state.exclude_pick_start = None
-            st.rerun()
+            st.rerun(scope="app")

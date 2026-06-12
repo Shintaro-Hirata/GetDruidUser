@@ -76,7 +76,8 @@ if sb.run:
             period.meta = state.leg_meta[period.label]
 
     state.results = results
-    state.image_zip = None  # 画像ZIPは前回結果のものなので無効化
+    state.image_zip = None    # 画像ZIP・Excelは前回結果のものなので無効化
+    state.excel_bytes = None
     st.rerun()
 
 # =========================
@@ -138,9 +139,12 @@ for i, period in enumerate(results.periods):
 # Excel一括ダウンロード（結果モデルから導出）
 # =========================
 st.markdown("## Excel一括ダウンロード")
+# Excel生成は重い（数百ms）ため結果ごとに1回だけ生成してキャッシュする
+if state.excel_bytes is None:
+    state.excel_bytes = results_to_excel_bytes(results)
 st.download_button(
     label="Excelをダウンロード",
-    data=results_to_excel_bytes(results),
+    data=state.excel_bytes,
     file_name="druid_results.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )

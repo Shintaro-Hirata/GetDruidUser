@@ -22,6 +22,24 @@ VIEW_MODES = ["散布図", "画像", "地図", "表"]
 HIST_VIEW_MODES = ["グラフ", "画像"]
 
 
+# 画像タブのPNGはキャッシュする（matplotlib描画は1枚100ms前後かかる）
+@st.cache_data(show_spinner=False, max_entries=64)
+def _scatter_png_cached(series, spec_key: str, xlim, ylim, fs_single, fs_compare):
+    spec = next(sp for sp in METRICS if sp.key == spec_key)
+    return scatter_png(
+        series, spec, xlim=xlim, ylim=ylim,
+        figsize_single=fs_single, figsize_compare=fs_compare,
+    )
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def _hist_png_cached(series, smooth_window: int, xlim, ylim, fs_single, fs_compare):
+    return hist_png(
+        series, smooth_window=smooth_window, xlim=xlim, ylim=ylim,
+        figsize_single=fs_single, figsize_compare=fs_compare,
+    )
+
+
 def _show_fig_or_empty(
     fig,
     *,
@@ -95,13 +113,13 @@ def render_metric_views(
 
     if mode == "画像":
         # ダウンロードと同じ matplotlib 形式の静止画（レポート互換の見た目）
-        png = scatter_png(
+        png = _scatter_png_cached(
             series,
-            spec,
-            xlim=sb.scatter_xlim,
-            ylim=sb.scatter_ylims.get(spec.key),
-            figsize_single=sb.fig_size_single,
-            figsize_compare=sb.fig_size_compare,
+            spec.key,
+            sb.scatter_xlim,
+            sb.scatter_ylims.get(spec.key),
+            sb.fig_size_single,
+            sb.fig_size_compare,
         )
         if png is None:
             st.info("結果0件")
@@ -149,13 +167,13 @@ def _render_hist_block(
     ) or HIST_VIEW_MODES[0]
 
     if hist_mode == "画像":
-        png = hist_png(
+        png = _hist_png_cached(
             series,
-            smooth_window=sb.smooth_window,
-            xlim=sb.hist_xlim,
-            ylim=sb.hist_ylim,
-            figsize_single=sb.fig_size_single,
-            figsize_compare=sb.fig_size_compare,
+            sb.smooth_window,
+            sb.hist_xlim,
+            sb.hist_ylim,
+            sb.fig_size_single,
+            sb.fig_size_compare,
         )
         if png is None:
             st.info("結果0件")
@@ -206,6 +224,7 @@ def _render_chunk_content(
     _render_hist_block([(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist")
 
 
+@st.fragment
 def render_period_tab(
     period: PeriodResult,
     sb: SidebarValues,
@@ -234,6 +253,7 @@ def render_period_tab(
             _render_chunk_content(period, chunk, sb, colors, state, key_prefix=f"{key_prefix}_c{i + 1}")
 
 
+@st.fragment
 def render_compare_tab(
     results: RunResults,
     sb: SidebarValues,

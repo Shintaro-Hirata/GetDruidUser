@@ -115,14 +115,25 @@ class PeriodResult:
     range: TimeRange
     chunks: list[ChunkData] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)  # legs 由来のメタ（version 等）将来比較用
+    # 結合結果のメモ（chunks は実行後に不変。rerun ごとの再結合を避ける）
+    _memo: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False, compare=False)
 
     def combined_metric_df(self, key: str) -> pd.DataFrame:
         """全チャンクの metric DF を結合（cum_dist_km は通し距離に補正）"""
-        dfs = [c.metric_dfs.get(key, pd.DataFrame()) for c in self.chunks]
-        return _concat_cum_dist_continuous(dfs)
+        if key not in self._memo:
+            dfs = [c.metric_dfs.get(key, pd.DataFrame()) for c in self.chunks]
+            self._memo[key] = _concat_cum_dist_continuous(dfs)
+        return self._memo[key]
 
     def combined_hist_df(self) -> pd.DataFrame:
         """全チャンクのヒストグラムを bin 合算し、ratio を再計算して返す。"""
+        if "__hist__" in self._memo:
+            return self._memo["__hist__"]
+        result = self._combine_hist()
+        self._memo["__hist__"] = result
+        return result
+
+    def _combine_hist(self) -> pd.DataFrame:
         dfs = [c.hist_df for c in self.chunks if c.hist_df is not None and not c.hist_df.empty]
         if not dfs:
             return pd.DataFrame()
