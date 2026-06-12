@@ -16,6 +16,7 @@ from src.domain.time_ranges import (
 )
 from src.queries.specs import METRICS
 from src.services.legs import Leg, dates_for_vehicle, legs_for, load_legs, vehicles
+from src.ui.figure_settings import get_figure_sizes
 from src.ui.state import AppState
 
 JST = timezone(timedelta(hours=9))
@@ -380,16 +381,6 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                     st.slider("地図の幅(px)", 400, 1600, value=800, step=20, key="map_width")
                 )
 
-        with st.expander("画像サイズ（画像タブ・一括DL共通）"):
-            st.caption("matplotlib 形式画像のサイズ（インチ）。")
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_w_s = st.slider("単体 幅", 4.0, 16.0, value=7.0, step=0.5, key="fig_w_single")
-                fig_w_c = st.slider("比較 幅", 5.0, 20.0, value=9.0, step=0.5, key="fig_w_compare")
-            with c2:
-                fig_h_s = st.slider("単体 高さ", 3.0, 12.0, value=4.0, step=0.5, key="fig_h_single")
-                fig_h_c = st.slider("比較 高さ", 3.0, 14.0, value=4.5, step=0.5, key="fig_h_compare")
-
         with st.expander("開発用（任意）"):
             tables = _render_table_config(settings, str(backend))
 
@@ -399,6 +390,9 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                 key="dev_raise_on_error",
                 help="SQL組み立てミスやDruidエラーをその場で例外として停止させます（原因特定用）。",
             )
+
+    # 画像サイズはメイン画面の「画像サイズの設定」で編集される（session_state 経由）
+    fig_size_single, fig_size_compare = get_figure_sizes()
 
     return SidebarValues(
         vehicle_id=vehicle_id,
@@ -420,6 +414,6 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         map_color_by=str(map_color_by),
         map_height=int(map_height),
         map_width=map_width,
-        fig_size_single=(float(fig_w_s), float(fig_h_s)),
-        fig_size_compare=(float(fig_w_c), float(fig_h_c)),
+        fig_size_single=fig_size_single,
+        fig_size_compare=fig_size_compare,
     )

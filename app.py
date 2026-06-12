@@ -9,6 +9,7 @@ from src.export.excel import results_to_excel_bytes
 from src.export.images import results_to_image_zip
 from src.services.pipeline import run_pipeline
 from src.ui.colors import render_color_pickers
+from src.ui.figure_settings import render_figure_size_settings
 from src.ui.run_progress import create_run_ui, finalize_run_log, make_progress_callback
 from src.ui.sidebar import render_sidebar
 from src.ui.state import get_state
@@ -114,6 +115,7 @@ if drift_msgs:
 
 labels = [p.label for p in results.periods]
 colors = render_color_pickers(state, labels)
+render_figure_size_settings()
 
 # タブ：比較（2期間以上のとき）＋ 各期間
 has_compare = len(results.periods) >= 2
