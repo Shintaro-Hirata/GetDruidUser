@@ -83,7 +83,6 @@ if sb.run:
     state.results = results
     state.image_zip = None    # 画像ZIP・Excelは前回結果のものなので無効化
     state.excel_bytes = None
-    st.session_state.pop("main_tabs", None)  # タブ選択をリセット（新しい期間構成になるため）
     st.rerun()
 
 # =========================
@@ -101,7 +100,10 @@ cached = results.config
 s_backend = "BigQuery" if cached.backend == "bq" else "Druid"
 st.caption(f"表示中の結果：vehicle_id={cached.vehicle_id} / split={cached.split_minutes}分 / 取得先={s_backend}")
 
-# 取得条件が変わっていたら再実行を促す
+# 取得条件が変わっていたら再実行を促す。
+# 警告は常に同じ位置（プレースホルダ）に出す：条件付きで要素を増減させると
+# 後続の st.tabs の位置がずれてアクティブタブがリセットされるため。
+drift_slot = st.empty()
 drift_msgs = []
 if sb.vehicle_id != cached.vehicle_id:
     drift_msgs.append("vehicle_id")
@@ -121,7 +123,7 @@ if sb.backend != cached.backend:
 if f"{settings.bq_project}.{sb.bq_dataset}" != cached.bq_table_prefix:
     drift_msgs.append("BigQueryデータセット")
 if drift_msgs:
-    st.warning("、".join(drift_msgs) + " が変更されています。反映するには『実行』が必要です。")
+    drift_slot.warning("、".join(drift_msgs) + " が変更されています。反映するには『実行』が必要です。")
 
 labels = [p.label for p in results.periods]
 colors = render_color_pickers(state, labels)
@@ -131,8 +133,7 @@ render_figure_size_settings()
 has_compare = len(results.periods) >= 2
 zp_labels = [f"{label}_Zero-Plotter" for label in labels]
 tab_names = (["比較（全期間）"] if has_compare else []) + labels + zp_labels
-# key を付けると、除外点クリック等の再描画でもアクティブタブが保持される
-tabs = st.tabs(tab_names, key="main_tabs")
+tabs = st.tabs(tab_names)
 
 if has_compare:
     with tabs[0]:
