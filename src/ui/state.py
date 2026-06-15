@@ -30,6 +30,8 @@ class AppState:
     exclude_edit_mode: bool = False
     # 除外編集モードでクリックした「開始」候補（2クリック方式の1点目）
     exclude_pick_start: str | None = None
+    # 既に処理済みのプロット選択（rerun 後も残る選択を再処理しないための番兵）
+    exclude_consumed_sig: tuple[str, ...] | None = None
 
     # zero-plotter の運行（leg）から取り込んだメタデータ（期間ラベル -> meta）。
     # 実行時に PeriodResult.meta へ引き継がれ、バージョン比較等に使う。

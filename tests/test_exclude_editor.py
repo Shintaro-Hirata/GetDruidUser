@@ -71,3 +71,62 @@ def test_split_by_excludes_boundary_is_half_open():
     active, excluded = split_by_excludes(_df(), [ex])
     assert list(excluded["v"]) == [1]
     assert list(active["v"]) == [2, 3]
+
+
+# ---- decide_exclude_action（除外開始点クリアの修正） ----
+
+from src.ui.exclude_editor import decide_exclude_action
+
+
+def test_decide_first_click_records_start():
+    a = decide_exclude_action(None, None, ["2025-12-09T01:00:00Z"])
+    assert a.kind == "record_start"
+    assert a.start.isoformat() == "2025-12-09T01:00:00+00:00"
+    assert a.sig == ("2025-12-09T01:00:00Z",)
+
+
+def test_decide_stale_single_selection_not_reregistered():
+    # 1点目を記録済み（consumed_sig も同じ）で同一選択が残っている → 再登録しない
+    sig = ("2025-12-09T01:00:00Z",)
+    a = decide_exclude_action(None, sig, list(sig))
+    assert a.kind == "none"  # 開始点もない（やり直し後）→ 何もしない
+
+
+def test_decide_stale_selection_with_pending_shows_pending():
+    sig = ("2025-12-09T01:00:00Z",)
+    a = decide_exclude_action("2025-12-09T01:00:00+00:00", sig, list(sig))
+    assert a.kind == "pending"
+
+
+def test_decide_second_click_proposes_range():
+    a = decide_exclude_action(
+        "2025-12-09T01:00:00+00:00",
+        ("2025-12-09T01:00:00Z",),
+        ["2025-12-09T01:05:00Z"],
+    )
+    assert a.kind == "propose"
+    assert a.start.isoformat() == "2025-12-09T01:00:00+00:00"
+    # 終了点の秒も含む（+1s）
+    assert a.end.isoformat() == "2025-12-09T01:05:01+00:00"
+
+
+def test_decide_box_selection_proposes_minmax_range():
+    a = decide_exclude_action(
+        None, None,
+        ["2025-12-09T01:00:00Z", "2025-12-09T01:00:10Z", "2025-12-09T01:00:05Z"],
+    )
+    assert a.kind == "propose"
+    assert a.start.isoformat() == "2025-12-09T01:00:00+00:00"
+    assert a.end.isoformat() == "2025-12-09T01:00:11+00:00"
+
+
+def test_decide_after_add_stale_box_not_reregistered():
+    # box選択を追加した直後：同じ選択が残っていても consumed なので無視（pendingでもnone）
+    sig = ("2025-12-09T01:00:00Z", "2025-12-09T01:00:10Z")
+    a = decide_exclude_action(None, sig, list(sig))
+    assert a.kind == "none"
+
+
+def test_decide_no_selection_no_pending():
+    assert decide_exclude_action(None, None, []).kind == "none"
+    assert decide_exclude_action("2025-12-09T01:00:00+00:00", None, []).kind == "pending"
