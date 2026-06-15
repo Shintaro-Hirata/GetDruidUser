@@ -26,13 +26,55 @@ def parse_datetime(s: str) -> datetime:
 parse_iso8601 = parse_datetime
 
 
+def _split_slash_times(s: str, line: str, lineno: int) -> tuple[str, str]:
+    """`開始/終了`（zero-plotter 表示形式）を 2 つに分割する。ISO日時に '/' は
+    含まれないので、開始・終了の区切りとしてのみ '/' を使う。"""
+    parts = [p.strip() for p in s.split("/") if p.strip()]
+    if len(parts) != 2:
+        raise ValueError(
+            f"{lineno}行目が '開始,終了' / '開始,終了,ラベル' / '開始/終了' になっていません: {line}"
+        )
+    return parts[0], parts[1]
+
+
+def _split_range_line(line: str, lineno: int) -> tuple[str, str, str]:
+    """1行を (開始, 終了, ラベル) に分解する。
+
+    - 開始/終了 の区切りは ',' '，' のほか '/' も可（'/' は開始・終了間のみ）
+    - ラベルは必ずカンマ区切り（ラベルに '6/7' のような '/' を含めてよい）
+    """
+    comma_parts = [p.strip() for p in re.split(r"[,，]", line) if p.strip()]
+
+    if len(comma_parts) == 1:
+        # 開始/終了（ラベルなし）
+        start_s, end_s = _split_slash_times(comma_parts[0], line, lineno)
+        return start_s, end_s, ""
+    if len(comma_parts) == 2:
+        if "/" in comma_parts[0]:
+            # 開始/終了, ラベル
+            start_s, end_s = _split_slash_times(comma_parts[0], line, lineno)
+            return start_s, end_s, comma_parts[1]
+        # 開始, 終了（ラベルなし）
+        return comma_parts[0], comma_parts[1], ""
+    if len(comma_parts) == 3:
+        # 開始, 終了, ラベル（ラベルに '/' を含んでよい）
+        return comma_parts[0], comma_parts[1], comma_parts[2]
+
+    raise ValueError(
+        f"{lineno}行目が '開始,終了' / '開始,終了,ラベル' / '開始/終了' になっていません: {line}"
+    )
+
+
 def parse_ranges(text: str) -> list[TimeRange]:
     """
     入力形式（複数行）:
       開始,終了
       開始,終了,ラベル
+      開始/終了            （zero-plotter の表示形式。'/' は開始・終了間のみ）
+      開始/終了,ラベル
 
     カンマは半角/全角対応。ラベル省略行は空文字。
+    ラベルは必ずカンマ区切り（'/' はラベル区切りには使わない＝ラベルに '6/7' 等を書ける）。
     """
     out: list[TimeRange] = []
     for i, line in enumerate(text.splitlines(), start=1):
@@ -40,16 +82,12 @@ def parse_ranges(text: str) -> list[TimeRange]:
         if not line:
             continue
 
-        parts = [p.strip() for p in re.split(r"[,，]", line) if p.strip()]
-        if len(parts) not in (2, 3):
-            raise ValueError(f"{i}行目が '開始,終了' または '開始,終了,ラベル' になっていません: {line}")
-
-        s = parse_iso8601(parts[0])
-        e = parse_iso8601(parts[1])
+        start_s, end_s, label = _split_range_line(line, i)
+        s = parse_iso8601(start_s)
+        e = parse_iso8601(end_s)
         if not (s < e):
             raise ValueError(f"{i}行目: 開始 < 終了 になっていません")
 
-        label = parts[2] if len(parts) == 3 else ""
         out.append(TimeRange(start=s, end=e, label=label))
 
     if not out:
@@ -60,7 +98,8 @@ def parse_ranges(text: str) -> list[TimeRange]:
 
 def parse_exclude_ranges_text(text: str) -> list[ExcludeRange]:
     """
-    1行=1範囲。区切りはカンマ / " - " / 空白2トークン。# 始まりはコメント。
+    1行=1範囲。区切りはカンマ / '/'（zero-plotter形式） / " - " / 空白2トークン。
+    # 始まりはコメント。除外時間帯にラベルは無いので '/' を区切りに使える。
     """
     if not text:
         return []
@@ -73,6 +112,8 @@ def parse_exclude_ranges_text(text: str) -> list[ExcludeRange]:
 
         if "," in line:
             a, b = [x.strip() for x in line.split(",", 1)]
+        elif "/" in line:
+            a, b = [x.strip() for x in line.split("/", 1)]
         elif " - " in line:
             a, b = [x.strip() for x in line.split(" - ", 1)]
         else:

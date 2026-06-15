@@ -98,3 +98,37 @@ def test_parse_exclude_ranges_accepts_space_separator():
         "2026-06-01 19:30:42+09:00 - 2026-06-01 19:40:00+09:00"
     )
     assert out2 == out
+
+
+def test_parse_ranges_slash_separator_no_label():
+    out = parse_ranges("2026-06-04 19:03:38.000+09:00/2026-06-05 05:42:45.000+09:00")
+    assert len(out) == 1
+    assert out[0].start.hour == 19 and out[0].end.hour == 5
+    assert out[0].label == ""
+
+
+def test_parse_ranges_slash_times_with_comma_label():
+    out = parse_ranges("2026-06-04T19:03:38+09:00/2026-06-05T05:42:45+09:00, 6/4夜勤")
+    assert out[0].label == "6/4夜勤"  # ラベル内の '/' は区切りにしない
+    assert out[0].start.day == 4 and out[0].end.day == 5
+
+
+def test_parse_ranges_comma_times_with_slash_in_label():
+    out = parse_ranges("2026-06-04T19:00:00+09:00, 2026-06-05T05:00:00+09:00, 6/7")
+    assert out[0].label == "6/7"
+
+
+def test_parse_ranges_slash_times_three_parts_errors():
+    # 開始/終了/余分 はラベルにスラッシュを使ったとみなさず明確にエラー
+    with pytest.raises(ValueError):
+        parse_ranges("2026-06-04T19:00:00+09:00/2026-06-05T05:00:00+09:00/x")
+
+
+def test_parse_exclude_ranges_slash_separator():
+    from src.domain.time_ranges import parse_exclude_ranges_text
+
+    out = parse_exclude_ranges_text(
+        "2026-06-04 19:03:38+09:00/2026-06-05 05:42:45+09:00"
+    )
+    assert len(out) == 1
+    assert out[0].start.day == 4 and out[0].end.day == 5

@@ -289,8 +289,43 @@ def _render_exclude_editor(state: AppState) -> None:
                 st.rerun()
 
 
+def _render_settings_loader(state: AppState) -> None:
+    """settings.json（画像ZIP同梱の設定スナップショット）を読み込んで復元する。
+
+    他のウィジェットより前に呼ぶこと（読み込んだ値を各ウィジェットに反映させるため）。
+    """
+    with st.expander("設定を読み込む（settings.json）"):
+        st.caption("画像一括ダウンロードのZIPに含まれる settings.json を読み込み、各設定を復元します。")
+        uploaded = st.file_uploader(
+            "settings.json を選択", type="json", key="settings_upload",
+            label_visibility="collapsed",
+        )
+        if uploaded is None:
+            return
+        sig = (uploaded.name, uploaded.size)
+        if st.session_state.get("_settings_loaded_sig") == sig:
+            return  # 同一ファイルの再適用を防ぐ（読み込み後のユーザー編集を上書きしない）
+
+        import json
+
+        from src.ui.settings_io import apply_settings
+
+        try:
+            data = json.loads(uploaded.getvalue().decode("utf-8-sig"))
+        except (ValueError, UnicodeDecodeError) as ex:
+            st.error(f"JSON の読み込みに失敗しました: {ex}")
+            return
+
+        n = apply_settings(data, state)
+        st.session_state["_settings_loaded_sig"] = sig
+        st.success(f"設定を読み込みました（{n} 項目）。")
+        st.rerun()
+
+
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     with st.sidebar:
+        _render_settings_loader(state)
+
         st.header("取得条件（反映には実行が必要）")
 
         backend = st.radio(
@@ -321,7 +356,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
 
         _render_legs_picker(settings, state, vehicle_id, bq_dataset)
 
-        st.caption("時間帯は 1行に1つ：`開始,終了` または `開始,終了,ラベル`（日付と時刻の間は T でも空白でも可）")
+        st.caption("時間帯は 1行に1つ：`開始,終了` / `開始,終了,ラベル`（開始・終了間は `,` でも `/` でも可。"
+                   "ラベルは `,` 区切りのみ。日付と時刻の間は T でも空白でも可）")
         st.caption("例：2025-12-09 01:57:00+09:00, 2025-12-09 05:48:53+09:00, 1203昼勤")
         st.text_area(
             "開始,終了,ラベル（複数行）",
@@ -375,18 +411,18 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         st.header("表示設定（即時反映）")
 
         with st.expander("表示レンジ（任意）"):
-            x_min = st.number_input("X最小（km）", value=0.0)
-            x_max = st.number_input("X最大（km）", value=0.0)
-            y1_min = st.number_input("Y最小（lateral）", value=0.0)
-            y1_max = st.number_input("Y最大（lateral）", value=0.0)
-            y2_min = st.number_input("Y最小（accel）", value=0.0)
-            y2_max = st.number_input("Y最大（accel）", value=0.0)
+            x_min = st.number_input("X最小（km）", value=0.0, key="rng_x_min")
+            x_max = st.number_input("X最大（km）", value=0.0, key="rng_x_max")
+            y1_min = st.number_input("Y最小（lateral）", value=0.0, key="rng_y1_min")
+            y1_max = st.number_input("Y最大（lateral）", value=0.0, key="rng_y1_max")
+            y2_min = st.number_input("Y最小（accel）", value=0.0, key="rng_y2_min")
+            y2_max = st.number_input("Y最大（accel）", value=0.0, key="rng_y2_max")
 
             st.markdown("#### クエリ3（横G）用")
-            q3_x_min = st.number_input("Q3 X最小（横G）", value=0.0)
-            q3_x_max = st.number_input("Q3 X最大（横G）", value=0.0)
-            q3_y_min = st.number_input("Q3 Y最小（発生頻度）", value=0.0)
-            q3_y_max = st.number_input("Q3 Y最大（発生頻度）", value=0.0)
+            q3_x_min = st.number_input("Q3 X最小（横G）", value=0.0, key="rng_q3_x_min")
+            q3_x_max = st.number_input("Q3 X最大（横G）", value=0.0, key="rng_q3_x_max")
+            q3_y_min = st.number_input("Q3 Y最小（発生頻度）", value=0.0, key="rng_q3_y_min")
+            q3_y_max = st.number_input("Q3 Y最大（発生頻度）", value=0.0, key="rng_q3_y_max")
 
         smooth_window = st.number_input(
             "Q3 平滑度（移動平均ウィンドウ幅）",

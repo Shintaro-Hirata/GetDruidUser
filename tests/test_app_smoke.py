@@ -223,3 +223,40 @@ def test_app_zero_plotter_tabs_per_period_at_right():
         assert tab_labels == [
             "比較（全期間）", "6/9", "6/10", "6/9_Zero-Plotter", "6/10_Zero-Plotter",
         ]
+
+
+def test_apply_settings_routes_to_session_and_state(monkeypatch):
+    # apply_settings は session_state（ウィジェット値）と AppState（excludes/色）へ
+    # 振り分ける。streamlit.session_state を dict に差し替えて検証する。
+    import streamlit as st
+
+    from src.ui.settings_io import apply_settings
+    from src.ui.state import AppState
+
+    fake_ss: dict = {}
+    monkeypatch.setattr(st, "session_state", fake_ss, raising=False)
+
+    state = AppState()
+    settings = {
+        "取得条件": {
+            "vehicle_id": "giga99",
+            "BigQueryデータセット": "zero_plotter_dev",
+            "時間帯（開始,終了,ラベル）": [
+                "2026-06-04T19:00:00+09:00, 2026-06-05T05:00:00+09:00, 6/4夜勤"
+            ],
+            "分割幅（分）": 123,
+            "除外時間帯（開始,終了）": [
+                "2026-06-04T20:00:00+09:00, 2026-06-04T20:10:00+09:00"
+            ],
+        },
+        "表示設定": {"プロット色": {"6/4夜勤": "#abcdef"}},
+    }
+    n = apply_settings(settings, state)
+    assert n > 0
+    assert fake_ss["vehicle_id"] == "giga99"
+    assert fake_ss["bq_dataset"] == "zero_plotter_dev"
+    assert fake_ss["split_minutes"] == 123
+    assert "6/4夜勤" in fake_ss["ranges_text"]
+    assert len(state.excludes) == 1
+    assert state.color_map["6/4夜勤"] == "#abcdef"
+    assert fake_ss["color_6/4夜勤"] == "#abcdef"
