@@ -111,3 +111,61 @@ def test_image_zip_contains_settings_json_at_root():
         assert "settings.json" in names  # ZIP直下
         parsed = json.loads(zf.read("settings.json").decode("utf-8-sig"))
         assert parsed["取得条件"]["vehicle_id"] == "giga07"
+
+
+def test_build_input_settings_dict_from_current_inputs():
+    # 実行前でも、現在の入力（sb / state / ranges_text）から書き出せる
+    from datetime import datetime, timedelta, timezone
+
+    from src.domain.models import ExcludeRange
+    from src.export.settings_file import build_input_settings_dict
+
+    jst = timezone(timedelta(hours=9))
+    state = AppState()
+    state.excludes = [ExcludeRange(
+        start=datetime(2026, 6, 4, 20, 0, tzinfo=jst),
+        end=datetime(2026, 6, 4, 20, 10, tzinfo=jst),
+    )]
+    state.color_map = {"6/4夜勤": "#abcdef"}
+    ranges_text = "2026-06-04T19:00:00+09:00/2026-06-05T05:00:00+09:00, 6/4夜勤\n"
+
+    d = build_input_settings_dict(state=state, sb=_sb(), ranges_text=ranges_text, bq_project="t2-integration")
+
+    fetch = d["取得条件"]
+    assert fetch["vehicle_id"] == "giga07"
+    assert fetch["BigQueryデータセット"] == "zero_plotter_dev"
+    # 入力テキストの行がそのまま（'/'区切りも保持）
+    assert fetch["時間帯（開始,終了,ラベル）"] == [
+        "2026-06-04T19:00:00+09:00/2026-06-05T05:00:00+09:00, 6/4夜勤"
+    ]
+    assert fetch["除外時間帯（開始,終了）"] == [
+        "2026-06-04T20:00:00+09:00, 2026-06-04T20:10:00+09:00"
+    ]
+    assert fetch["クエリ条件"]["dist_mode"] == "latlon"
+    assert d["表示設定"]["プロット色"] == {"6/4夜勤": "#abcdef"}
+
+
+def test_input_export_roundtrip_with_loader():
+    # 書き出し → 読み込みで主要項目が一致する（実行前設定の往復）
+    from datetime import datetime, timedelta, timezone
+
+    from src.domain.models import ExcludeRange
+    from src.export.settings_file import build_input_settings_dict
+    from src.ui.settings_io import extract_session_values
+
+    jst = timezone(timedelta(hours=9))
+    state = AppState()
+    state.excludes = [ExcludeRange(
+        start=datetime(2026, 6, 4, 20, 0, tzinfo=jst),
+        end=datetime(2026, 6, 4, 20, 10, tzinfo=jst),
+    )]
+    ranges_text = "2026-06-04T19:00:00+09:00, 2026-06-05T05:00:00+09:00, 夜勤\n"
+
+    d = build_input_settings_dict(state=state, sb=_sb(), ranges_text=ranges_text, bq_project="t2-integration")
+    out = extract_session_values(d)
+
+    assert out["vehicle_id"] == "giga07"
+    assert out["bq_dataset"] == "zero_plotter_dev"
+    assert "夜勤" in out["ranges_text"]
+    assert len(out["__excludes__"]) == 1
+    assert out["thr_q1"] == 0.2 and out["thr_q2"] == 1.0
