@@ -95,6 +95,13 @@ def zp_track_fig(df: pd.DataFrame, *, height: int = 560) -> go.Figure | None:
     sec_time = d.get("sec_time", pd.Series([""] * len(d), index=d.index))
     d["_raw"] = sec_time.astype(str)
     d["_jst"] = jst_display_series(sec_time)
+    # t2kp（zero-plotter と同じく表示する。無ければ空欄）
+    if "t2kp" in d.columns:
+        d["_t2kp"] = pd.to_numeric(d["t2kp"], errors="coerce").map(
+            lambda v: f"{v:.3f}" if pd.notna(v) else "-"
+        )
+    else:
+        d["_t2kp"] = "-"
 
     fig = go.Figure()
     # zero-plotter と同じ並び（kStandBy → … → kAutonomousDriving → null）
@@ -110,10 +117,11 @@ def zp_track_fig(df: pd.DataFrame, *, height: int = 560) -> go.Figure | None:
                 mode="markers",
                 name=label,
                 marker=dict(size=7, color=SYSTEM_STATE_COLORS[label]),
-                customdata=part[["_raw", "_jst"]].values,
+                customdata=part[["_raw", "_jst", "_t2kp"]].values,
                 hovertemplate=(
                     f"<b>{label}</b><br>"
                     "時刻(JST): %{customdata[1]}<br>"
+                    "t2kp: %{customdata[2]}<br>"
                     "緯度: %{lat:.6f} / 経度: %{lon:.6f}"
                     "<extra></extra>"
                 ),

@@ -25,8 +25,11 @@ def test_build_zp_track_query_bq_dialect():
     # 5秒バケット（zero-plotter の granularity duration=5000ms と同じ）
     assert "TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(`#timestamp`), 5) * 5)" in sql
     assert "`t2-integration.zero_plotter.t2_system_state_manager_state`" in sql
-    assert "MAX(`:system_state`)" in sql
-    assert "AVG(`#latitude`)" in sql and "AVG(`#longitude`)" in sql
+    # (5秒バケット × system_state) ごとに doubleAny 相当（ANY_VALUE）で集約
+    assert "`:system_state` AS system_state" in sql
+    assert "ANY_VALUE(`#latitude`)" in sql and "ANY_VALUE(`#longitude`)" in sql
+    assert "ANY_VALUE(`#t2kp`)" in sql
+    assert "GROUP BY 1, 2" in sql
 
 
 def test_build_zp_track_query_druid_dialect():
@@ -91,3 +94,18 @@ def test_zp_track_fig_without_state_column_falls_back_to_null():
     df = _track_df().drop(columns=["system_state"])
     fig = zp_track_fig(df)
     assert [t.name for t in fig.data] == ["null"]
+
+
+def test_zp_track_fig_shows_t2kp_in_hover():
+    df = _track_df().assign(t2kp=[12.345, 67.0, None])
+    fig = zp_track_fig(df)
+    auto = next(t for t in fig.data if t.name == "kAutonomousDriving")
+    # customdata[2] が t2kp（整形済み文字列）、hovertemplate に t2kp 行
+    assert auto.customdata[0][2] == "12.345"
+    assert "t2kp: %{customdata[2]}" in auto.hovertemplate
+
+
+def test_zp_track_fig_without_t2kp_column_shows_dash():
+    fig = zp_track_fig(_track_df())  # t2kp 列なし
+    auto = next(t for t in fig.data if t.name == "kAutonomousDriving")
+    assert auto.customdata[0][2] == "-"

@@ -60,6 +60,8 @@ def _show_fig_or_empty(
         kwargs["width"] = width
 
     if state is not None and state.exclude_edit_mode:
+        # 点を選択しても未選択点を薄くしない（除外範囲の判断のため分布を見たい）
+        fig.update_traces(unselected=dict(marker=dict(opacity=1.0)))
         # nonce を key に含める：「追加」「やり直す」で nonce が増えると
         # チャートが作り直され、Plotly の選択（点のハイライト）が解除される
         sel_key = f"{key}__sel{state.exclude_select_nonce}"

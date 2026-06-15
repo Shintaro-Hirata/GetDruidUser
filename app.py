@@ -83,6 +83,7 @@ if sb.run:
     state.results = results
     state.image_zip = None    # 画像ZIP・Excelは前回結果のものなので無効化
     state.excel_bytes = None
+    st.session_state.pop("main_tabs", None)  # タブ選択をリセット（新しい期間構成になるため）
     st.rerun()
 
 # =========================
@@ -130,7 +131,8 @@ render_figure_size_settings()
 has_compare = len(results.periods) >= 2
 zp_labels = [f"{label}_Zero-Plotter" for label in labels]
 tab_names = (["比較（全期間）"] if has_compare else []) + labels + zp_labels
-tabs = st.tabs(tab_names)
+# key を付けると、除外点クリック等の再描画でもアクティブタブが保持される
+tabs = st.tabs(tab_names, key="main_tabs")
 
 if has_compare:
     with tabs[0]:

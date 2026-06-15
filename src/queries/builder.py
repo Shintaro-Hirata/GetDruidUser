@@ -356,14 +356,18 @@ def build_zp_track_query(p: QueryParams, *, bucket_sec: int = ZP_TRACK_BUCKET_SE
     d = p.dialect
     bucket = d.floor_to_seconds(d.time_col, bucket_sec)
 
+    # zero-plotter と同じく「(5秒バケット × system_state)」ごとに1点。
+    # これにより system_state が変わる箇所では 5 秒より短い間隔でも点が出る。
+    # 代表値は doubleAny 相当の ANY_VALUE（実在する点の値）を採用。
     return f"""
 SELECT
   {bucket} AS sec_time,
-  MAX({d.col(".system_state")}) AS system_state,
-  AVG({d.col("#latitude")})  AS latitude,
-  AVG({d.col("#longitude")}) AS longitude
+  {d.col(".system_state")} AS system_state,
+  ANY_VALUE({d.col("#latitude")})  AS latitude,
+  ANY_VALUE({d.col("#longitude")}) AS longitude,
+  ANY_VALUE({d.col("#t2kp")})      AS t2kp
 FROM {d.table(p.tables.state_table)}
 WHERE {_time_filter(p)}
-GROUP BY 1
+GROUP BY 1, 2
 ORDER BY 1
 """
