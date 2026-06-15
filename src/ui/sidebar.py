@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +15,7 @@ from src.domain.time_ranges import (
     suggested_split_minutes_from_ranges_text,
 )
 from src.queries.specs import METRICS
-from src.services.legs import Leg, dates_for_vehicle, legs_for, load_legs, vehicles
+from src.services.legs import Leg, dates_for_vehicle, legs_for, vehicles
 from src.ui.figure_settings import get_figure_sizes
 from src.ui.state import AppState
 
