@@ -77,7 +77,13 @@ src/
     legs.py             zero-plotter 運行（legs）の取得
   ui/
     state.py            AppState（session_state の一元管理）
-    sidebar.py          取得条件・表示設定・運行選択・除外編集
+    sidebar/            サイドバー（責務別に分割）
+      main.py             render_sidebar（組み立て）
+      values.py           SidebarValues（入力スナップショット）
+      legs_picker.py      運行から選択（zero-plotter連携）
+      table_config.py     取得テーブル設定（開発用）
+      exclude_panel.py    除外時間帯の編集
+      settings_panel.py   設定の読み込み/書き出し
     colors.py           期間色の管理（カラーピッカー）
     exclude_editor.py   クリック/選択からの除外時間帯登録
     run_progress.py     実行中の進捗表示

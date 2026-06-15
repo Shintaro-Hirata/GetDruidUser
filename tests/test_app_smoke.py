@@ -191,7 +191,7 @@ def test_legs_vehicle_selection_syncs_vehicle_id():
             end=datetime(2025, 12, 9, 3, 0, tzinfo=timezone.utc)),
     ]
     with patch("src.backends.factory.create_backend", return_value=StubBackend()), \
-         patch("src.ui.sidebar._load_legs_cached", return_value=legs):
+         patch("src.ui.sidebar.legs_picker._load_legs_cached", return_value=legs):
         at = AppTest.from_file("app.py", default_timeout=60)
         at.run()
         at.toggle(key="use_legs").set_value(True).run()
