@@ -20,8 +20,6 @@ from src.ui.views.map import metric_map_fig
 from src.ui.views.scatter import metric_scatter_fig
 
 VIEW_MODES = ["散布図", "画像", "地図", "表"]
-# Zero-Plotter 点群ビューは期間タブのみ（比較タブは複数日付のため対象外）。一番右に置く
-VIEW_MODES_WITH_ZP = VIEW_MODES + ["Zero-Plotter"]
 HIST_VIEW_MODES = ["グラフ", "画像"]
 
 
@@ -84,29 +82,6 @@ def _view_selector(key: str, options: list[str]) -> str:
     return mode or options[0]
 
 
-def _render_zero_plotter_view(period: PeriodResult, sb: SidebarValues, state: AppState, *, key: str) -> None:
-    """Zero-Plotter 点群（期間の日付に含まれる全運行・state色分け）を表示する。"""
-    from src.ui.views.zero_plotter import fetch_zp_day_track, zp_track_fig
-
-    results = state.results
-    if results is None:
-        st.info("結果がありません")
-        return
-
-    try:
-        df, day_start = fetch_zp_day_track(results.config, period.range.start)
-    except Exception as ex:
-        st.error(f"Zero-Plotter点群の取得に失敗しました: {ex}")
-        return
-
-    st.caption(
-        f"日付: {day_start:%Y-%m-%d}（JST）の全運行点群"
-        "（5秒間隔・zero-plotter と同じ system_state 色分け）"
-    )
-    fig = zp_track_fig(df, height=sb.map_height)
-    _show_fig_or_empty(fig, key=f"plot_{key}_zp", width=sb.map_width, state=state)
-
-
 def render_metric_views(
     spec: MetricSpec,
     series: list[tuple[str, pd.DataFrame]],
@@ -116,16 +91,10 @@ def render_metric_views(
     *,
     key: str,
     title_suffix: str = "",
-    period: PeriodResult | None = None,
 ) -> None:
-    """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表⇔Zero-Plotterの切替つき）を描画する。"""
+    """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表の切替つき）を描画する。"""
     st.markdown(f"### {spec.title}{title_suffix}")
-    options = VIEW_MODES_WITH_ZP if period is not None else VIEW_MODES
-    mode = _view_selector(key, options)
-
-    if mode == "Zero-Plotter" and period is not None:
-        _render_zero_plotter_view(period, sb, state, key=key)
-        return
+    mode = _view_selector(key, VIEW_MODES)
 
     # 直近実行後に追加された除外（未反映分）はグレーでプレビュー表示する
     applied = set(state.results.config.excludes) if state.results else set()
@@ -252,7 +221,6 @@ def _render_chunk_content(
                 colors,
                 state,
                 key=f"{key_prefix}_{spec.key}",
-                period=period,
             )
 
     _render_hist_block([(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist")
@@ -316,3 +284,42 @@ def render_compare_tab(
         key="cmp_hist",
         title_suffix="（比較）",
     )
+
+
+@st.fragment
+def render_zero_plotter_tab(
+    results: RunResults,
+    sb: SidebarValues,
+    state: AppState,
+) -> None:
+    """
+    Zero-Plotter 点群を独立タブで表示する。
+    結果に含まれる日付（JST）ごとに、その日の全運行点群を
+    zero-plotter と同じ仕様（5秒間隔・system_state 色分け）で1枚ずつ描画する。
+    除外編集モード中は点群のクリック/box選択から除外時間帯を登録できる。
+    """
+    from src.ui.views.zero_plotter import fetch_zp_day_track, jst_day_bounds, zp_track_fig
+
+    st.subheader("Zero-Plotter")
+    st.caption(
+        f"vehicle_id={results.config.vehicle_id} の全運行点群"
+        "（5秒間隔・zero-plotter と同じ system_state 色分け）。"
+        "除外編集モード中は点をクリック/box選択して除外時間帯に追加できます。"
+    )
+
+    # 結果に含まれる JST 日付を重複なく取り出す（同一日付の複数期間は1枚にまとまる）
+    seen: dict = {}
+    for period in results.periods:
+        day_start, _ = jst_day_bounds(period.range.start)
+        seen.setdefault(day_start, period.range.start)
+
+    for i, (day_start, any_start) in enumerate(sorted(seen.items())):
+        if len(seen) > 1:
+            st.markdown(f"#### {day_start:%Y-%m-%d}（JST）")
+        try:
+            df, _ = fetch_zp_day_track(results.config, any_start)
+        except Exception as ex:
+            st.error(f"Zero-Plotter点群の取得に失敗しました: {ex}")
+            continue
+        fig = zp_track_fig(df, height=sb.map_height)
+        _show_fig_or_empty(fig, key=f"plot_zp_{i}", width=sb.map_width, state=state)

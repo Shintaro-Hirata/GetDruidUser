@@ -14,7 +14,11 @@ from src.ui.figure_settings import render_figure_size_settings
 from src.ui.run_progress import create_run_ui, finalize_run_log, make_progress_callback
 from src.ui.sidebar import render_sidebar
 from src.ui.state import get_state
-from src.ui.views.pages import render_compare_tab, render_period_tab
+from src.ui.views.pages import (
+    render_compare_tab,
+    render_period_tab,
+    render_zero_plotter_tab,
+)
 
 st.set_page_config(page_title="Druid Query Runner", layout="wide")
 st.title("運行データ可視化: 期間（複数ペア）× 散布図/地図/表 × Excel一括DL")
@@ -122,9 +126,9 @@ labels = [p.label for p in results.periods]
 colors = render_color_pickers(state, labels)
 render_figure_size_settings()
 
-# タブ：比較（2期間以上のとき）＋ 各期間
+# タブ：比較（2期間以上のとき）＋ 各期間 ＋ Zero-Plotter（一番右）
 has_compare = len(results.periods) >= 2
-tab_names = (["比較（全期間）"] if has_compare else []) + labels
+tab_names = (["比較（全期間）"] if has_compare else []) + labels + ["Zero-Plotter"]
 tabs = st.tabs(tab_names)
 
 if has_compare:
@@ -135,6 +139,9 @@ offset = 1 if has_compare else 0
 for i, period in enumerate(results.periods):
     with tabs[i + offset]:
         render_period_tab(period, sb, colors, state, key_prefix=f"t{i + 1}")
+
+with tabs[-1]:
+    render_zero_plotter_tab(results, sb, state)
 
 # =========================
 # Excel一括ダウンロード（結果モデルから導出）

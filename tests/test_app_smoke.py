@@ -157,7 +157,7 @@ def test_app_excel_cached_and_invalidated_on_new_run():
         assert at.session_state["app_state"].excel_bytes is not first
 
 
-def test_app_zero_plotter_view_renders():
+def test_app_zero_plotter_tab_renders():
     from tests.test_pipeline import StubBackend as RecordingBackend
 
     stub = RecordingBackend()
@@ -167,12 +167,14 @@ def test_app_zero_plotter_view_renders():
         next(b for b in at.button if b.label == "実行").click().run()
         assert not at.exception
 
-        # Zero-Plotter ビューに切替（期間タブのみの選択肢・一番右）
-        at.session_state["view_t1_c1_q1"] = "Zero-Plotter"
-        at.run()
-        assert not at.exception
-        # 点群クエリ（5秒バケット）が発行されている
-        assert any("PT5S" in q or "UNIX_SECONDS" in q for q in stub.queries)
+        # Zero-Plotter は期間タブと並ぶ独立タブ（一番右）
+        tab_labels = [t.label for t in at.tabs]
+        assert tab_labels[-1] == "Zero-Plotter"
+        # Zero-Plotter タブの中身（subheader）が描画されている
+        assert any(s.value == "Zero-Plotter" for s in at.subheader)
+        # 各クエリの表示切替（散布図/画像/地図/表）に Zero-Plotter は無い
+        for sc in at.get("segmented_control"):
+            assert "Zero-Plotter" not in (sc.options or [])
 
 
 def test_legs_vehicle_selection_syncs_vehicle_id():
