@@ -60,13 +60,17 @@ def _show_fig_or_empty(
         kwargs["width"] = width
 
     if state is not None and state.exclude_edit_mode:
+        # nonce を key に含める：「追加」「やり直す」で nonce が増えると
+        # チャートが作り直され、Plotly の選択（点のハイライト）が解除される
+        sel_key = f"{key}__sel{state.exclude_select_nonce}"
+        kwargs["key"] = sel_key
         event = st.plotly_chart(
             fig,
             on_select="rerun",
             selection_mode=("points", "box", "lasso"),
             **kwargs,
         )
-        handle_exclude_selection(state, selection_sec_times(event), key=key)
+        handle_exclude_selection(state, selection_sec_times(event), key=sel_key)
     else:
         st.plotly_chart(fig, **kwargs)
 

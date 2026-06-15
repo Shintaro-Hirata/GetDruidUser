@@ -130,3 +130,21 @@ def test_decide_after_add_stale_box_not_reregistered():
 def test_decide_no_selection_no_pending():
     assert decide_exclude_action(None, None, []).kind == "none"
     assert decide_exclude_action("2025-12-09T01:00:00+00:00", None, []).kind == "pending"
+
+
+# ---- 選択の視覚的クリア（nonce）----
+
+def test_clear_plot_selection_bumps_nonce():
+    from src.ui.exclude_editor import _clear_plot_selection
+    from src.ui.state import AppState
+
+    state = AppState()
+    state.exclude_pick_start = "2025-12-09T01:00:00+00:00"
+    state.exclude_consumed_sig = ("2025-12-09T01:00:00Z",)
+    state.exclude_select_nonce = 3
+
+    _clear_plot_selection(state)
+
+    assert state.exclude_pick_start is None
+    assert state.exclude_consumed_sig is None
+    assert state.exclude_select_nonce == 4  # チャート key が変わり選択が解除される

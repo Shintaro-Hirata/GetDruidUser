@@ -32,6 +32,9 @@ class AppState:
     exclude_pick_start: str | None = None
     # 既に処理済みのプロット選択（rerun 後も残る選択を再処理しないための番兵）
     exclude_consumed_sig: tuple[str, ...] | None = None
+    # プロット選択を視覚的に解除するための番兵。インクリメントすると
+    # チャートの widget key が変わり、Plotly の選択（ハイライト）がクリアされる。
+    exclude_select_nonce: int = 0
 
     # zero-plotter の運行（leg）から取り込んだメタデータ（期間ラベル -> meta）。
     # 実行時に PeriodResult.meta へ引き継がれ、バージョン比較等に使う。

@@ -86,12 +86,23 @@ def _add_exclude(state: AppState, start: datetime, end: datetime) -> None:
     state.exclude_pick_start = None
 
 
+def _clear_plot_selection(state: AppState) -> None:
+    """開始点・処理済み番兵をリセットし、チャートの選択（ハイライト）も解除する。
+
+    exclude_select_nonce をインクリメントすると `_show_fig_or_empty` 側で
+    チャートの widget key が変わり、Plotly の選択状態が破棄される（点の
+    ハイライトが消える）。
+    """
+    state.exclude_pick_start = None
+    state.exclude_consumed_sig = None
+    state.exclude_select_nonce += 1
+
+
 def _render_pending_start(state: AppState, *, key: str) -> None:
     """開始点だけ記録済みの状態の案内＋やり直しボタン。"""
     st.info(f"除外開始点: {state.exclude_pick_start} — 終了点をクリックしてください。")
     if st.button("選択をやり直す", key=f"{key}_redo_pending"):
-        # 開始点をクリア（残存選択は consumed_sig のままなので再登録されない）
-        state.exclude_pick_start = None
+        _clear_plot_selection(state)
         st.rerun(scope="app")
 
 
@@ -114,9 +125,9 @@ def handle_exclude_selection(state: AppState, sec_times: list[str], *, key: str)
         st.info(
             f"除外開始点を記録しました: {state.exclude_pick_start} — 続けて終了点をクリックしてください。"
         )
-        # 要望1：開始点を記録したらすぐに「選択をやり直す」で取り消せる
+        # 要望1：開始点を記録したらすぐに「選択をやり直す」で取り消せる（点のハイライトも解除）
         if st.button("選択をやり直す", key=f"{key}_redo_start"):
-            state.exclude_pick_start = None  # consumed_sig は維持（再登録防止）
+            _clear_plot_selection(state)
             st.rerun(scope="app")
         return
 
@@ -125,12 +136,11 @@ def handle_exclude_selection(state: AppState, sec_times: list[str], *, key: str)
     c1, c2 = st.columns(2)
     with c1:
         if st.button("この範囲を除外に追加", type="primary", key=f"{key}_add_exclude"):
-            # 要望2：追加したら開始点・終了点の選択をどちらも解除する
-            _add_exclude(state, action.start, action.end)  # exclude_pick_start=None
-            state.exclude_consumed_sig = action.sig  # 残った選択を消費済みにして再登録防止
+            # 要望2：追加したら開始点・終了点の選択をどちらも解除する（点のハイライトも解除）
+            _add_exclude(state, action.start, action.end)
+            _clear_plot_selection(state)
             st.rerun(scope="app")
     with c2:
         if st.button("選択をやり直す", key=f"{key}_cancel"):
-            state.exclude_pick_start = None
-            state.exclude_consumed_sig = action.sig  # 消費済みにして再登録防止
+            _clear_plot_selection(state)
             st.rerun(scope="app")
