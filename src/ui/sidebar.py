@@ -322,9 +322,40 @@ def _render_settings_loader(state: AppState) -> None:
         st.rerun()
 
 
+def _render_settings_export(settings: Settings, state: AppState, sb: "SidebarValues") -> None:
+    """現在の入力から settings.json を書き出す（読み込みの直下に配置）。"""
+    from src.export.settings_file import build_input_settings_json_bytes
+
+    with st.expander("設定を書き出す（settings.json）"):
+        st.caption("現在の入力（時間帯・除外・各種設定）を settings.json として保存します（実行前でも可）。")
+        fname = st.text_input("ファイル名", value="settings.json", key="settings_export_name").strip()
+        if not fname:
+            fname = "settings.json"
+        if not fname.lower().endswith(".json"):
+            fname += ".json"
+
+        st.download_button(
+            "settings.json をダウンロード",
+            data=build_input_settings_json_bytes(
+                sb, state, st.session_state.get("ranges_text", ""),
+                bq_project=settings.bq_project,
+            ),
+            file_name=fname,
+            mime="application/json",
+            width="stretch",
+        )
+        st.caption(
+            "保存先フォルダを毎回選びたい場合は、ブラウザの設定で"
+            "「ダウンロード前に各ファイルの保存場所を確認する」をONにしてください"
+            "（ダウンロード時に Windows の保存ダイアログが開きます）。"
+        )
+
+
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     with st.sidebar:
         _render_settings_loader(state)
+        # 「設定を書き出す」は読み込みの直下に置く（sb 確定後に slot を埋める）
+        _settings_export_slot = st.container()
 
         st.header("取得条件（反映には実行が必要）")
 
@@ -462,7 +493,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     # 画像サイズはメイン画面の「画像サイズの設定」で編集される（session_state 経由）
     fig_size_single, fig_size_compare = get_figure_sizes()
 
-    return SidebarValues(
+    sb = SidebarValues(
         vehicle_id=vehicle_id,
         split_minutes=int(split_minutes),
         dist_mode=str(dist_mode),
@@ -486,3 +517,10 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         fig_size_single=fig_size_single,
         fig_size_compare=fig_size_compare,
     )
+
+    # 設定の書き出し UI を「設定を読み込む」の直下（プレースホルダ）に描画する。
+    # sb が確定してから埋めるため、ここで slot に対して描画する。
+    with _settings_export_slot:
+        _render_settings_export(settings, state, sb)
+
+    return sb

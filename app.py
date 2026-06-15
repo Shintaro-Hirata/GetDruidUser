@@ -7,10 +7,7 @@ from src.domain.models import RunConfig
 from src.domain.time_ranges import parse_ranges, suggested_split_minutes_from_ranges_text
 from src.export.excel import results_to_excel_bytes
 from src.export.images import results_to_image_zip
-from src.export.settings_file import (
-    build_input_settings_json_bytes,
-    build_settings_json_bytes,
-)
+from src.export.settings_file import build_settings_json_bytes
 from src.services.pipeline import run_pipeline
 from src.ui.colors import render_color_pickers
 from src.ui.figure_settings import render_figure_size_settings
@@ -43,21 +40,6 @@ st.session_state.setdefault("vehicle_id", settings.default_vehicle_id)
 # サイドバー
 # =========================
 sb = render_sidebar(settings, state)
-
-# 設定の書き出し（現在の入力から。実行前でも保存可能）
-with st.sidebar:
-    with st.expander("設定を書き出す（settings.json）"):
-        st.caption("現在の入力（時間帯・除外・各種設定）を settings.json として保存します（実行前でも可）。")
-        st.download_button(
-            "settings.json をダウンロード",
-            data=build_input_settings_json_bytes(
-                sb, state, st.session_state.get("ranges_text", ""),
-                bq_project=settings.bq_project,
-            ),
-            file_name="settings.json",
-            mime="application/json",
-            width="stretch",
-        )
 
 # =========================
 # 実行（押されたときだけクエリ→結果を保存）

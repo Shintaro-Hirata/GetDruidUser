@@ -72,7 +72,7 @@ def test_app_drift_warning_after_run():
         assert not at.exception
 
         # vehicle_id を変えると再実行を促す警告が出る
-        at.text_input[0].set_value("giga99").run()
+        at.text_input(key="vehicle_id").set_value("giga99").run()
         assert any("実行』が必要" in w.value for w in at.warning)
 
 
