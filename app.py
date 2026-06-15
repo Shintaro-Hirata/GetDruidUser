@@ -126,9 +126,10 @@ labels = [p.label for p in results.periods]
 colors = render_color_pickers(state, labels)
 render_figure_size_settings()
 
-# タブ：比較（2期間以上のとき）＋ 各期間 ＋ Zero-Plotter（一番右）
+# タブ：比較（2期間以上のとき）＋ 各期間 ＋ 各期間の Zero-Plotter（一番右にまとめる）
 has_compare = len(results.periods) >= 2
-tab_names = (["比較（全期間）"] if has_compare else []) + labels + ["Zero-Plotter"]
+zp_labels = [f"{label}_Zero-Plotter" for label in labels]
+tab_names = (["比較（全期間）"] if has_compare else []) + labels + zp_labels
 tabs = st.tabs(tab_names)
 
 if has_compare:
@@ -136,12 +137,12 @@ if has_compare:
         render_compare_tab(results, sb, colors, state)
 
 offset = 1 if has_compare else 0
+n = len(results.periods)
 for i, period in enumerate(results.periods):
-    with tabs[i + offset]:
+    with tabs[offset + i]:
         render_period_tab(period, sb, colors, state, key_prefix=f"t{i + 1}")
-
-with tabs[-1]:
-    render_zero_plotter_tab(results, sb, state)
+    with tabs[offset + n + i]:
+        render_zero_plotter_tab(period, sb, state, key_prefix=f"zp{i + 1}")
 
 # =========================
 # Excel一括ダウンロード（結果モデルから導出）

@@ -167,11 +167,11 @@ def test_app_zero_plotter_tab_renders():
         next(b for b in at.button if b.label == "実行").click().run()
         assert not at.exception
 
-        # Zero-Plotter は期間タブと並ぶ独立タブ（一番右）
+        # 期間ごとの Zero-Plotter タブが右端に並ぶ（単一期間なので末尾に1つ）
         tab_labels = [t.label for t in at.tabs]
-        assert tab_labels[-1] == "Zero-Plotter"
+        assert tab_labels[-1] == "サンプル1_Zero-Plotter"
         # Zero-Plotter タブの中身（subheader）が描画されている
-        assert any(s.value == "Zero-Plotter" for s in at.subheader)
+        assert any(s.value == "サンプル1_Zero-Plotter" for s in at.subheader)
         # 各クエリの表示切替（散布図/画像/地図/表）に Zero-Plotter は無い
         for sc in at.get("segmented_control"):
             assert "Zero-Plotter" not in (sc.options or [])
@@ -201,3 +201,25 @@ def test_legs_vehicle_selection_syncs_vehicle_id():
         at.selectbox(key="legs_vehicle").select("giga09").run()
         assert not at.exception
         assert at.session_state["vehicle_id"] == "giga09"
+
+
+def test_app_zero_plotter_tabs_per_period_at_right():
+    from tests.test_pipeline import StubBackend as RecordingBackend
+
+    stub = RecordingBackend()
+    with patch("src.backends.factory.create_backend", return_value=stub):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        # 2期間入力
+        at.text_area(key="ranges_text").set_value(
+            "2025-12-09T01:00:00+09:00, 2025-12-09T02:00:00+09:00, 6/9\n"
+            "2025-12-10T01:00:00+09:00, 2025-12-10T02:00:00+09:00, 6/10\n"
+        ).run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        tab_labels = [t.label for t in at.tabs]
+        # 比較 + 期間2つ + 各期間のZPタブが右端にまとまる
+        assert tab_labels == [
+            "比較（全期間）", "6/9", "6/10", "6/9_Zero-Plotter", "6/10_Zero-Plotter",
+        ]

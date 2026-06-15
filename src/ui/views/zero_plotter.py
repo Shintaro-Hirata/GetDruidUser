@@ -45,14 +45,14 @@ def jst_day_bounds(dt: datetime) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-@st.cache_data(ttl=600, show_spinner="Zero-Plotter点群を取得中…", max_entries=16)
-def _fetch_day_track(
+@st.cache_data(ttl=600, show_spinner="Zero-Plotter点群を取得中…", max_entries=32)
+def _fetch_track(
     backend_kind: str,
     bq_prefix: str,
     state_table: str,
     vehicle_id: str,
-    day_start_iso: str,
-    day_end_iso: str,
+    start_iso: str,
+    end_iso: str,
 ) -> pd.DataFrame:
     # create_backend は呼び出し時に解決する（テストでの差し替えを効かせるため）
     from src.backends.factory import create_backend
@@ -63,8 +63,8 @@ def _fetch_day_track(
         q = build_zp_track_query(
             QueryParams(
                 vehicle_id=vehicle_id,
-                start_time=day_start_iso,
-                end_time=day_end_iso,
+                start_time=start_iso,
+                end_time=end_iso,
                 tables=TableConfig(state_table=state_table),
                 dialect=Dialect(kind=backend_kind, bq_prefix=bq_prefix),
             )
@@ -138,15 +138,13 @@ def zp_track_fig(df: pd.DataFrame, *, height: int = 560) -> go.Figure | None:
     return fig
 
 
-def fetch_zp_day_track(config: RunConfig, period_start: datetime) -> tuple[pd.DataFrame, datetime]:
-    """期間の属する JST 日付1日ぶんの点群を取得する（キャッシュつき）。"""
-    day_start, day_end = jst_day_bounds(period_start)
-    df = _fetch_day_track(
+def fetch_zp_track(config: RunConfig, start: datetime, end: datetime) -> pd.DataFrame:
+    """指定した [start, end) 範囲の点群を取得する（キャッシュつき）。"""
+    return _fetch_track(
         config.backend,
         config.bq_table_prefix,
         config.tables.state_table,
         config.vehicle_id,
-        day_start.isoformat(),
-        day_end.isoformat(),
+        start.isoformat(),
+        end.isoformat(),
     )
-    return df, day_start

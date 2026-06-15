@@ -288,38 +288,38 @@ def render_compare_tab(
 
 @st.fragment
 def render_zero_plotter_tab(
-    results: RunResults,
+    period: PeriodResult,
     sb: SidebarValues,
     state: AppState,
+    *,
+    key_prefix: str,
 ) -> None:
     """
-    Zero-Plotter 点群を独立タブで表示する。
-    結果に含まれる日付（JST）ごとに、その日の全運行点群を
-    zero-plotter と同じ仕様（5秒間隔・system_state 色分け）で1枚ずつ描画する。
+    1期間ぶんの Zero-Plotter 点群を独立タブで表示する。
+    表示範囲はその期間の「開始,終了」（ユーザー指定の時間範囲）のみ。
+    zero-plotter と同じ仕様（5秒間隔・system_state 色分け）で描画し、
     除外編集モード中は点群のクリック/box選択から除外時間帯を登録できる。
     """
-    from src.ui.views.zero_plotter import fetch_zp_day_track, jst_day_bounds, zp_track_fig
+    from src.ui.views.zero_plotter import fetch_zp_track, zp_track_fig
 
-    st.subheader("Zero-Plotter")
+    results = state.results
+    if results is None:
+        st.info("結果がありません")
+        return
+
+    st.subheader(f"{period.label}_Zero-Plotter")
     st.caption(
-        f"vehicle_id={results.config.vehicle_id} の全運行点群"
+        f"vehicle_id={results.config.vehicle_id} / "
+        f"{period.range.start.isoformat()} 〜 {period.range.end.isoformat()} の運行点群"
         "（5秒間隔・zero-plotter と同じ system_state 色分け）。"
         "除外編集モード中は点をクリック/box選択して除外時間帯に追加できます。"
     )
 
-    # 結果に含まれる JST 日付を重複なく取り出す（同一日付の複数期間は1枚にまとまる）
-    seen: dict = {}
-    for period in results.periods:
-        day_start, _ = jst_day_bounds(period.range.start)
-        seen.setdefault(day_start, period.range.start)
+    try:
+        df = fetch_zp_track(results.config, period.range.start, period.range.end)
+    except Exception as ex:
+        st.error(f"Zero-Plotter点群の取得に失敗しました: {ex}")
+        return
 
-    for i, (day_start, any_start) in enumerate(sorted(seen.items())):
-        if len(seen) > 1:
-            st.markdown(f"#### {day_start:%Y-%m-%d}（JST）")
-        try:
-            df, _ = fetch_zp_day_track(results.config, any_start)
-        except Exception as ex:
-            st.error(f"Zero-Plotter点群の取得に失敗しました: {ex}")
-            continue
-        fig = zp_track_fig(df, height=sb.map_height)
-        _show_fig_or_empty(fig, key=f"plot_zp_{i}", width=sb.map_width, state=state)
+    fig = zp_track_fig(df, height=sb.map_height)
+    _show_fig_or_empty(fig, key=f"plot_{key_prefix}_zp", width=sb.map_width, state=state)
