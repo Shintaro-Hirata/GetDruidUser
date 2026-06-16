@@ -342,6 +342,153 @@ ORDER BY 1
 """
 
 # ============================================================
+# カスタムフィールド（任意テーブル×列）のクエリ
+#   - build_custom_metric_query: 既存指標と同じ集計（自動運転・1分窓max-abs・距離JOIN）
+#   - build_custom_timeseries_query: 1秒平均そのまま（X=時刻・フィルタなし）
+#   - build_custom_hist_query: 値の分布ヒストグラム（自動/手動分割）
+#   - build_columns_query: テーブルの列一覧（緯度経度の有無判定に使う）
+#   いずれも値列の別名は "value"（CustomField.name）に統一する。
+# ============================================================
+
+
+def build_columns_query(p: QueryParams, table: str) -> str:
+    """テーブルの列名一覧を取得する（緯度経度の有無判定用）。"""
+    d = p.dialect
+    if d.is_bq:
+        prefix = f"{d.bq_prefix}." if d.bq_prefix else ""
+        return (
+            f"SELECT column_name FROM `{prefix}INFORMATION_SCHEMA.COLUMNS` "
+            f"WHERE table_name = '{table}'"
+        )
+    return (
+        "SELECT COLUMN_NAME AS column_name FROM INFORMATION_SCHEMA.COLUMNS "
+        f"WHERE TABLE_SCHEMA = 'druid' AND TABLE_NAME = '{table}'"
+    )
+
+
+def build_custom_metric_query(
+    field, p: QueryParams, *, dist_mode: DistanceMode = "latlon", has_latlon: bool = True
+) -> str:
+    """既存指標と同じ集計のカスタムクエリ（自動運転・1分窓max-abs・距離JOIN）。"""
+    d = p.dialect
+    col = d.col(field.column)
+    table = d.table(field.table)
+    distance_cte = _distance_cte(dist_mode, p)
+
+    # 緯度経度（地図用）は対象テーブルにある場合だけ select する
+    sel_latlon = f'{d.col("#latitude")} AS latitude,\n    {d.col("#longitude")} AS longitude,\n    ' if has_latlon else ""
+    carry_latlon = "latitude, longitude, " if has_latlon else ""
+    p_latlon = "p.latitude, p.longitude, " if has_latlon else ""
+    r_latlon = "r.latitude,\n  r.longitude,\n  " if has_latlon else ""
+
+    return f"""
+WITH per_sec AS (
+  SELECT
+    {d.floor_sec(d.time_col)} AS sec_time,
+    {sel_latlon}{col} AS value,
+    ABS({col}) AS abs_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY {d.floor_sec(d.time_col)}
+      ORDER BY ABS({col}) DESC
+    ) AS rn
+  FROM {table}
+  WHERE {_time_filter(p)}
+    AND ABS({col}) >= {float(field.threshold)}
+),
+
+sec_pick AS (
+  SELECT sec_time, {carry_latlon}value, abs_value
+  FROM per_sec
+  WHERE rn = 1
+),
+
+state_per_sec AS (
+  {_state_per_sec_cte(p)}
+),
+
+filtered AS (
+  SELECT
+    {d.floor_min("p.sec_time")} AS win_1m,
+    p.sec_time, {p_latlon}p.value, p.abs_value
+  FROM sec_pick p
+  JOIN state_per_sec s
+    ON p.sec_time = s.sec_time
+  WHERE s.system_state = 4
+),
+
+ranked AS (
+  SELECT
+    win_1m, sec_time, {carry_latlon}value, abs_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY win_1m
+      ORDER BY abs_value DESC
+    ) AS rn
+  FROM filtered
+),
+
+{distance_cte}
+
+SELECT
+  r.win_1m,
+  r.sec_time,
+  {r_latlon}r.value,
+  r.abs_value,
+  c.cum_dist_km
+FROM ranked r
+LEFT JOIN cum c
+  ON r.sec_time = c.sec_time
+WHERE r.rn = 1
+ORDER BY r.win_1m
+"""
+
+
+def build_custom_timeseries_query(
+    field, p: QueryParams, *, has_latlon: bool = True
+) -> str:
+    """1秒平均そのままのカスタムクエリ（X=時刻・フィルタなし）。"""
+    d = p.dialect
+    col = d.col(field.column)
+    table = d.table(field.table)
+    latlon = (
+        f",\n  AVG({d.col('#latitude')})  AS latitude,\n  AVG({d.col('#longitude')}) AS longitude"
+        if has_latlon else ""
+    )
+    return f"""
+SELECT
+  {d.floor_sec(d.time_col)} AS sec_time,
+  AVG({col}) AS value{latlon}
+FROM {table}
+WHERE {_time_filter(p)}
+GROUP BY {d.floor_sec(d.time_col)}
+ORDER BY 1
+"""
+
+
+def build_custom_hist_query(field, p: QueryParams, *, state_condition: str) -> str:
+    """カスタムフィールドの値分布ヒストグラム（自動/手動分割用）。"""
+    d = p.dialect
+    col = f"p.{d.col(field.column)}"
+    p_time = f"p.{d.time_col}"
+    bin_w = float(field.hist_bin)
+
+    return f"""
+SELECT
+  CAST(FLOOR({col} / {bin_w}) * {bin_w} AS {d.double_type}) AS bin_start,
+  CAST(FLOOR({col} / {bin_w}) * {bin_w} + {bin_w} AS {d.double_type}) AS bin_end,
+  COUNT(*) AS cnt
+FROM {d.table(field.table)} p
+JOIN (
+  {_state_per_sec_cte(p)}
+) s
+  ON {d.floor_sec(p_time)} = s.sec_time
+WHERE {_time_filter(p, alias="p")}
+  AND {state_condition}
+GROUP BY 1, 2
+ORDER BY 1
+"""
+
+
+# ============================================================
 # zero-plotter 点群クエリ
 #   zero-plotter の地図表示と同じ仕様:
 #   t2_system_state_manager_state を5秒バケットで取得し、

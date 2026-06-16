@@ -58,6 +58,7 @@ if sb.run:
         dist_mode=sb.dist_mode,  # type: ignore[arg-type]
         excludes=tuple(state.excludes),
         tables=sb.tables,
+        custom_fields=sb.custom_fields,
         backend=sb.backend,
         bq_table_prefix=f"{settings.bq_project}.{sb.bq_dataset}",
         raise_on_error=sb.raise_on_error,
@@ -118,6 +119,8 @@ if tuple(state.excludes) != cached.excludes:
     drift_msgs.append("除外時間帯")
 if sb.tables != cached.tables:
     drift_msgs.append("取得テーブル")
+if tuple(sb.custom_fields) != cached.custom_fields:
+    drift_msgs.append("自由フィールド")
 if sb.backend != cached.backend:
     drift_msgs.append("データ取得先")
 if f"{settings.bq_project}.{sb.bq_dataset}" != cached.bq_table_prefix:

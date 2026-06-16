@@ -23,6 +23,11 @@ class AppState:
     # 除外時間帯（構造化リスト）。「実行」時に RunConfig に反映される。
     excludes: list[ExcludeRange] = field(default_factory=list)
 
+    # 自由フィールド（任意テーブル×列）の入力行。各 dict は
+    # {label, table, column, agg_mode, threshold, hist_bin}。「実行」時に
+    # CustomField へ変換して RunConfig に反映される。
+    custom_field_rows: list[dict] = field(default_factory=list)
+
     # 期間ラベル -> 表示色（hex）。ユーザーがカラーピッカーで変更できる。
     color_map: dict[str, str] = field(default_factory=dict)
 

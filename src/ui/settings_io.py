@@ -49,6 +49,26 @@ def _get(d: Any, *keys: str) -> Any:
     return cur
 
 
+def _custom_field_rows(items: list) -> list[dict]:
+    """自由フィールドの dict リストを編集行（label/table/column/...）に正規化する。"""
+    rows: list[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        label = str(it.get("ラベル") or "").strip()
+        table = str(it.get("テーブル") or "").strip()
+        column = str(it.get("フィールド") or "").strip()
+        if not (label and table and column):
+            continue
+        agg = "timeseries" if str(it.get("集計") or "").strip() == "汎用時系列" else "metric"
+        rows.append({
+            "label": label, "table": table, "column": column, "agg_mode": agg,
+            "threshold": _as_float(it.get("|値|>=")) or 0.0,
+            "hist_bin": _as_float(it.get("ビン幅")) or 0.2,
+        })
+    return rows
+
+
 def extract_session_values(d: dict) -> dict[str, Any]:
     """
     設定 dict から session_state に入れる値を抽出する（純粋関数・テスト可能）。
@@ -113,6 +133,12 @@ def extract_session_values(d: dict) -> dict[str, Any]:
     ):
         if isinstance(tables.get(json_key), str) and tables[json_key]:
             out[ss_key] = tables[json_key]
+
+    custom = fetch.get("自由フィールド")
+    if isinstance(custom, list):
+        rows = _custom_field_rows(custom)
+        if rows:
+            out["__custom_field_rows__"] = rows
 
     # ---- 表示設定 ----
     ranges_disp = disp.get("表示レンジ") if isinstance(disp.get("表示レンジ"), dict) else {}
@@ -182,6 +208,14 @@ def apply_settings(d: dict, state) -> int:
     excludes = values.pop("__excludes__", None)
     if isinstance(excludes, list):
         state.excludes = [e for e in excludes if isinstance(e, ExcludeRange)]
+        # data_editor の保持状態を破棄して、読み込んだ内容で再同期させる
+        st.session_state.pop("exclude_editor", None)
+        applied += 1
+
+    custom_rows = values.pop("__custom_field_rows__", None)
+    if isinstance(custom_rows, list):
+        state.custom_field_rows = custom_rows
+        st.session_state.pop("custom_fields_editor", None)
         applied += 1
 
     color_map = values.pop("__color_map__", None)

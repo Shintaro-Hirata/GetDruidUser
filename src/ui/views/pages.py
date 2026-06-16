@@ -23,12 +23,13 @@ VIEW_MODES = ["散布図", "画像", "地図", "表"]
 HIST_VIEW_MODES = ["グラフ", "画像"]
 
 
-# 画像タブのPNGはキャッシュする（matplotlib描画は1枚100ms前後かかる）
+# 画像タブのPNGはキャッシュする（matplotlib描画は1枚100ms前後かかる）。
+# 先頭が _ の引数（_spec）は st.cache_data のキー計算から除外される。
+# spec はキー文字列（spec.key）でキャッシュを区別する。
 @st.cache_data(show_spinner=False, max_entries=64)
-def _scatter_png_cached(series, spec_key: str, xlim, ylim, fs_single, fs_compare):
-    spec = next(sp for sp in METRICS if sp.key == spec_key)
+def _scatter_png_cached(_spec, spec_key: str, series, xlim, ylim, fs_single, fs_compare):
     return scatter_png(
-        series, spec, xlim=xlim, ylim=ylim,
+        series, _spec, xlim=xlim, ylim=ylim,
         figsize_single=fs_single, figsize_compare=fs_compare,
     )
 
@@ -121,8 +122,9 @@ def render_metric_views(
     if mode == "画像":
         # ダウンロードと同じ matplotlib 形式の静止画（レポート互換の見た目）
         png = _scatter_png_cached(
-            series,
+            spec,
             spec.key,
+            series,
             sb.scatter_xlim,
             sb.scatter_ylims.get(spec.key),
             sb.fig_size_single,
@@ -164,8 +166,9 @@ def _render_hist_block(
     *,
     key: str,
     title_suffix: str = "",
+    head: str = HIST_TITLE,
 ) -> None:
-    st.markdown(f"### {HIST_TITLE}（自動/手動）{title_suffix}")
+    st.markdown(f"### {head}（自動/手動）{title_suffix}")
     hist_mode = st.segmented_control(
         "表示",
         HIST_VIEW_MODES,
@@ -231,6 +234,25 @@ def _render_chunk_content(
 
     _render_hist_block([(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist")
 
+    # カスタムフィールド（任意テーブル×列）：散布図/画像/地図/表 ＋ 分布ヒストグラム
+    custom_fields = state.results.config.custom_fields if state.results else ()
+    for cf in custom_fields:
+        st.markdown("---")
+        render_metric_views(
+            cf,
+            [(period.label, chunk.custom_dfs.get(cf.key, pd.DataFrame()))],
+            sb,
+            colors,
+            state,
+            key=f"{key_prefix}_{cf.key}",
+        )
+        _render_hist_block(
+            [(period.label, chunk.custom_hist_dfs.get(cf.key, pd.DataFrame()))],
+            sb,
+            key=f"{key_prefix}_{cf.key}_hist",
+            head=cf.label,
+        )
+
 
 @st.fragment
 def render_period_tab(
@@ -290,6 +312,25 @@ def render_compare_tab(
         key="cmp_hist",
         title_suffix="（比較）",
     )
+
+    for cf in results.config.custom_fields:
+        st.markdown("---")
+        render_metric_views(
+            cf,
+            results.compare_custom_series(cf.key),
+            sb,
+            colors,
+            state,
+            key=f"cmp_{cf.key}",
+            title_suffix="（比較）",
+        )
+        _render_hist_block(
+            results.compare_custom_hist_series(cf.key),
+            sb,
+            key=f"cmp_{cf.key}_hist",
+            title_suffix="（比較）",
+            head=cf.label,
+        )
 
 
 @st.fragment

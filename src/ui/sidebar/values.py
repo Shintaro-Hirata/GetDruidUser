@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.domain.models import TableConfig
+from src.domain.models import CustomField, TableConfig
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,7 @@ class SidebarValues:
     dist_mode: str
     thresholds: dict[str, float]
     tables: TableConfig
+    custom_fields: tuple[CustomField, ...]
     backend: str               # "bq" | "druid"
     bq_dataset: str            # BigQuery データセット名
     raise_on_error: bool

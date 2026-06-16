@@ -17,9 +17,17 @@ class StubBackend:
     def __init__(self):
         self.queries: list[str] = []
 
+    # カスタムフィールドのテーブルに緯度経度があるか（テスト側で切替可能）
+    custom_has_latlon: bool = True
+
     def sql(self, query: str, context=None) -> pd.DataFrame:
         self.queries.append(query)
-        if "bin_start" in query:  # ヒストグラムクエリ
+        if "INFORMATION_SCHEMA.COLUMNS" in query:  # 列一覧（緯度経度有無の判定）
+            cols = ["#timestamp", "#vehicle_id", ".pose.x"]
+            if self.custom_has_latlon:
+                cols += ["#latitude", "#longitude"]
+            return pd.DataFrame({"column_name": cols})
+        if "bin_start" in query:  # ヒストグラム（横G・カスタム共通）
             return pd.DataFrame(
                 {"bin_start": [0.0, 0.2], "bin_end": [0.2, 0.4], "cnt": [2, 6]}
             )
@@ -32,7 +40,18 @@ class StubBackend:
                     "longitude": [139.62, 139.63],
                 }
             )
-        # メトリクスクエリ
+        if "AS value" in query:  # カスタムフィールド（値列の別名は value）
+            has_ll = "AS latitude" in query
+            df = pd.DataFrame({"sec_time": ["2025-12-09T01:00:30Z"], "value": [0.5]})
+            if "cum_dist_km" in query:  # metric モード
+                df["win_1m"] = ["2025-12-09T01:00:00Z"]
+                df["abs_value"] = [0.5]
+                df["cum_dist_km"] = [1.2]
+            if has_ll:
+                df["latitude"] = [35.43]
+                df["longitude"] = [139.62]
+            return df
+        # 既存メトリクスクエリ（lateral_error / acceleration）
         value_col = "lateral_error" if "lateral_error" in query else "acceleration"
         return pd.DataFrame(
             {
@@ -227,3 +246,63 @@ def test_hist_with_no_data_at_all():
     chunk = results.periods[0].chunks[0]
     assert chunk.ok, chunk.error
     assert chunk.hist_df.empty
+
+
+# ---- カスタムフィールド（自由テーブル×列） ----
+
+def _custom_metric(**kw):
+    from src.domain.models import CustomField
+    base = dict(key="cf1", label="ヨーレート", table="t2_localization_compositor_pose",
+                column=".pose.angular_velocity_vrf.z", agg_mode="metric", threshold=0.0, hist_bin=0.1)
+    base.update(kw)
+    return CustomField(**base)
+
+
+def test_custom_metric_field_fetched_with_distance_and_hist():
+    backend = StubBackend()
+    results = run_pipeline(
+        backend=backend,
+        config=_config(custom_fields=(_custom_metric(),)),
+        ranges=[_range()],
+        progress_callback=None,
+    )
+    chunk = results.periods[0].chunks[0]
+    assert chunk.ok, chunk.error
+    cf_df = chunk.custom_dfs["cf1"]
+    assert "value" in cf_df.columns
+    assert "cum_dist_km" in cf_df.columns        # metric モードは距離あり
+    assert "latitude" in cf_df.columns           # テーブルに緯度経度あり
+    # 分布ヒストグラム（自動/手動）
+    hist = chunk.custom_hist_dfs["cf1"]
+    assert {"ratio_auto", "ratio_manual"}.issubset(hist.columns)
+    # 結合系列も取れる
+    assert not results.periods[0].combined_custom_df("cf1").empty
+
+
+def test_custom_timeseries_field_no_distance():
+    backend = StubBackend()
+    results = run_pipeline(
+        backend=backend,
+        config=_config(custom_fields=(_custom_metric(agg_mode="timeseries"),)),
+        ranges=[_range()],
+        progress_callback=None,
+    )
+    cf_df = results.periods[0].chunks[0].custom_dfs["cf1"]
+    assert "value" in cf_df.columns
+    assert "cum_dist_km" not in cf_df.columns     # timeseries は距離なし（X=時刻）
+
+
+def test_custom_field_skips_latlon_when_absent():
+    backend = StubBackend()
+    backend.custom_has_latlon = False
+    results = run_pipeline(
+        backend=backend,
+        config=_config(custom_fields=(_custom_metric(),)),
+        ranges=[_range()],
+        progress_callback=None,
+    )
+    cf_df = results.periods[0].chunks[0].custom_dfs["cf1"]
+    assert "latitude" not in cf_df.columns        # 緯度経度なし → 地図はスキップ
+    # 緯度経度クエリを発行していない（select に latitude を含めない）
+    cf_queries = [q for q in backend.queries if "AS value" in q]
+    assert cf_queries and all("AS latitude" not in q for q in cf_queries)

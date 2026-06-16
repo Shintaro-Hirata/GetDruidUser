@@ -20,6 +20,9 @@ class ChunkData:
     end: datetime
     metric_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)  # MetricSpec.key -> df
     hist_df: pd.DataFrame = field(default_factory=pd.DataFrame)        # 横Gヒストグラム
+    # カスタムフィールド（CustomField.key -> df）。散布図/地図/表用と分布ヒストグラム用。
+    custom_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)
+    custom_hist_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)
     error: str | None = None
 
     @property
@@ -133,8 +136,10 @@ class PeriodResult:
         self._memo["__hist__"] = result
         return result
 
-    def _combine_hist(self) -> pd.DataFrame:
-        dfs = [c.hist_df for c in self.chunks if c.hist_df is not None and not c.hist_df.empty]
+    def _combine_hist(self, dfs: list[pd.DataFrame] | None = None) -> pd.DataFrame:
+        if dfs is None:
+            dfs = [c.hist_df for c in self.chunks]
+        dfs = [d for d in dfs if d is not None and not d.empty]
         if not dfs:
             return pd.DataFrame()
         if len(dfs) == 1:
@@ -145,6 +150,29 @@ class PeriodResult:
         auto = add_ratio(auto, cnt_col="cnt_auto", ratio_col="ratio_auto")
         manual = add_ratio(manual, cnt_col="cnt_manual", ratio_col="ratio_manual")
         return merge_auto_manual_hist(auto, manual)
+
+    def combined_custom_df(self, key: str) -> pd.DataFrame:
+        """カスタムフィールドの全チャンク結合。cum_dist_km があれば通し距離補正、無ければ単純連結。"""
+        memo_key = f"__custom__{key}"
+        if memo_key in self._memo:
+            return self._memo[memo_key]
+        dfs = [c.custom_dfs.get(key, pd.DataFrame()) for c in self.chunks]
+        non_empty = [d for d in dfs if d is not None and not d.empty]
+        if any("cum_dist_km" in d.columns for d in non_empty):
+            result = _concat_cum_dist_continuous(dfs)
+        else:
+            result = pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
+        self._memo[memo_key] = result
+        return result
+
+    def combined_custom_hist_df(self, key: str) -> pd.DataFrame:
+        """カスタムフィールドの分布ヒストグラムの全チャンク結合（bin合算・ratio再計算）。"""
+        memo_key = f"__customhist__{key}"
+        if memo_key in self._memo:
+            return self._memo[memo_key]
+        result = self._combine_hist([c.custom_hist_dfs.get(key, pd.DataFrame()) for c in self.chunks])
+        self._memo[memo_key] = result
+        return result
 
     @property
     def failed_chunks(self) -> list[ChunkData]:
@@ -167,3 +195,9 @@ class RunResults:
 
     def compare_hist_series(self) -> list[tuple[str, pd.DataFrame]]:
         return [(p.label, p.combined_hist_df()) for p in self.periods]
+
+    def compare_custom_series(self, key: str) -> list[tuple[str, pd.DataFrame]]:
+        return [(p.label, p.combined_custom_df(key)) for p in self.periods]
+
+    def compare_custom_hist_series(self, key: str) -> list[tuple[str, pd.DataFrame]]:
+        return [(p.label, p.combined_custom_hist_df(key)) for p in self.periods]

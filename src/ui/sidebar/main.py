@@ -8,6 +8,7 @@ from src.config import Settings
 from src.domain.time_ranges import suggested_split_minutes_from_ranges_text
 from src.queries.specs import METRICS
 from src.ui.figure_settings import get_figure_sizes
+from src.ui.sidebar.custom_fields import render_custom_fields
 from src.ui.sidebar.exclude_panel import render_exclude_editor
 from src.ui.sidebar.legs_picker import render_legs_picker
 from src.ui.sidebar.settings_panel import render_settings_export, render_settings_loader
@@ -108,6 +109,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
             help="緯度・経度が欠損/異常な日がある場合は速度平均に切り替えてください。",
         )
 
+        custom_fields = render_custom_fields(state)
+
         run = st.button("実行", type="primary", width="stretch")
 
         st.markdown("---")
@@ -171,6 +174,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         dist_mode=str(dist_mode),
         thresholds=thresholds,
         tables=tables,
+        custom_fields=custom_fields,
         backend=str(backend),
         bq_dataset=bq_dataset,
         raise_on_error=bool(raise_on_error),

@@ -89,3 +89,29 @@ def test_extract_ignores_bad_types():
     out = extract_session_values(d)
     assert "split_minutes" not in out  # "abc" は無視
     assert "vehicle_id" not in out     # 123(非str) は無視
+
+
+def test_custom_fields_roundtrip():
+    # 書き出し（build_input_settings_dict）→ 読み込み（extract）で自由フィールドが復元される
+    from src.domain.models import CustomField
+    from src.export.settings_file import build_input_settings_dict
+
+    state = AppState()
+    cf = CustomField(key="cf1", label="ヨーレート", table="t2_localization_compositor_pose",
+                     column=".pose.angular_velocity_vrf.z", agg_mode="timeseries",
+                     threshold=0.0, hist_bin=0.1)
+    sb = _sb(custom_fields=(cf,))
+    d = build_input_settings_dict(state=state, sb=sb, ranges_text="", bq_project="t2-integration")
+    assert d["取得条件"]["自由フィールド"][0]["ラベル"] == "ヨーレート"
+
+    out = extract_session_values(d)
+    rows = out["__custom_field_rows__"]
+    assert rows == [{
+        "label": "ヨーレート", "table": "t2_localization_compositor_pose",
+        "column": ".pose.angular_velocity_vrf.z", "agg_mode": "timeseries",
+        "threshold": 0.0, "hist_bin": 0.1,
+    }]
+
+
+def test_extract_custom_fields_missing_is_safe():
+    assert "__custom_field_rows__" not in extract_session_values({"取得条件": {}})

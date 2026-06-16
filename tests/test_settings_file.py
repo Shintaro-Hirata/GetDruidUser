@@ -20,6 +20,7 @@ def _sb(**kw) -> SidebarValues:
         dist_mode="latlon",
         thresholds={"q1": 0.2, "q2": 1.0},
         tables=_config().tables,
+        custom_fields=kw.pop("custom_fields", ()),
         backend="bq",
         bq_dataset="zero_plotter_dev",
         raise_on_error=False,

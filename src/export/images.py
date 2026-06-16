@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import zipfile
+from datetime import timedelta, timezone
 from io import BytesIO
 
 import matplotlib
@@ -19,8 +20,10 @@ from src.domain.results import RunResults
 from src.queries.specs import METRICS, MetricSpec
 
 X_LABEL = "移動距離[km]"
+X_LABEL_TIME = "時刻(JST)"
 HIST_X_LABEL = "横G [m/s^2]"
 HIST_Y_LABEL = "発生頻度"
+JST = timezone(timedelta(hours=9))
 
 # 旧実装（show_query3_compare）と同じ期間別の線種・マーカー
 _LINE_STYLES = ["-", "--", ":", "-."]
@@ -73,28 +76,44 @@ def _legend_outside(ax) -> None:
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0, frameon=True)
 
 
-def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec) -> pd.DataFrame:
-    if df is None or df.empty or not {"cum_dist_km", spec.name}.issubset(df.columns):
+def _uses_distance_x(series: list[tuple[str, pd.DataFrame]]) -> bool:
+    return any(
+        df is not None and not df.empty and "cum_dist_km" in df.columns
+        for _, df in series
+    )
+
+
+def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec, *, x_is_dist: bool) -> pd.DataFrame:
+    """X軸用の列 _x（移動距離 or 時刻JST）と値列を整形して返す。"""
+    if df is None or df.empty or spec.name not in df.columns:
         return pd.DataFrame()
     d = df.copy()
-    d["cum_dist_km"] = pd.to_numeric(d["cum_dist_km"], errors="coerce")
     d[spec.name] = pd.to_numeric(d[spec.name], errors="coerce")
-    return d.dropna(subset=["cum_dist_km", spec.name])
+    if x_is_dist:
+        if "cum_dist_km" not in d.columns:
+            return pd.DataFrame()
+        d["_x"] = pd.to_numeric(d["cum_dist_km"], errors="coerce")
+    else:
+        if "sec_time" not in d.columns:
+            return pd.DataFrame()
+        d["_x"] = pd.to_datetime(d["sec_time"], utc=True, errors="coerce").dt.tz_convert(JST)
+    return d.dropna(subset=["_x", spec.name])
 
 
 def _scatter_single_png(
     df: pd.DataFrame, spec: MetricSpec, *, xlim, ylim,
     figsize: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
 ) -> bytes | None:
-    """旧 show_query1/2 と同じ単体散布図（デフォルト色・凡例なし）"""
-    d = _clean_metric_df(df, spec)
+    """単体散布図（デフォルト色・凡例なし）。X軸は距離 or 時刻を自動採用。"""
+    x_is_dist = _uses_distance_x([("", df)])
+    d = _clean_metric_df(df, spec, x_is_dist=x_is_dist)
     if d.empty:
         return None
     fig, ax = plt.subplots(figsize=figsize)
-    ax.scatter(d["cum_dist_km"], d[spec.name])
-    ax.set_xlabel(X_LABEL)
+    ax.scatter(d["_x"], d[spec.name])
+    ax.set_xlabel(X_LABEL if x_is_dist else X_LABEL_TIME)
     ax.set_ylabel(spec.y_label)
-    _apply_limits(ax, xlim, ylim)
+    _apply_limits(ax, xlim if x_is_dist else None, ylim)
     return _fig_to_png(fig)
 
 
@@ -102,21 +121,22 @@ def _scatter_compare_png(
     series: list[tuple[str, pd.DataFrame]], spec: MetricSpec, *, xlim, ylim,
     figsize: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
 ) -> bytes | None:
-    """旧 show_scatter_compare と同じ比較散布図（色サイクル・凡例右外）"""
+    """比較散布図（色サイクル・凡例右外）。X軸は距離 or 時刻を自動採用。"""
+    x_is_dist = _uses_distance_x(series)
     fig, ax = plt.subplots(figsize=figsize)
     any_plotted = False
     for label, df in series:
-        d = _clean_metric_df(df, spec)
+        d = _clean_metric_df(df, spec, x_is_dist=x_is_dist)
         if d.empty:
             continue
-        ax.scatter(d["cum_dist_km"], d[spec.name], label=label, s=18)
+        ax.scatter(d["_x"], d[spec.name], label=label, s=18)
         any_plotted = True
     if not any_plotted:
         plt.close(fig)
         return None
-    ax.set_xlabel(X_LABEL)
+    ax.set_xlabel(X_LABEL if x_is_dist else X_LABEL_TIME)
     ax.set_ylabel(spec.y_label)
-    _apply_limits(ax, xlim, ylim)
+    _apply_limits(ax, xlim if x_is_dist else None, ylim)
     _legend_outside(ax)
     return _fig_to_png(fig)
 
@@ -259,6 +279,24 @@ def results_to_image_zip(
         )
         add(png, f"{folder}/Q3_横G.png")
 
+        # 自由フィールド（散布図＋分布ヒストグラム）
+        for cf in results.config.custom_fields:
+            add(
+                _scatter_single_png(
+                    period.combined_custom_df(cf.key), cf,
+                    xlim=scatter_xlim, ylim=None, figsize=figsize_single,
+                ),
+                f"{folder}/{_safe(cf.label)}.png",
+            )
+            add(
+                _hist_png(
+                    [(period.label, period.combined_custom_hist_df(cf.key))],
+                    smooth_window=smooth_window, xlim=None, ylim=None,
+                    compare=False, figsize=figsize_single,
+                ),
+                f"{folder}/{_safe(cf.label)}_ヒスト.png",
+            )
+
     # ---- 比較（全期間重ね描き）----
     if len(results.periods) >= 2:
         for q_idx, spec in enumerate(METRICS, start=1):
@@ -280,6 +318,23 @@ def results_to_image_zip(
             figsize=figsize_compare,
         )
         add(png, "比較/Q3_横G_比較.png")
+
+        for cf in results.config.custom_fields:
+            add(
+                _scatter_compare_png(
+                    results.compare_custom_series(cf.key), cf,
+                    xlim=scatter_xlim, ylim=None, figsize=figsize_compare,
+                ),
+                f"比較/{_safe(cf.label)}_比較.png",
+            )
+            add(
+                _hist_png(
+                    results.compare_custom_hist_series(cf.key),
+                    smooth_window=smooth_window, xlim=None, ylim=None,
+                    compare=True, figsize=figsize_compare,
+                ),
+                f"比較/{_safe(cf.label)}_ヒスト_比較.png",
+            )
 
     bio = BytesIO()
     with zipfile.ZipFile(bio, "w", compression=zipfile.ZIP_DEFLATED) as zf:

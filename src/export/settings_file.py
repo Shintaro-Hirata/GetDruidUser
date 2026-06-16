@@ -48,6 +48,21 @@ def _tables_dict(tables) -> dict:
     }
 
 
+def _custom_fields_list(fields) -> list[dict]:
+    """自由フィールドを人間可読＋復元可能な dict リストにする。"""
+    return [
+        {
+            "ラベル": f.label,
+            "テーブル": f.table,
+            "フィールド": f.column,
+            "集計": "既存指標と同じ" if f.agg_mode == "metric" else "汎用時系列",
+            "|値|>=": f.threshold,
+            "ビン幅": f.hist_bin,
+        }
+        for f in fields
+    ]
+
+
 def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
     return {
         "表示レンジ": {
@@ -109,6 +124,7 @@ def build_settings_dict(
             "除外時間帯（開始,終了）": _exclude_lines(cfg.excludes),
             "クエリ条件": _query_cond_dict(thresholds_by_key, cfg.dist_mode),
             "取得テーブル": _tables_dict(cfg.tables),
+            "自由フィールド": _custom_fields_list(cfg.custom_fields),
         },
         "表示設定": _display_dict(sb, state),
         "運行メタ（zero-plotter）": leg_meta,
@@ -141,6 +157,7 @@ def build_input_settings_dict(
             "除外時間帯（開始,終了）": _exclude_lines(state.excludes),
             "クエリ条件": _query_cond_dict(sb.thresholds, sb.dist_mode),
             "取得テーブル": _tables_dict(sb.tables),
+            "自由フィールド": _custom_fields_list(sb.custom_fields),
         },
         "表示設定": _display_dict(sb, state),
     }

@@ -260,3 +260,46 @@ def test_apply_settings_routes_to_session_and_state(monkeypatch):
     assert len(state.excludes) == 1
     assert state.color_map["6/4夜勤"] == "#abcdef"
     assert fake_ss["color_6/4夜勤"] == "#abcdef"
+
+
+def test_app_custom_field_renders_and_switches():
+    from tests.test_pipeline import StubBackend as PipeStub
+
+    with patch("src.backends.factory.create_backend", return_value=PipeStub()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        state = at.session_state["app_state"]
+        state.custom_field_rows = [{
+            "label": "ヨーレート", "table": "t2_localization_compositor_pose",
+            "column": ".pose.angular_velocity_vrf.z", "agg_mode": "metric",
+            "threshold": 0.0, "hist_bin": 0.1,
+        }]
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception, at.exception
+
+        # 自由フィールドの見出しが出る
+        assert any("ヨーレート" in str(m.value) for m in at.markdown)
+        # 散布図→画像→地図→表に切替してもエラーなし
+        for mode in ("画像", "地図", "表", "散布図"):
+            at.session_state["view_t1_c1_cf1"] = mode
+            at.run()
+            assert not at.exception, (mode, at.exception)
+
+
+def test_image_zip_includes_custom_field():
+    import io
+    import zipfile
+
+    from src.export.images import results_to_image_zip
+    from tests.test_pipeline import StubBackend as PipeStub, _config, _range
+    from src.domain.models import CustomField
+    from src.services.pipeline import run_pipeline
+
+    cf = CustomField(key="cf1", label="ヨーレート", table="t2_localization_compositor_pose",
+                     column=".pose.angular_velocity_vrf.z", agg_mode="metric", threshold=0.0, hist_bin=0.1)
+    results = run_pipeline(backend=PipeStub(), config=_config(custom_fields=(cf,)),
+                           ranges=[_range()], progress_callback=None)
+    names = zipfile.ZipFile(io.BytesIO(results_to_image_zip(results))).namelist()
+    assert any("ヨーレート" in n for n in names)
+    assert any("ヨーレート_ヒスト" in n for n in names)
