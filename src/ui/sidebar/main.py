@@ -60,6 +60,38 @@ def _render_custom_ranges(custom_fields):
     return sx, sy, hx, hy
 
 
+def _render_map_value_ranges(custom_fields):
+    """地図グラデーション（値の大きさ）の色スケール範囲を指標/フィールドごとに編集する。
+
+    色は |値| を YlOrRd で表す。レンジを固定すると、期間ごとに地図を分けても
+    同じ色が同じ値を意味するようになり、期間間の大小を比較できる。
+    戻り値は (指標 key -> レンジ, CustomField.key -> レンジ) の2辞書。
+    """
+    mv: dict[str, tuple[float, float] | None] = {}
+    cmv: dict[str, tuple[float, float] | None] = {}
+
+    st.markdown("#### 値グラデーションの色レンジ（任意）")
+    st.caption("「値の大きさ（グラデーション）」表示時の色スケール |値| の下限・上限"
+               "（最小 ≥ 最大 で自動）。期間ごとに地図を分けても色の意味が揃います。")
+    for spec in METRICS:
+        c1, c2 = st.columns(2)
+        with c1:
+            lo = st.number_input(f"{spec.name} 最小", value=0.0, key=f"maprng_{spec.key}_min")
+        with c2:
+            hi = st.number_input(f"{spec.name} 最大", value=0.0, key=f"maprng_{spec.key}_max")
+        mv[spec.key] = range_or_none(lo, hi)
+
+    for cf in custom_fields:
+        c1, c2 = st.columns(2)
+        with c1:
+            lo = st.number_input(f"{cf.label} 最小", value=0.0, key=f"maprng_{cf.key}_min")
+        with c2:
+            hi = st.number_input(f"{cf.label} 最大", value=0.0, key=f"maprng_{cf.key}_max")
+        cmv[cf.key] = range_or_none(lo, hi)
+
+    return mv, cmv
+
+
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     with st.sidebar:
         render_settings_loader(state)
@@ -198,6 +230,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                     st.slider("地図の幅(px)", 400, 1600, value=800, step=20, key="map_width")
                 )
 
+            map_value_ranges, custom_map_value_ranges = _render_map_value_ranges(custom_fields)
+
         with st.expander("開発用（任意）"):
             tables = render_table_config(settings, str(backend), bq_dataset)
 
@@ -239,6 +273,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         custom_scatter_ylims=custom_scatter_ylims,
         custom_hist_xlims=custom_hist_xlims,
         custom_hist_ylims=custom_hist_ylims,
+        map_value_ranges=map_value_ranges,
+        custom_map_value_ranges=custom_map_value_ranges,
     )
 
     # 設定の書き出し UI を「設定を読み込む」の直下（プレースホルダ）に描画する。

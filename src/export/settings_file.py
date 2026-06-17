@@ -72,8 +72,17 @@ def _custom_ranges_dict(sb: "SidebarValues") -> dict:
             "散布図Y": _range_or_none_to_list(sb.custom_scatter_ylims.get(f.key)),
             "ヒストX": _range_or_none_to_list(sb.custom_hist_xlims.get(f.key)),
             "ヒストY": _range_or_none_to_list(sb.custom_hist_ylims.get(f.key)),
+            "地図グラデーション": _range_or_none_to_list(sb.custom_map_value_ranges.get(f.key)),
         }
     return out
+
+
+def _map_value_ranges_dict(sb: "SidebarValues") -> dict:
+    """既存指標の地図グラデーション色レンジを spec.name キーで dict にする。"""
+    return {
+        spec.name: _range_or_none_to_list(sb.map_value_ranges.get(spec.key))
+        for spec in METRICS
+    }
 
 
 def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
@@ -91,6 +100,7 @@ def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
             "プロット色": "期間ごとの色" if sb.map_color_by == "period" else "値の大きさ（グラデーション）",
             "高さ(px)": sb.map_height,
             "幅(px)": sb.map_width if sb.map_width is not None else "画面に合わせる",
+            "値グラデーション範囲": _map_value_ranges_dict(sb),
         },
         "プロット色": dict(state.color_map),
         "画像サイズ（インチ）": {

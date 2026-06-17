@@ -43,6 +43,10 @@ class SidebarValues:
     custom_hist_xlims: dict[str, tuple[float, float] | None] = field(default_factory=dict)
     custom_hist_ylims: dict[str, tuple[float, float] | None] = field(default_factory=dict)
 
+    # 地図グラデーション（値の大きさ）の色スケール範囲（|値|。指標/フィールドごとに独立）
+    map_value_ranges: dict[str, tuple[float, float] | None] = field(default_factory=dict)
+    custom_map_value_ranges: dict[str, tuple[float, float] | None] = field(default_factory=dict)
+
 
 def range_or_none(min_v: float, max_v: float) -> tuple[float, float] | None:
     """min >= max のときは「レンジ指定なし」として None を返す。"""

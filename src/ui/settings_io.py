@@ -70,22 +70,25 @@ def _custom_field_rows(items: list) -> list[dict]:
 
 
 # 自由フィールド表示レンジ：JSONキー -> session_state キーのサフィックス（min, max）
+# プレフィックスは散布図/ヒストが "rng_cf{i}_"、地図グラデーションのみ "maprng_cf{i}_"。
 _CUSTOM_RANGE_KEYS = {
     "散布図X": ("x_min", "x_max"),
     "散布図Y": ("y_min", "y_max"),
     "ヒストX": ("hx_min", "hx_max"),
     "ヒストY": ("hy_min", "hy_max"),
 }
+_CUSTOM_MAP_RANGE_KEY = "地図グラデーション"  # session: maprng_cf{i}_min / _max
 
 
 def _custom_ranges_by_label(d: dict) -> dict[str, dict]:
     """自由フィールド表示レンジ（label -> {散布図X: [lo,hi]|None, ...}）を正規化する。"""
     out: dict[str, dict] = {}
+    json_keys = (*_CUSTOM_RANGE_KEYS, _CUSTOM_MAP_RANGE_KEY)
     for label, ranges in d.items():
         if not isinstance(ranges, dict):
             continue
         norm: dict = {}
-        for json_key in _CUSTOM_RANGE_KEYS:
+        for json_key in json_keys:
             pair = ranges.get(json_key)
             if isinstance(pair, (list, tuple)) and len(pair) == 2:
                 lo, hi = _as_float(pair[0]), _as_float(pair[1])
@@ -200,6 +203,19 @@ def extract_session_values(d: dict) -> dict[str, Any]:
     mh = _as_int(map_cfg.get("高さ(px)"))
     if mh is not None:
         out["map_height"] = mh
+
+    # 既存指標の地図グラデーション色レンジ（spec.name -> [lo, hi]）
+    mv = map_cfg.get("値グラデーション範囲")
+    if isinstance(mv, dict):
+        name_to_key = {spec.name: spec.key for spec in METRICS}
+        for name, key in name_to_key.items():
+            pair = mv.get(name)
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                lo, hi = _as_float(pair[0]), _as_float(pair[1])
+                if lo is not None and hi is not None:
+                    out[f"maprng_{key}_min"], out[f"maprng_{key}_max"] = lo, hi
+            elif pair is None and name in mv:
+                out[f"maprng_{key}_min"], out[f"maprng_{key}_max"] = 0.0, 0.0
     width = map_cfg.get("幅(px)")
     if isinstance(width, str) and "画面" in width:
         out["map_full_width"] = True
@@ -264,6 +280,10 @@ def apply_settings(d: dict, state) -> int:
                 lo, hi = (pair if isinstance(pair, tuple) else (0.0, 0.0))
                 st.session_state[f"rng_cf{i}_{lo_suf}"] = lo
                 st.session_state[f"rng_cf{i}_{hi_suf}"] = hi
+            map_pair = ranges.get(_CUSTOM_MAP_RANGE_KEY)
+            mlo, mhi = (map_pair if isinstance(map_pair, tuple) else (0.0, 0.0))
+            st.session_state[f"maprng_cf{i}_min"] = mlo
+            st.session_state[f"maprng_cf{i}_max"] = mhi
         applied += 1
 
     color_map = values.pop("__color_map__", None)

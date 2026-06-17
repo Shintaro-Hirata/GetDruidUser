@@ -161,6 +161,7 @@ def test_custom_field_ranges_export_and_roundtrip():
         custom_scatter_ylims={"cf1": (-1.0, 1.0)},
         custom_hist_xlims={"cf1": None},
         custom_hist_ylims={"cf1": (0.0, 0.8)},
+        custom_map_value_ranges={"cf1": (0.0, 2.0)},
     )
     d = build_input_settings_dict(
         state=AppState(), sb=sb, ranges_text="", bq_project="t2-integration"
@@ -168,11 +169,32 @@ def test_custom_field_ranges_export_and_roundtrip():
     rng = d["表示設定"]["自由フィールド表示レンジ"]
     assert rng["ヨーレート"]["散布図X"] == [0.0, 5.0]
     assert rng["ヨーレート"]["ヒストX"] is None
+    assert rng["ヨーレート"]["地図グラデーション"] == [0.0, 2.0]
 
     out = extract_session_values(d)
     by_label = out["__custom_ranges_by_label__"]
     assert by_label["ヨーレート"]["散布図X"] == (0.0, 5.0)
     assert by_label["ヨーレート"]["ヒストX"] is None
+    assert by_label["ヨーレート"]["地図グラデーション"] == (0.0, 2.0)
+
+
+def test_map_value_ranges_export_and_roundtrip():
+    # 既存指標の地図グラデーション色レンジが書き出され、読み込みで復元される
+    from src.export.settings_file import build_input_settings_dict
+    from src.ui.settings_io import extract_session_values
+
+    sb = _sb(map_value_ranges={"q1": (0.0, 1.0), "q2": None})
+    d = build_input_settings_dict(
+        state=AppState(), sb=sb, ranges_text="", bq_project="t2-integration"
+    )
+    mv = d["表示設定"]["地図設定"]["値グラデーション範囲"]
+    assert mv["lateral_error"] == [0.0, 1.0]
+    assert mv["acceleration"] is None
+
+    out = extract_session_values(d)
+    assert out["maprng_q1_min"] == 0.0 and out["maprng_q1_max"] == 1.0
+    # None（指定なし）→ 0,0（自動）に戻す
+    assert out["maprng_q2_min"] == 0.0 and out["maprng_q2_max"] == 0.0
 
 
 def test_custom_ranges_apply_to_session_in_field_order(monkeypatch):
@@ -194,7 +216,8 @@ def test_custom_ranges_apply_to_session_in_field_order(monkeypatch):
         "表示設定": {
             "自由フィールド表示レンジ": {
                 "ヨーレート": {"散布図X": [0.0, 5.0], "散布図Y": None,
-                             "ヒストX": [-2.0, 2.0], "ヒストY": None},
+                             "ヒストX": [-2.0, 2.0], "ヒストY": None,
+                             "地図グラデーション": [0.0, 3.0]},
             },
         },
     }
@@ -203,6 +226,8 @@ def test_custom_ranges_apply_to_session_in_field_order(monkeypatch):
     assert fake_ss["rng_cf1_hx_min"] == -2.0 and fake_ss["rng_cf1_hx_max"] == 2.0
     # None（指定なし）は 0,0（レンジ無効）に戻す
     assert fake_ss["rng_cf1_y_min"] == 0.0 and fake_ss["rng_cf1_y_max"] == 0.0
+    # 地図グラデーションは maprng_cf{i}_min/max に入る
+    assert fake_ss["maprng_cf1_min"] == 0.0 and fake_ss["maprng_cf1_max"] == 3.0
 
 
 def test_input_export_roundtrip_with_loader():

@@ -43,6 +43,33 @@ def test_metric_map_fig_value_gradient():
     assert fig is not None
     # 値グラデーション：marker.color は値の絶対値配列
     assert list(fig.data[0].marker.color) == [0.5, 0.3, 0.8]
+    # レンジ未指定なら色スケールは自動（cmin/cmax なし）
+    assert fig.data[0].marker.cmin is None and fig.data[0].marker.cmax is None
+
+
+def test_metric_map_fig_value_gradient_with_range():
+    fig = metric_map_fig(
+        LATERAL_ERROR,
+        [("A", _df())],
+        colors={"A": "#ff0000"},
+        color_by="value",
+        value_range=(0.0, 1.0),
+    )
+    # 色スケールの下限・上限が固定される（期間を分けても色の意味が揃う）
+    assert fig.data[0].marker.cmin == 0.0
+    assert fig.data[0].marker.cmax == 1.0
+
+
+def test_metric_map_fig_value_range_ignored_in_period_mode():
+    # 期間色モードでは value_range は無関係（cmin/cmax は付かない）
+    fig = metric_map_fig(
+        LATERAL_ERROR,
+        [("A", _df())],
+        colors={"A": "#ff0000"},
+        color_by="period",
+        value_range=(0.0, 1.0),
+    )
+    assert fig.data[0].marker.cmin is None
 
 
 def test_metric_map_fig_empty_returns_none():

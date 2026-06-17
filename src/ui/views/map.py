@@ -82,12 +82,15 @@ def metric_map_fig(
     color_by: ColorBy = "period",
     height: int = 560,
     pending_excludes: Sequence[ExcludeRange] = (),
+    value_range: tuple[float, float] | None = None,
 ) -> go.Figure | None:
     """
     series: [(期間ラベル, df), ...]
     color_by:
       - "period": 期間ごとの色（カラーピッカーの色）
       - "value" : 値の絶対値でグラデーション（どこで大きい値が出たかが分かる）
+    value_range: グラデーション時の色スケール下限・上限（|値|）。None なら自動。
+                 期間ごとに地図を分けても、固定すると色の意味が揃う。
     pending_excludes: 未実行の除外時間帯（該当点をグレーでプレビュー表示）
     """
     fig = go.Figure()
@@ -111,6 +114,8 @@ def metric_map_fig(
                     showscale=(idx == 0),
                     colorbar=dict(title=f"|{spec.name}|") if idx == 0 else None,
                 )
+                if value_range is not None:
+                    marker["cmin"], marker["cmax"] = value_range
             else:
                 marker = dict(size=10, color=colors.get(label))
             fig.add_trace(_map_trace(active, spec, label, marker))

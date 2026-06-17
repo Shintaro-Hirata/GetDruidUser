@@ -100,10 +100,12 @@ def render_metric_views(
     title_suffix: str = "",
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
+    map_value_range: tuple[float, float] | None = None,
 ) -> None:
     """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表の切替つき）を描画する。
 
     xlim / ylim は散布図・画像の軸レンジ（自由フィールドではフィールドごとに渡す）。
+    map_value_range は地図の値グラデーションの色スケール範囲（|値|）。
     """
     st.markdown(f"### {spec.title}{title_suffix}")
     mode = _view_selector(key, VIEW_MODES)
@@ -126,6 +128,7 @@ def render_metric_views(
                     color_by="value",
                     height=sb.map_height,
                     pending_excludes=pending,
+                    value_range=map_value_range,
                 )
                 _show_fig_or_empty(
                     fig, key=f"plot_{key}_map_{i}", width=sb.map_width, state=state
@@ -138,6 +141,7 @@ def render_metric_views(
             color_by=sb.map_color_by,
             height=sb.map_height,
             pending_excludes=pending,
+            value_range=map_value_range,
         )
         _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width, state=state)
         return
@@ -260,6 +264,7 @@ def _render_chunk_content(
                 key=f"{key_prefix}_{spec.key}",
                 xlim=sb.scatter_xlim,
                 ylim=sb.scatter_ylims.get(spec.key),
+                map_value_range=sb.map_value_ranges.get(spec.key),
             )
 
     _render_hist_block(
@@ -280,6 +285,7 @@ def _render_chunk_content(
             key=f"{key_prefix}_{cf.key}",
             xlim=sb.custom_scatter_xlims.get(cf.key),
             ylim=sb.custom_scatter_ylims.get(cf.key),
+            map_value_range=sb.custom_map_value_ranges.get(cf.key),
         )
         _render_hist_block(
             [(period.label, chunk.custom_hist_dfs.get(cf.key, pd.DataFrame()))],
@@ -344,6 +350,7 @@ def render_compare_tab(
                 title_suffix="（比較）",
                 xlim=sb.scatter_xlim,
                 ylim=sb.scatter_ylims.get(spec.key),
+                map_value_range=sb.map_value_ranges.get(spec.key),
             )
 
     _render_hist_block(
@@ -367,6 +374,7 @@ def render_compare_tab(
             title_suffix="（比較）",
             xlim=sb.custom_scatter_xlims.get(cf.key),
             ylim=sb.custom_scatter_ylims.get(cf.key),
+            map_value_range=sb.custom_map_value_ranges.get(cf.key),
         )
         _render_hist_block(
             results.compare_custom_hist_series(cf.key),
