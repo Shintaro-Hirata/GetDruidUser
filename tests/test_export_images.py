@@ -44,6 +44,45 @@ def test_image_zip_with_compare():
         assert len(names) == 9
 
 
+def test_hist_fig_uses_custom_x_label():
+    # 自由フィールドのヒストグラム横軸ラベルはフィールドのラベルになる（横G固定でない）
+    import pandas as pd
+
+    from src.ui.views.histogram import hist_fig
+
+    df = pd.DataFrame({
+        "bin_start": [0.0, 0.1], "ratio_auto": [0.4, 0.6], "ratio_manual": [0.5, 0.5],
+    })
+    fig = hist_fig([("A", df)], x_label="ヨーレート[rad/s]")
+    assert fig.layout.xaxis.title.text == "ヨーレート[rad/s]"
+    assert "ヨーレート[rad/s]" in fig.data[0].hovertemplate
+
+
+def test_image_zip_custom_field_ranges_applied():
+    # 自由フィールドの軸レンジをフィールドごとに渡してもエラーなく生成できる
+    from src.domain.models import CustomField
+
+    cf = CustomField(key="cf1", label="ヨーレート",
+                     table="t2_localization_compositor_pose",
+                     column=".pose.angular_velocity_vrf.z",
+                     agg_mode="metric", threshold=0.0, hist_bin=0.1)
+    results = run_pipeline(
+        backend=StubBackend(), config=_config(custom_fields=(cf,)),
+        ranges=[_range()], progress_callback=None,
+    )
+    data = results_to_image_zip(
+        results,
+        custom_scatter_xlims={"cf1": (0.0, 5.0)},
+        custom_scatter_ylims={"cf1": (-1.0, 1.0)},
+        custom_hist_xlims={"cf1": (-2.0, 2.0)},
+        custom_hist_ylims={"cf1": (0.0, 1.0)},
+    )
+    with zipfile.ZipFile(BytesIO(data)) as zf:
+        names = zf.namelist()
+        assert "期間A/ヨーレート.png" in names
+        assert "期間A/ヨーレート_ヒスト.png" in names
+
+
 def test_image_zip_respects_axis_limits():
     # 軸レンジ指定でもエラーなく生成できる
     results = run_pipeline(

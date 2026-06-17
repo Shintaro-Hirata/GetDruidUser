@@ -146,6 +146,65 @@ def test_build_input_settings_dict_from_current_inputs():
     assert d["表示設定"]["プロット色"] == {"6/4夜勤": "#abcdef"}
 
 
+def test_custom_field_ranges_export_and_roundtrip():
+    # 自由フィールドの表示レンジが label ごとに書き出され、読み込みで復元される
+    from src.domain.models import CustomField
+    from src.export.settings_file import build_input_settings_dict
+    from src.ui.settings_io import extract_session_values
+
+    cf = CustomField(key="cf1", label="ヨーレート",
+                     table="t2_localization_compositor_pose",
+                     column=".pose.angular_velocity_vrf.z", agg_mode="metric")
+    sb = _sb(
+        custom_fields=(cf,),
+        custom_scatter_xlims={"cf1": (0.0, 5.0)},
+        custom_scatter_ylims={"cf1": (-1.0, 1.0)},
+        custom_hist_xlims={"cf1": None},
+        custom_hist_ylims={"cf1": (0.0, 0.8)},
+    )
+    d = build_input_settings_dict(
+        state=AppState(), sb=sb, ranges_text="", bq_project="t2-integration"
+    )
+    rng = d["表示設定"]["自由フィールド表示レンジ"]
+    assert rng["ヨーレート"]["散布図X"] == [0.0, 5.0]
+    assert rng["ヨーレート"]["ヒストX"] is None
+
+    out = extract_session_values(d)
+    by_label = out["__custom_ranges_by_label__"]
+    assert by_label["ヨーレート"]["散布図X"] == (0.0, 5.0)
+    assert by_label["ヨーレート"]["ヒストX"] is None
+
+
+def test_custom_ranges_apply_to_session_in_field_order(monkeypatch):
+    # apply_settings は復元したフィールド順（cf1..）に表示レンジ session_state を設定する
+    import streamlit as st
+
+    from src.ui.settings_io import apply_settings
+
+    fake_ss: dict = {}
+    monkeypatch.setattr(st, "session_state", fake_ss, raising=False)
+
+    settings = {
+        "取得条件": {
+            "自由フィールド": [
+                {"ラベル": "ヨーレート", "テーブル": "t", "フィールド": "c",
+                 "集計": "既存指標と同じ", "|値|>=": 0.0, "ビン幅": 0.1},
+            ],
+        },
+        "表示設定": {
+            "自由フィールド表示レンジ": {
+                "ヨーレート": {"散布図X": [0.0, 5.0], "散布図Y": None,
+                             "ヒストX": [-2.0, 2.0], "ヒストY": None},
+            },
+        },
+    }
+    apply_settings(settings, AppState())
+    assert fake_ss["rng_cf1_x_min"] == 0.0 and fake_ss["rng_cf1_x_max"] == 5.0
+    assert fake_ss["rng_cf1_hx_min"] == -2.0 and fake_ss["rng_cf1_hx_max"] == 2.0
+    # None（指定なし）は 0,0（レンジ無効）に戻す
+    assert fake_ss["rng_cf1_y_min"] == 0.0 and fake_ss["rng_cf1_y_max"] == 0.0
+
+
 def test_input_export_roundtrip_with_loader():
     # 書き出し → 読み込みで主要項目が一致する（実行前設定の往復）
     from datetime import datetime, timedelta, timezone

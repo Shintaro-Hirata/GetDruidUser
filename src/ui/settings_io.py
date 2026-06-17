@@ -69,6 +69,34 @@ def _custom_field_rows(items: list) -> list[dict]:
     return rows
 
 
+# 自由フィールド表示レンジ：JSONキー -> session_state キーのサフィックス（min, max）
+_CUSTOM_RANGE_KEYS = {
+    "散布図X": ("x_min", "x_max"),
+    "散布図Y": ("y_min", "y_max"),
+    "ヒストX": ("hx_min", "hx_max"),
+    "ヒストY": ("hy_min", "hy_max"),
+}
+
+
+def _custom_ranges_by_label(d: dict) -> dict[str, dict]:
+    """自由フィールド表示レンジ（label -> {散布図X: [lo,hi]|None, ...}）を正規化する。"""
+    out: dict[str, dict] = {}
+    for label, ranges in d.items():
+        if not isinstance(ranges, dict):
+            continue
+        norm: dict = {}
+        for json_key in _CUSTOM_RANGE_KEYS:
+            pair = ranges.get(json_key)
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                lo, hi = _as_float(pair[0]), _as_float(pair[1])
+                if lo is not None and hi is not None:
+                    norm[json_key] = (lo, hi)
+                    continue
+            norm[json_key] = None  # 指定なし
+        out[str(label)] = norm
+    return out
+
+
 def extract_session_values(d: dict) -> dict[str, Any]:
     """
     設定 dict から session_state に入れる値を抽出する（純粋関数・テスト可能）。
@@ -139,6 +167,12 @@ def extract_session_values(d: dict) -> dict[str, Any]:
         rows = _custom_field_rows(custom)
         if rows:
             out["__custom_field_rows__"] = rows
+
+    custom_ranges = disp.get("自由フィールド表示レンジ")
+    if isinstance(custom_ranges, dict):
+        parsed = _custom_ranges_by_label(custom_ranges)
+        if parsed:
+            out["__custom_ranges_by_label__"] = parsed
 
     # ---- 表示設定 ----
     ranges_disp = disp.get("表示レンジ") if isinstance(disp.get("表示レンジ"), dict) else {}
@@ -216,6 +250,20 @@ def apply_settings(d: dict, state) -> int:
     if isinstance(custom_rows, list):
         state.custom_field_rows = custom_rows
         st.session_state.pop("custom_fields_editor", None)
+        applied += 1
+
+    # 自由フィールド表示レンジ：label を、復元したフィールドの並び順（cf1..cfN）に対応づける
+    custom_ranges = values.pop("__custom_ranges_by_label__", None)
+    if isinstance(custom_ranges, dict) and isinstance(custom_rows, list):
+        for i, row in enumerate(custom_rows, start=1):
+            ranges = custom_ranges.get(str(row.get("label") or ""))
+            if not isinstance(ranges, dict):
+                continue
+            for json_key, (lo_suf, hi_suf) in _CUSTOM_RANGE_KEYS.items():
+                pair = ranges.get(json_key)
+                lo, hi = (pair if isinstance(pair, tuple) else (0.0, 0.0))
+                st.session_state[f"rng_cf{i}_{lo_suf}"] = lo
+                st.session_state[f"rng_cf{i}_{hi_suf}"] = hi
         applied += 1
 
     color_map = values.pop("__color_map__", None)

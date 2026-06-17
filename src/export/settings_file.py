@@ -63,6 +63,19 @@ def _custom_fields_list(fields) -> list[dict]:
     ]
 
 
+def _custom_ranges_dict(sb: "SidebarValues") -> dict:
+    """自由フィールドの表示レンジを label をキーに人間可読＋復元可能な dict にする。"""
+    out: dict[str, dict] = {}
+    for f in sb.custom_fields:
+        out[f.label] = {
+            "散布図X": _range_or_none_to_list(sb.custom_scatter_xlims.get(f.key)),
+            "散布図Y": _range_or_none_to_list(sb.custom_scatter_ylims.get(f.key)),
+            "ヒストX": _range_or_none_to_list(sb.custom_hist_xlims.get(f.key)),
+            "ヒストY": _range_or_none_to_list(sb.custom_hist_ylims.get(f.key)),
+        }
+    return out
+
+
 def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
     return {
         "表示レンジ": {
@@ -72,6 +85,7 @@ def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
             "Q3 X（横G）": _range_or_none_to_list(sb.hist_xlim),
             "Q3 Y（発生頻度）": _range_or_none_to_list(sb.hist_ylim),
         },
+        "自由フィールド表示レンジ": _custom_ranges_dict(sb),
         "Q3平滑度（移動平均ウィンドウ幅）": sb.smooth_window,
         "地図設定": {
             "プロット色": "期間ごとの色" if sb.map_color_by == "period" else "値の大きさ（グラデーション）",

@@ -154,6 +154,7 @@ def _hist_png(
     ylim,
     compare: bool,
     figsize: tuple[float, float] | None = None,
+    x_label: str = HIST_X_LABEL,
 ) -> bytes | None:
     """旧 show_query3 / show_query3_compare と同じ横G図（自動=オレンジ/手動=青）"""
     if figsize is None:
@@ -181,7 +182,7 @@ def _hist_png(
     if not any_plotted:
         plt.close(fig)
         return None
-    ax.set_xlabel(HIST_X_LABEL)
+    ax.set_xlabel(x_label)
     ax.set_ylabel(HIST_Y_LABEL)
     _apply_limits(ax, xlim, ylim)
     _legend_outside(ax)
@@ -217,6 +218,7 @@ def hist_png(
     ylim=None,
     figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
     figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+    x_label: str = HIST_X_LABEL,
 ) -> bytes | None:
     """横GヒストグラムPNG。系列数で単体/比較を自動選択する。"""
     _setup_style()
@@ -228,6 +230,7 @@ def hist_png(
         ylim=ylim,
         compare=compare,
         figsize=figsize_compare if compare else figsize_single,
+        x_label=x_label,
     )
 
 
@@ -241,15 +244,24 @@ def results_to_image_zip(
     smooth_window: int = 1,
     figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
     figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+    custom_scatter_xlims: dict | None = None,
+    custom_scatter_ylims: dict | None = None,
+    custom_hist_xlims: dict | None = None,
+    custom_hist_ylims: dict | None = None,
     extra_files: dict[str, bytes] | None = None,
 ) -> bytes:
     """
     期間ごと＋比較（2期間以上のとき）の図を従来の matplotlib 形式で PNG 化し、
     ZIP バイト列を返す。軸レンジ・平滑化・画像サイズは表示中の設定をそのまま反映する。
+    自由フィールドの軸レンジはフィールドごと（CustomField.key）に指定できる。
     extra_files: ZIP直下に追加するファイル（例: settings.json）
     """
     _setup_style()
     scatter_ylims = scatter_ylims or {}
+    custom_scatter_xlims = custom_scatter_xlims or {}
+    custom_scatter_ylims = custom_scatter_ylims or {}
+    custom_hist_xlims = custom_hist_xlims or {}
+    custom_hist_ylims = custom_hist_ylims or {}
     images: list[tuple[str, bytes]] = []
 
     def add(png: bytes | None, path: str) -> None:
@@ -279,20 +291,23 @@ def results_to_image_zip(
         )
         add(png, f"{folder}/Q3_横G.png")
 
-        # 自由フィールド（散布図＋分布ヒストグラム）
+        # 自由フィールド（散布図＋分布ヒストグラム）：軸レンジ・横軸ラベルはフィールドごと
         for cf in results.config.custom_fields:
             add(
                 _scatter_single_png(
                     period.combined_custom_df(cf.key), cf,
-                    xlim=scatter_xlim, ylim=None, figsize=figsize_single,
+                    xlim=custom_scatter_xlims.get(cf.key),
+                    ylim=custom_scatter_ylims.get(cf.key), figsize=figsize_single,
                 ),
                 f"{folder}/{_safe(cf.label)}.png",
             )
             add(
                 _hist_png(
                     [(period.label, period.combined_custom_hist_df(cf.key))],
-                    smooth_window=smooth_window, xlim=None, ylim=None,
-                    compare=False, figsize=figsize_single,
+                    smooth_window=smooth_window,
+                    xlim=custom_hist_xlims.get(cf.key),
+                    ylim=custom_hist_ylims.get(cf.key),
+                    compare=False, figsize=figsize_single, x_label=cf.label,
                 ),
                 f"{folder}/{_safe(cf.label)}_ヒスト.png",
             )
@@ -323,15 +338,18 @@ def results_to_image_zip(
             add(
                 _scatter_compare_png(
                     results.compare_custom_series(cf.key), cf,
-                    xlim=scatter_xlim, ylim=None, figsize=figsize_compare,
+                    xlim=custom_scatter_xlims.get(cf.key),
+                    ylim=custom_scatter_ylims.get(cf.key), figsize=figsize_compare,
                 ),
                 f"比較/{_safe(cf.label)}_比較.png",
             )
             add(
                 _hist_png(
                     results.compare_custom_hist_series(cf.key),
-                    smooth_window=smooth_window, xlim=None, ylim=None,
-                    compare=True, figsize=figsize_compare,
+                    smooth_window=smooth_window,
+                    xlim=custom_hist_xlims.get(cf.key),
+                    ylim=custom_hist_ylims.get(cf.key),
+                    compare=True, figsize=figsize_compare, x_label=cf.label,
                 ),
                 f"比較/{_safe(cf.label)}_ヒスト_比較.png",
             )

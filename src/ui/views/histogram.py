@@ -25,10 +25,12 @@ def hist_fig(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     height: int = 420,
+    x_label: str = HIST_X_LABEL,
 ) -> go.Figure | None:
     """
     series: [(期間ラベル, hist_df), ...]
     hist_df: bin_start / ratio_auto / ratio_manual を持つ
+    x_label: 横軸ラベル（自由フィールドではそのフィールドのラベルを渡す）
     """
     fig = go.Figure()
     any_plotted = False
@@ -60,7 +62,7 @@ def hist_fig(
                     marker=dict(size=5),
                     hovertemplate=(
                         f"<b>{name}</b><br>"
-                        f"{HIST_X_LABEL}: %{{x:.1f}}<br>"
+                        f"{x_label}: %{{x:.1f}}<br>"
                         f"{HIST_Y_LABEL}: %{{y:.4f}}"
                         "<extra></extra>"
                     ),
@@ -74,7 +76,7 @@ def hist_fig(
     fig.update_layout(
         height=height,
         margin=dict(l=10, r=10, t=30, b=10),
-        xaxis_title=HIST_X_LABEL,
+        xaxis_title=x_label,
         yaxis_title=HIST_Y_LABEL,
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )

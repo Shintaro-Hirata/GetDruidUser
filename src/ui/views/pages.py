@@ -10,7 +10,7 @@ import streamlit as st
 
 from src.domain.results import ChunkData, PeriodResult, RunResults
 from src.export.images import hist_png, scatter_png
-from src.queries.specs import HIST_TITLE, METRICS, MetricSpec
+from src.queries.specs import HIST_TITLE, HIST_X_LABEL, METRICS, MetricSpec
 from src.ui.exclude_editor import handle_exclude_selection, selection_sec_times
 from src.ui.sidebar import SidebarValues
 from src.ui.state import AppState
@@ -35,10 +35,10 @@ def _scatter_png_cached(_spec, spec_key: str, series, xlim, ylim, fs_single, fs_
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
-def _hist_png_cached(series, smooth_window: int, xlim, ylim, fs_single, fs_compare):
+def _hist_png_cached(series, smooth_window: int, xlim, ylim, fs_single, fs_compare, x_label):
     return hist_png(
         series, smooth_window=smooth_window, xlim=xlim, ylim=ylim,
-        figsize_single=fs_single, figsize_compare=fs_compare,
+        figsize_single=fs_single, figsize_compare=fs_compare, x_label=x_label,
     )
 
 
@@ -98,8 +98,13 @@ def render_metric_views(
     *,
     key: str,
     title_suffix: str = "",
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
 ) -> None:
-    """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表の切替つき）を描画する。"""
+    """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表の切替つき）を描画する。
+
+    xlim / ylim は散布図・画像の軸レンジ（自由フィールドではフィールドごとに渡す）。
+    """
     st.markdown(f"### {spec.title}{title_suffix}")
     mode = _view_selector(key, VIEW_MODES)
 
@@ -108,6 +113,24 @@ def render_metric_views(
     pending = tuple(r for r in state.excludes if r not in applied)
 
     if mode == "地図":
+        # 値グラデーション × 複数期間：1枚に重ねると期間が見分けられないため、
+        # 期間ごとに地図を分けて描く（各期間内で値の大小がグラデーションで分かる）。
+        non_empty = [(lb, df) for lb, df in series if df is not None and not df.empty]
+        if sb.map_color_by == "value" and len(non_empty) >= 2:
+            for i, (lb, df) in enumerate(non_empty):
+                st.caption(f"期間: {lb}")
+                fig = metric_map_fig(
+                    spec,
+                    [(lb, df)],
+                    colors=colors,
+                    color_by="value",
+                    height=sb.map_height,
+                    pending_excludes=pending,
+                )
+                _show_fig_or_empty(
+                    fig, key=f"plot_{key}_map_{i}", width=sb.map_width, state=state
+                )
+            return
         fig = metric_map_fig(
             spec,
             series,
@@ -125,8 +148,8 @@ def render_metric_views(
             spec,
             spec.key,
             series,
-            sb.scatter_xlim,
-            sb.scatter_ylims.get(spec.key),
+            xlim,
+            ylim,
             sb.fig_size_single,
             sb.fig_size_compare,
         )
@@ -153,8 +176,8 @@ def render_metric_views(
         spec,
         series,
         colors=colors,
-        xlim=sb.scatter_xlim,
-        ylim=sb.scatter_ylims.get(spec.key),
+        xlim=xlim,
+        ylim=ylim,
         pending_excludes=pending,
     )
     _show_fig_or_empty(fig, key=f"plot_{key}_scatter", state=state)
@@ -167,6 +190,9 @@ def _render_hist_block(
     key: str,
     title_suffix: str = "",
     head: str = HIST_TITLE,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    x_label: str = HIST_X_LABEL,
 ) -> None:
     st.markdown(f"### {head}（自動/手動）{title_suffix}")
     hist_mode = st.segmented_control(
@@ -181,10 +207,11 @@ def _render_hist_block(
         png = _hist_png_cached(
             series,
             sb.smooth_window,
-            sb.hist_xlim,
-            sb.hist_ylim,
+            xlim,
+            ylim,
             sb.fig_size_single,
             sb.fig_size_compare,
+            x_label,
         )
         if png is None:
             st.info("結果0件")
@@ -194,8 +221,9 @@ def _render_hist_block(
         fig3 = hist_fig(
             series,
             smooth_window=sb.smooth_window,
-            xlim=sb.hist_xlim,
-            ylim=sb.hist_ylim,
+            xlim=xlim,
+            ylim=ylim,
+            x_label=x_label,
         )
         _show_fig_or_empty(fig3, key=f"plot_{key}")
     non_empty = [(label, df) for label, df in series if df is not None and not df.empty]
@@ -230,9 +258,14 @@ def _render_chunk_content(
                 colors,
                 state,
                 key=f"{key_prefix}_{spec.key}",
+                xlim=sb.scatter_xlim,
+                ylim=sb.scatter_ylims.get(spec.key),
             )
 
-    _render_hist_block([(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist")
+    _render_hist_block(
+        [(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist",
+        xlim=sb.hist_xlim, ylim=sb.hist_ylim,
+    )
 
     # カスタムフィールド（任意テーブル×列）：散布図/画像/地図/表 ＋ 分布ヒストグラム
     custom_fields = state.results.config.custom_fields if state.results else ()
@@ -245,12 +278,17 @@ def _render_chunk_content(
             colors,
             state,
             key=f"{key_prefix}_{cf.key}",
+            xlim=sb.custom_scatter_xlims.get(cf.key),
+            ylim=sb.custom_scatter_ylims.get(cf.key),
         )
         _render_hist_block(
             [(period.label, chunk.custom_hist_dfs.get(cf.key, pd.DataFrame()))],
             sb,
             key=f"{key_prefix}_{cf.key}_hist",
             head=cf.label,
+            xlim=sb.custom_hist_xlims.get(cf.key),
+            ylim=sb.custom_hist_ylims.get(cf.key),
+            x_label=cf.label,
         )
 
 
@@ -304,6 +342,8 @@ def render_compare_tab(
                 state,
                 key=f"cmp_{spec.key}",
                 title_suffix="（比較）",
+                xlim=sb.scatter_xlim,
+                ylim=sb.scatter_ylims.get(spec.key),
             )
 
     _render_hist_block(
@@ -311,6 +351,8 @@ def render_compare_tab(
         sb,
         key="cmp_hist",
         title_suffix="（比較）",
+        xlim=sb.hist_xlim,
+        ylim=sb.hist_ylim,
     )
 
     for cf in results.config.custom_fields:
@@ -323,6 +365,8 @@ def render_compare_tab(
             state,
             key=f"cmp_{cf.key}",
             title_suffix="（比較）",
+            xlim=sb.custom_scatter_xlims.get(cf.key),
+            ylim=sb.custom_scatter_ylims.get(cf.key),
         )
         _render_hist_block(
             results.compare_custom_hist_series(cf.key),
@@ -330,6 +374,9 @@ def render_compare_tab(
             key=f"cmp_{cf.key}_hist",
             title_suffix="（比較）",
             head=cf.label,
+            xlim=sb.custom_hist_xlims.get(cf.key),
+            ylim=sb.custom_hist_ylims.get(cf.key),
+            x_label=cf.label,
         )
 
 

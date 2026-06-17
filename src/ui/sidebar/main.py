@@ -24,6 +24,42 @@ def _on_ranges_text_change() -> None:
     )
 
 
+def _render_custom_ranges(custom_fields):
+    """自由フィールドごとの表示レンジ（散布図X/Y・ヒストX/Y）を編集する。
+
+    フィールドごとに独立して指定でき、min >= max は「指定なし（None）」扱い。
+    戻り値は CustomField.key -> レンジ の4辞書。
+    """
+    sx: dict[str, tuple[float, float] | None] = {}
+    sy: dict[str, tuple[float, float] | None] = {}
+    hx: dict[str, tuple[float, float] | None] = {}
+    hy: dict[str, tuple[float, float] | None] = {}
+    if not custom_fields:
+        return sx, sy, hx, hy
+
+    with st.expander("自由フィールドの表示レンジ（任意）"):
+        st.caption("フィールドごとに散布図・ヒストグラムの軸レンジを独立で指定できます（最小 ≥ 最大 で指定なし）。")
+        for cf in custom_fields:
+            st.markdown(f"**{cf.label}**")
+            c1, c2 = st.columns(2)
+            with c1:
+                sx_min = st.number_input("散布図X最小", value=0.0, key=f"rng_{cf.key}_x_min")
+                sy_min = st.number_input("散布図Y最小", value=0.0, key=f"rng_{cf.key}_y_min")
+                hx_min = st.number_input("ヒストX最小", value=0.0, key=f"rng_{cf.key}_hx_min")
+                hy_min = st.number_input("ヒストY最小", value=0.0, key=f"rng_{cf.key}_hy_min")
+            with c2:
+                sx_max = st.number_input("散布図X最大", value=0.0, key=f"rng_{cf.key}_x_max")
+                sy_max = st.number_input("散布図Y最大", value=0.0, key=f"rng_{cf.key}_y_max")
+                hx_max = st.number_input("ヒストX最大", value=0.0, key=f"rng_{cf.key}_hx_max")
+                hy_max = st.number_input("ヒストY最大", value=0.0, key=f"rng_{cf.key}_hy_max")
+            sx[cf.key] = range_or_none(sx_min, sx_max)
+            sy[cf.key] = range_or_none(sy_min, sy_max)
+            hx[cf.key] = range_or_none(hx_min, hx_max)
+            hy[cf.key] = range_or_none(hy_min, hy_max)
+
+    return sx, sy, hx, hy
+
+
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     with st.sidebar:
         render_settings_loader(state)
@@ -130,6 +166,13 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
             q3_y_min = st.number_input("Q3 Y最小（発生頻度）", value=0.0, key="rng_q3_y_min")
             q3_y_max = st.number_input("Q3 Y最大（発生頻度）", value=0.0, key="rng_q3_y_max")
 
+        (
+            custom_scatter_xlims,
+            custom_scatter_ylims,
+            custom_hist_xlims,
+            custom_hist_ylims,
+        ) = _render_custom_ranges(custom_fields)
+
         smooth_window = st.number_input(
             "Q3 平滑度（移動平均ウィンドウ幅）",
             min_value=1,
@@ -192,6 +235,10 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         map_width=map_width,
         fig_size_single=fig_size_single,
         fig_size_compare=fig_size_compare,
+        custom_scatter_xlims=custom_scatter_xlims,
+        custom_scatter_ylims=custom_scatter_ylims,
+        custom_hist_xlims=custom_hist_xlims,
+        custom_hist_ylims=custom_hist_ylims,
     )
 
     # 設定の書き出し UI を「設定を読み込む」の直下（プレースホルダ）に描画する。

@@ -2,7 +2,7 @@
 # サイドバーの入力値スナップショットと共通ヘルパー。
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.domain.models import CustomField, TableConfig
 
@@ -36,6 +36,12 @@ class SidebarValues:
     # 画像サイズ（インチ。画像タブ・画像一括DL共通、再実行不要）
     fig_size_single: tuple[float, float]
     fig_size_compare: tuple[float, float]
+
+    # 自由フィールドの表示レンジ（CustomField.key -> レンジ。フィールドごとに独立）
+    custom_scatter_xlims: dict[str, tuple[float, float] | None] = field(default_factory=dict)
+    custom_scatter_ylims: dict[str, tuple[float, float] | None] = field(default_factory=dict)
+    custom_hist_xlims: dict[str, tuple[float, float] | None] = field(default_factory=dict)
+    custom_hist_ylims: dict[str, tuple[float, float] | None] = field(default_factory=dict)
 
 
 def range_or_none(min_v: float, max_v: float) -> tuple[float, float] | None:
