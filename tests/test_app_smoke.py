@@ -76,6 +76,23 @@ def test_app_drift_warning_after_run():
         assert any("実行』が必要" in w.value for w in at.warning)
 
 
+def test_app_warns_when_data_outside_display_range():
+    # 表示レンジ（Y）を狭めると、レンジ外データがある旨の警告が出る。
+    # 設定JSON読み込みも同じ session_state を更新するため同じ経路で警告される。
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # lateral error のデータは 0.5 を含む。Y を [-0.1, 0.1] に狭める
+        at.session_state["rng_y1_min"] = -0.1
+        at.session_state["rng_y1_max"] = 0.1
+        at.run()
+        assert not at.exception
+        assert any("表示レンジ外" in w.value for w in at.warning)
+
+
 def test_app_view_switch_map_and_table():
     with patch("src.backends.factory.create_backend", return_value=StubBackend()):
         at = AppTest.from_file("app.py", default_timeout=60)

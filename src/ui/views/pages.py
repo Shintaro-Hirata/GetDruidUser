@@ -17,10 +17,20 @@ from src.ui.state import AppState
 from src.ui.views.common import df_times_to_jst
 from src.ui.views.histogram import hist_fig
 from src.ui.views.map import metric_map_fig
-from src.ui.views.scatter import metric_scatter_fig
+from src.ui.views.range_check import hist_range_warnings, scatter_range_warnings
+from src.ui.views.scatter import _uses_distance_x, metric_scatter_fig
 
 VIEW_MODES = ["散布図", "画像", "地図", "表"]
 HIST_VIEW_MODES = ["グラフ", "画像"]
+
+
+def _warn_out_of_range(msgs: list[str]) -> None:
+    """表示レンジ外のデータがある（隠れている）場合に警告を出す。"""
+    if msgs:
+        st.warning(
+            "表示レンジ外のデータがあります（グラフから隠れている可能性があります）\n\n"
+            + "\n".join(f"- {m}" for m in msgs)
+        )
 
 
 # 画像タブのPNGはキャッシュする（matplotlib描画は1枚100ms前後かかる）。
@@ -114,6 +124,11 @@ def render_metric_views(
     applied = set(state.results.config.excludes) if state.results else set()
     pending = tuple(r for r in state.excludes if r not in applied)
 
+    # 表示レンジ外データ（散布図/画像で隠れる可能性）の警告。地図/表では非表示。
+    scatter_msgs = scatter_range_warnings(
+        series, spec, xlim=xlim, ylim=ylim, x_is_dist=_uses_distance_x(series)
+    )
+
     if mode == "地図":
         # 値グラデーション × 複数期間：1枚に重ねると期間が見分けられないため、
         # 期間ごとに地図を分けて描く（各期間内で値の大小がグラデーションで分かる）。
@@ -147,6 +162,7 @@ def render_metric_views(
         return
 
     if mode == "画像":
+        _warn_out_of_range(scatter_msgs)
         # ダウンロードと同じ matplotlib 形式の静止画（レポート互換の見た目）
         png = _scatter_png_cached(
             spec,
@@ -176,6 +192,7 @@ def render_metric_views(
         return
 
     # 散布図（デフォルト）
+    _warn_out_of_range(scatter_msgs)
     fig = metric_scatter_fig(
         spec,
         series,
@@ -206,6 +223,12 @@ def _render_hist_block(
         key=f"histview_{key}",
         label_visibility="collapsed",
     ) or HIST_VIEW_MODES[0]
+
+    _warn_out_of_range(
+        hist_range_warnings(
+            series, xlim=xlim, ylim=ylim, x_label=x_label, smooth_window=sb.smooth_window
+        )
+    )
 
     if hist_mode == "画像":
         png = _hist_png_cached(
