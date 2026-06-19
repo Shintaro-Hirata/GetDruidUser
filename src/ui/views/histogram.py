@@ -4,6 +4,8 @@
 # 色は意味で固定（自動=オレンジ / 手動=青）、期間ごとに線種を変える。
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -16,6 +18,33 @@ _DASHES = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
 def _smooth(y: pd.Series, window: int) -> pd.Series:
     w = max(1, int(window))
     return y.rolling(window=w, center=True, min_periods=1).mean()
+
+
+def _decimals_for_step(step: float) -> int:
+    """ビン幅を過不足なく表せる小数桁数（0.01→2, 0.2→1, 0.025→3）。"""
+    if not step or step <= 0 or not math.isfinite(step):
+        return 1
+    for d in range(0, 9):
+        if abs(round(step, d) - step) <= step * 1e-6:
+            return d
+    return 9
+
+
+def _hover_x_decimals(series: list[tuple[str, pd.DataFrame]]) -> int:
+    """ホバー表示のX桁数をビン幅（bin_end-bin_start）から決める。"""
+    for _, df in series:
+        if df is None or df.empty or "bin_start" not in df.columns:
+            continue
+        bs = pd.to_numeric(df["bin_start"], errors="coerce").dropna()
+        if "bin_end" in df.columns:
+            widths = (pd.to_numeric(df["bin_end"], errors="coerce") - bs).dropna()
+            step = float(widths.median()) if not widths.empty else 0.0
+        else:
+            diffs = bs.sort_values().diff().dropna()
+            step = float(diffs.median()) if not diffs.empty else 0.0
+        if step > 0:
+            return _decimals_for_step(step)
+    return 1
 
 
 def hist_fig(
@@ -35,6 +64,7 @@ def hist_fig(
     fig = go.Figure()
     any_plotted = False
     multi = len(series) > 1
+    x_dec = _hover_x_decimals(series)  # ビン幅に応じたホバーX桁数
 
     for i, (label, df) in enumerate(series):
         if df is None or df.empty:
@@ -62,7 +92,7 @@ def hist_fig(
                     marker=dict(size=5),
                     hovertemplate=(
                         f"<b>{name}</b><br>"
-                        f"{x_label}: %{{x:.1f}}<br>"
+                        f"{x_label}: %{{x:.{x_dec}f}}<br>"
                         f"{HIST_Y_LABEL}: %{{y:.4f}}"
                         "<extra></extra>"
                     ),

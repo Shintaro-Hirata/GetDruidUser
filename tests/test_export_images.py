@@ -58,6 +58,31 @@ def test_hist_fig_uses_custom_x_label():
     assert "ヨーレート[rad/s]" in fig.data[0].hovertemplate
 
 
+def test_hist_fig_hover_decimals_follow_bin_width():
+    # ホバーのX桁数はビン幅に追従する（0.01→小数2桁、0.2→1桁）
+    import pandas as pd
+
+    from src.ui.views.histogram import _decimals_for_step, hist_fig
+
+    assert _decimals_for_step(0.01) == 2
+    assert _decimals_for_step(0.2) == 1
+    assert _decimals_for_step(0.025) == 3
+
+    fine = pd.DataFrame({
+        "bin_start": [-0.13, -0.12, -0.11], "bin_end": [-0.12, -0.11, -0.10],
+        "ratio_auto": [0.1, 0.2, 0.3], "ratio_manual": [0.0, 0.0, 0.0],
+    })
+    fig = hist_fig([("A", fine)], x_label="roll")
+    assert "%{x:.2f}" in fig.data[0].hovertemplate
+
+    coarse = pd.DataFrame({
+        "bin_start": [0.0, 0.2, 0.4], "bin_end": [0.2, 0.4, 0.6],
+        "ratio_auto": [0.1, 0.2, 0.3], "ratio_manual": [0.0, 0.0, 0.0],
+    })
+    fig2 = hist_fig([("A", coarse)], x_label="横G")
+    assert "%{x:.1f}" in fig2.data[0].hovertemplate
+
+
 def test_image_zip_custom_field_ranges_applied():
     # 自由フィールドの軸レンジをフィールドごとに渡してもエラーなく生成できる
     from src.domain.models import CustomField
