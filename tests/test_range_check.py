@@ -75,3 +75,33 @@ def test_hist_y_uses_smoothed_max():
 def test_no_warning_when_no_limit():
     assert scatter_range_warnings([("A", _scatter_df())], LATERAL_ERROR,
                                   xlim=None, ylim=None, x_is_dist=True) == []
+
+
+def test_results_range_warnings_aggregates_across_metrics():
+    from src.services.pipeline import run_pipeline
+    from src.ui.sidebar import SidebarValues
+    from src.ui.views.range_check import results_range_warnings
+
+    from tests.test_pipeline import StubBackend, _config, _range
+
+    results = run_pipeline(backend=StubBackend(), config=_config(),
+                           ranges=[_range()], progress_callback=None)
+
+    def _sb(**kw):
+        base = dict(
+            vehicle_id="giga07", split_minutes=0, dist_mode="latlon",
+            thresholds={"q1": 0.2, "q2": 1.0}, tables=_config().tables,
+            custom_fields=(), backend="bq", bq_dataset="zp", raise_on_error=False, run=False,
+            scatter_xlim=None, scatter_ylims={"q1": None, "q2": None},
+            hist_xlim=None, hist_ylim=None, smooth_window=1,
+            map_color_by="period", map_height=560, map_width=None,
+            fig_size_single=(7.0, 4.0), fig_size_compare=(9.0, 4.5),
+        )
+        base.update(kw)
+        return SidebarValues(**base)
+
+    # lateral_error データは 0.5 を含む。Y を [-0.2, 0.2] に狭めると警告が出る
+    msgs = results_range_warnings(results, _sb(scatter_ylims={"q1": (-0.2, 0.2), "q2": None}))
+    assert any("lateral error" in m for m in msgs)
+    # レンジなしなら警告ゼロ
+    assert results_range_warnings(results, _sb()) == []

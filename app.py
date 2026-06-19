@@ -19,6 +19,7 @@ from src.ui.views.pages import (
     render_period_tab,
     render_zero_plotter_tab,
 )
+from src.ui.views.range_check import results_range_warnings
 
 st.set_page_config(page_title="Druid Query Runner", layout="wide")
 st.title("運行データ可視化: 期間（複数ペア）× 散布図/地図/表 × Excel一括DL")
@@ -84,6 +85,8 @@ if sb.run:
     state.results = results
     state.image_zip = None    # 画像ZIP・Excelは前回結果のものなので無効化
     state.excel_bytes = None
+    # レンジ外トーストの基準を作り直す（実行直後はトーストしない）
+    st.session_state.pop("_prev_range_msgs", None)
     st.rerun()
 
 # =========================
@@ -127,6 +130,23 @@ if f"{settings.bq_project}.{sb.bq_dataset}" != cached.bq_table_prefix:
     drift_msgs.append("BigQueryデータセット")
 if drift_msgs:
     drift_slot.warning("、".join(drift_msgs) + " が変更されています。反映するには『実行』が必要です。")
+
+# 表示レンジを変えた瞬間に、レンジ外データが新たに生じたらトーストで通知する。
+# 設定JSON読み込みでレンジが変わった場合も同じ経路で通知される。
+# （メッセージ集合の差分を取り、新たに増えたものだけを通知。タブ切替など
+#   レンジに無関係な再描画では通知しない。実行直後は基準を作り直し通知しない）
+_range_msgs = results_range_warnings(results, sb)
+_prev_range_msgs = st.session_state.get("_prev_range_msgs")
+if _prev_range_msgs is not None:
+    _new = [m for m in _range_msgs if m not in set(_prev_range_msgs)]
+    if _new:
+        body = "表示レンジ外のデータがあります（グラフから隠れている可能性）\n\n" + "\n".join(
+            f"- {m}" for m in _new[:4]
+        )
+        if len(_new) > 4:
+            body += f"\n- …他 {len(_new) - 4} 件"
+        st.toast(body, icon="⚠️")
+st.session_state["_prev_range_msgs"] = _range_msgs
 
 labels = [p.label for p in results.periods]
 colors = render_color_pickers(state, labels)

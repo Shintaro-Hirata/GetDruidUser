@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.queries.specs import MetricSpec
+from src.queries.specs import HIST_X_LABEL, METRICS, MetricSpec
 
 Series = list[tuple[str, pd.DataFrame]]
 Range = tuple[float, float]
@@ -20,6 +20,13 @@ def _num(s: pd.Series) -> pd.Series:
 def _fmt(v: float) -> str:
     """軸ラベル向けの簡潔な数値表記（指数になりすぎない範囲で）。"""
     return f"{v:.4g}"
+
+
+def _has_distance(series: Series) -> bool:
+    return any(
+        df is not None and not df.empty and "cum_dist_km" in df.columns
+        for _, df in series
+    )
 
 
 def _col_minmax(series: Series, col: str) -> tuple[float, float] | None:
@@ -124,3 +131,46 @@ def hist_range_warnings(
             if m:
                 msgs.append(m)
     return msgs
+
+
+def results_range_warnings(results, sb) -> list[str]:
+    """全期間の結果と現在の表示レンジから、レンジ外データの警告を一括収集する。
+
+    既存指標・自由フィールドの散布図/ヒストグラムを横断してチェックし、
+    重複を除いたメッセージ一覧を返す（トースト通知の本文に使う）。地図の
+    グラデーション色レンジは対象外（点は隠れず色が振り切れるだけのため）。
+    """
+    out: list[str] = []
+    periods = results.periods
+
+    for spec in METRICS:
+        s = [(p.label, p.combined_metric_df(spec.key)) for p in periods]
+        out += scatter_range_warnings(
+            s, spec, xlim=sb.scatter_xlim, ylim=sb.scatter_ylims.get(spec.key),
+            x_is_dist=_has_distance(s),
+        )
+    out += hist_range_warnings(
+        [(p.label, p.combined_hist_df()) for p in periods],
+        xlim=sb.hist_xlim, ylim=sb.hist_ylim, x_label=HIST_X_LABEL,
+        smooth_window=sb.smooth_window,
+    )
+
+    for cf in results.config.custom_fields:
+        s = [(p.label, p.combined_custom_df(cf.key)) for p in periods]
+        out += scatter_range_warnings(
+            s, cf, xlim=sb.custom_scatter_xlims.get(cf.key),
+            ylim=sb.custom_scatter_ylims.get(cf.key), x_is_dist=_has_distance(s),
+        )
+        out += hist_range_warnings(
+            [(p.label, p.combined_custom_hist_df(cf.key)) for p in periods],
+            xlim=sb.custom_hist_xlims.get(cf.key), ylim=sb.custom_hist_ylims.get(cf.key),
+            x_label=cf.label, smooth_window=sb.smooth_window,
+        )
+
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for m in out:
+        if m not in seen:
+            seen.add(m)
+            uniq.append(m)
+    return uniq

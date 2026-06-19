@@ -93,6 +93,29 @@ def test_app_warns_when_data_outside_display_range():
         assert any("表示レンジ外" in w.value for w in at.warning)
 
 
+def test_app_toast_on_range_change_only():
+    # レンジを変えた瞬間にレンジ外があればトーストで通知。タブ切替等では出ない。
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 実行直後はトーストしない（基準作成のみ）
+        assert not at.toast
+
+        # Y を [-0.1, 0.1] に狭める → データ 0.5 がレンジ外 → トースト
+        at.session_state["rng_y1_min"] = -0.1
+        at.session_state["rng_y1_max"] = 0.1
+        at.run()
+        assert any("表示レンジ外" in t.value for t in at.toast)
+
+        # レンジ変更なしの再描画（タブ切替相当）ではトーストは再発しない
+        at.session_state["view_t1_c1_q1"] = "表"
+        at.run()
+        assert not at.toast
+
+
 def test_app_view_switch_map_and_table():
     with patch("src.backends.factory.create_backend", return_value=StubBackend()):
         at = AppTest.from_file("app.py", default_timeout=60)
