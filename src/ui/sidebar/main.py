@@ -92,6 +92,65 @@ def _render_map_value_ranges(custom_fields):
     return mv, cmv
 
 
+def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple]:
+    """Truck Tracker 参照（オプトイン）の UI。
+
+    既定 OFF。ON のときだけ Zero-Plotter タブの地図に GNSS/INS 由来の Truck 位置を
+    重畳/置換する。戻り値: (enable, mode, tz, filter_vehicle, sources)。
+    """
+    enable = st.checkbox(
+        "Truck Tracker を参照する（Zero-Plotter 地図に重畳/置換）",
+        value=False,
+        key="tt_enable",
+        help="OFF のときは従来どおり Zero-Plotter（localization 由来）の自己位置のみを表示します。",
+    )
+    mode = "overlay"
+    tz = "UTC"
+    filter_vehicle = True
+    sources: list = []
+    if enable:
+        mode = str(
+            st.radio(
+                "表示方法",
+                options=["overlay", "replace"],
+                format_func=lambda v: "重畳（Zero-Plotter + Truck）" if v == "overlay" else "置換（Truck のみ）",
+                key="tt_mode",
+                horizontal=True,
+            )
+        )
+        uploaded = st.file_uploader(
+            "truck_*.log（複数可）",
+            type=["log", "txt"],
+            accept_multiple_files=True,
+            key="tt_uploader",
+            help="apollo-sandbox の truck_track_server/logs/ にある truck_t2-isuzugiga-<N>_<日付>.log。",
+        )
+        path = st.text_input(
+            "または サーバ上のパス（ファイル/ディレクトリ/glob）",
+            key="tt_log_path",
+            help="rsync 済みの logs ディレクトリや truck_*.log のパスでも指定できます。",
+        ).strip()
+        tz = str(
+            st.selectbox(
+                "ログ時刻の TZ 解釈",
+                options=["UTC", "Asia/Tokyo"],
+                key="tt_assume_tz",
+                help="truck ログの時刻は受信機ホストのローカル時刻です。Zero-Plotter(UTC) と合わない場合に補正します。",
+            )
+        )
+        filter_vehicle = st.checkbox(
+            "vehicle_id（番号）でフィルタ",
+            value=True,
+            key="tt_filter_vehicle",
+            help="例: giga09 ⇔ t2-isuzugiga-9 を番号一致で対応付けます。",
+        )
+        if uploaded:
+            sources.extend(uploaded if isinstance(uploaded, list) else [uploaded])
+        if path:
+            sources.append(path)
+    return enable, mode, tz, filter_vehicle, tuple(sources)
+
+
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
     with st.sidebar:
         render_settings_loader(state)
@@ -232,6 +291,19 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
 
             map_value_ranges, custom_map_value_ranges = _render_map_value_ranges(custom_fields)
 
+        with st.expander("Truck Tracker 参照（任意）"):
+            st.caption(
+                "Zero-Plotter（localization 由来）の自己位置がズレる日に、Truck Tracker の "
+                "GNSS/INS 位置を各期間の Zero-Plotter 地図へ重畳/置換します（既定 OFF）。"
+            )
+            (
+                truck_enable,
+                truck_mode,
+                truck_tz,
+                truck_filter_vehicle,
+                truck_sources,
+            ) = _render_truck_tracker()
+
         with st.expander("開発用（任意）"):
             tables = render_table_config(settings, str(backend), bq_dataset)
 
@@ -275,6 +347,11 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         custom_hist_ylims=custom_hist_ylims,
         map_value_ranges=map_value_ranges,
         custom_map_value_ranges=custom_map_value_ranges,
+        truck_enable=truck_enable,
+        truck_mode=truck_mode,
+        truck_tz=truck_tz,
+        truck_filter_vehicle=truck_filter_vehicle,
+        truck_sources=truck_sources,
     )
 
     # 設定の書き出し UI を「設定を読み込む」の直下（プレースホルダ）に描画する。

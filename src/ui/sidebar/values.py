@@ -47,6 +47,13 @@ class SidebarValues:
     map_value_ranges: dict[str, tuple[float, float] | None] = field(default_factory=dict)
     custom_map_value_ranges: dict[str, tuple[float, float] | None] = field(default_factory=dict)
 
+    # Truck Tracker 参照（オプトイン。既定は Zero-Plotter のみ表示。再実行不要）
+    truck_enable: bool = False
+    truck_mode: str = "overlay"          # "overlay"（重畳） | "replace"（Truck で置換）
+    truck_tz: str = "UTC"                # ログ時刻の TZ 解釈（"UTC" | "Asia/Tokyo"）
+    truck_filter_vehicle: bool = True    # vehicle_id（番号）で絞るか
+    truck_sources: tuple = ()            # アップロードファイル/サーバパス等のソース列
+
 
 def range_or_none(min_v: float, max_v: float) -> tuple[float, float] | None:
     """min >= max のときは「レンジ指定なし」として None を返す。"""

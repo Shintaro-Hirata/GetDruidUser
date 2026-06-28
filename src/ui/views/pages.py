@@ -425,6 +425,7 @@ def render_zero_plotter_tab(
     zero-plotter と同じ仕様（5秒間隔・system_state 色分け）で描画し、
     除外編集モード中は点群のクリック/box選択から除外時間帯を登録できる。
     """
+    from src.services.truck_tracker import load_truck_log
     from src.ui.views.zero_plotter import fetch_zp_track, zp_track_fig
 
     results = state.results
@@ -433,18 +434,48 @@ def render_zero_plotter_tab(
         return
 
     st.subheader(f"{period.label}_Zero-Plotter")
-    st.caption(
+    caption = (
         f"vehicle_id={results.config.vehicle_id} / "
         f"{period.range.start.isoformat()} 〜 {period.range.end.isoformat()} の運行点群"
         "（5秒間隔・zero-plotter と同じ system_state 色分け）。"
         "除外編集モード中は点をクリック/box選択して除外時間帯に追加できます。"
     )
+    if sb.truck_enable:
+        verb = "重畳" if sb.truck_mode == "overlay" else "置換"
+        caption += f" Truck Tracker（GNSS/INS）を{verb}表示中。"
+    st.caption(caption)
 
+    zp_df = pd.DataFrame()
     try:
-        df = fetch_zp_track(results.config, period.range.start, period.range.end)
+        zp_df = fetch_zp_track(results.config, period.range.start, period.range.end)
     except Exception as ex:
-        st.error(f"Zero-Plotter点群の取得に失敗しました: {ex}")
-        return
+        # Truck 参照時は Truck だけでも表示できるよう、ここでは警告に留めて続行する。
+        st.warning(f"Zero-Plotter点群の取得に失敗しました: {ex}")
 
-    fig = zp_track_fig(df, height=sb.map_height)
+    truck_df = None
+    if sb.truck_enable:
+        if not sb.truck_sources:
+            st.info("Truck Tracker 参照は ON ですが、ログ（アップロード or サーバパス）が未指定です。")
+        else:
+            try:
+                truck_df = load_truck_log(
+                    list(sb.truck_sources),
+                    vehicle_id=results.config.vehicle_id,
+                    start=period.range.start,
+                    end=period.range.end,
+                    assume_tz=sb.truck_tz,
+                    match_vehicle=sb.truck_filter_vehicle,
+                )
+            except Exception as ex:
+                st.error(f"Truck ログの読み込みに失敗しました: {ex}")
+                truck_df = None
+            if truck_df is not None and truck_df.empty:
+                st.warning(
+                    "この期間・車両に合致する Truck 位置が見つかりませんでした"
+                    "（車両ID/期間/TZ 解釈を確認してください）。"
+                )
+
+    fig = zp_track_fig(zp_df, height=sb.map_height, truck_df=truck_df, truck_mode=sb.truck_mode)
     _show_fig_or_empty(fig, key=f"plot_{key_prefix}_zp", width=sb.map_width, state=state)
+    if sb.truck_enable and truck_df is not None and not truck_df.empty:
+        st.caption(f"Truck 点数: {len(truck_df)}")
