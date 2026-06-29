@@ -274,4 +274,10 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 - 変換は **SQL 側**で適用（`src/queries/builder.py` `_value_expr`）。metric/timeseries/hist の3クエリすべてに反映し、**しきい値・1分窓の最大値抽出・ヒストグラムのビン**も変換後の値で一貫処理。`scale=1,offset=0` のときは式を挟まず元の列のまま（無害・既存SQL不変）。
 - サイドバーの自由フィールド表（`src/ui/sidebar/custom_fields.py`）に **「係数(×)」「加算(+)」** 列を追加。`settings.json` にも保存/復元（`_custom_fields_list` / `_custom_field_rows`）。
 - 四則演算（定数）はこの線形変換で表現可能。列同士の演算や一般式（例: 2乗・比）が必要になれば、`column` を式として扱う拡張で対応可能（今回は安全・最小の線形変換に限定）。
-- テスト: `tests/test_custom_transform.py`（変換SQL＋設定 round-trip）。全 **172 件 PASS**（BigQuery 系含む全 `tests/`）。
+- テスト: `tests/test_custom_transform.py`（変換SQL＋設定 round-trip）。
+
+### 11-3. Truck 未取得の期間は Zero-Plotter（元位置）のまま表示
+- 課題: 比較タブは全期間の和集合で Truck を読むため、アップロードしたログが一部期間しか含まないと、未取得の期間がメトリクス地図（置換時）から消えていた（`_remap_to_truck` が合致しない点を全部落としていた）。
+- 修正（`src/ui/views/map.py` `_remap_to_truck`）: **系列に合致する Truck 点が 1 件も無いときは置換せず元の位置（localization=Zero-Plotter 由来）のまま返す**。1 件でも合致すれば従来どおり合致点を Truck 位置へ移し、許容差外の点のみ落とす。
+- 各期間タブ（Zero-Plotter タブ／メトリクス地図）は、その期間の Truck が 0 件なら従来から元表示にフォールバックしていた（`truck_present=False`）。今回の修正で**比較タブ**でも未取得期間が消えなくなった。
+- テスト: `tests/test_truck_tracker.py` に「未合致系列は元位置を保持」「比較相当で地図が空にならない」を追加。全 **173 件 PASS**（BigQuery 系含む全 `tests/`）。

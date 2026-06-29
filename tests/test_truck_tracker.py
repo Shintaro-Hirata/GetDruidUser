@@ -166,9 +166,25 @@ def test_remap_moves_points_to_truck_positions():
     assert list(out["lateral_error"]) == [0.5, -0.3]
 
 
-def test_remap_drops_points_without_nearby_truck():
+def test_remap_keeps_original_when_no_truck_match():
+    # この系列に合致する Truck 点が無い（別日など）→ 元位置のまま返す（地図から消さない）
     df = _metric_df().assign(sec_time=["2030-01-01T00:00:00Z", "2030-01-01T00:00:01Z"])
-    assert _remap_to_truck(df, _truck_for_metric()).empty
+    out = _remap_to_truck(df, _truck_for_metric())
+    assert len(out) == 2
+    assert all(abs(v - 10.0) < 1e-6 for v in out["latitude"])  # 移設されず元位置
+
+
+def test_metric_map_replace_keeps_period_without_truck_match():
+    # 比較タブ相当: union truck はあるが当該系列に合致が無い場合、replace でも
+    # 元位置（Zero-Plotter 由来）で描画し、地図を空にしない。
+    df = _metric_df().assign(sec_time=["2030-01-01T00:00:00Z", "2030-01-01T00:00:01Z"])
+    fig = metric_map_fig(
+        LATERAL_ERROR, [("B", df)], colors={"B": "#ff0000"},
+        truck_df=_truck_for_metric(), truck_mode="replace",
+    )
+    assert fig is not None
+    metric_trace = next(t for t in fig.data if t.name == "B")
+    assert all(abs(v - 10.0) < 1e-6 for v in metric_trace.lat)
 
 
 def test_metric_map_replace_uses_truck_positions():

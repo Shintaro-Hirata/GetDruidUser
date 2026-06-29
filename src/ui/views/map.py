@@ -28,18 +28,22 @@ def _truck_xy_valid(truck_df) -> bool:
 def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
     """各点の緯度経度を、時刻が最も近い Truck GNSS 位置へ置き換える。
 
-    値（spec.name）・時刻・累積距離など他の列は保持する。許容差内に Truck 点が
-    無い点は落とす（正しい位置に置けないため）。
+    値（spec.name）・時刻・累積距離など他の列は保持する。
+    この系列に合致する Truck 点が 1 件も無いとき（その期間が Truck 未取得など）は、
+    置換せず元の位置（localization=Zero-Plotter 由来）のまま返す。これにより、
+    比較タブのようにアップロードしたログが一部期間しか含まない場合でも、未取得の
+    期間が地図から消えず Zero-Plotter のまま表示される。1 件でも合致すれば、合致点は
+    Truck 位置へ移し、許容差内に Truck 点が無い点だけを落とす。
     """
     if "sec_time" not in d.columns:
-        return d.iloc[0:0]
+        return d  # 時刻列が無く対応付け不可 → 元の位置のまま
     # merge_asof は結合キーの dtype（時間解像度）が完全一致である必要がある。
     # sec_time の文字列パースは us、truck の ts は ns になり得るため両方 ns に揃える。
     left = d.copy()
     left["_t"] = pd.to_datetime(left["sec_time"], utc=True, errors="coerce").dt.as_unit("ns")
     left = left.dropna(subset=["_t"]).sort_values("_t")
     if left.empty:
-        return left.drop(columns=["_t"], errors="ignore")
+        return d  # 有効な時刻が無い → 元の位置のまま
 
     right = truck_df.copy()
     right["_tt"] = pd.to_datetime(right["ts"], utc=True, errors="coerce").dt.as_unit("ns")
@@ -47,7 +51,7 @@ def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
     right["lon"] = pd.to_numeric(right["lon"], errors="coerce")
     right = right.dropna(subset=["_tt", "lat", "lon"]).sort_values("_tt")
     if right.empty:
-        return left.iloc[0:0].drop(columns=["_t"], errors="ignore")
+        return d  # Truck 点が無い → 元の位置のまま
 
     merged = pd.merge_asof(
         left,
@@ -57,12 +61,13 @@ def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
         direction="nearest",
         tolerance=pd.Timedelta(seconds=TRUCK_MATCH_TOLERANCE_S),
     )
-    merged = merged.dropna(subset=["lat", "lon"])
-    if merged.empty:
-        return merged.drop(columns=["_t", "_tt", "lat", "lon"], errors="ignore")
-    merged["latitude"] = merged["lat"]
-    merged["longitude"] = merged["lon"]
-    return merged.drop(columns=["_t", "_tt", "lat", "lon"], errors="ignore")
+    matched = merged.dropna(subset=["lat", "lon"])
+    if matched.empty:
+        return d  # この系列に合致する Truck 点が 1 件も無い → Zero-Plotter(元位置)のまま
+    matched = matched.copy()
+    matched["latitude"] = matched["lat"]
+    matched["longitude"] = matched["lon"]
+    return matched.drop(columns=["_t", "_tt", "lat", "lon"], errors="ignore")
 
 
 def _truck_ref_trace(truck_df: pd.DataFrame) -> tuple[go.Scattermap | None, pd.DataFrame]:
