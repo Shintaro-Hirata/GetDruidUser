@@ -132,3 +132,75 @@ def test_zp_fig_truck_customdata_raw_is_iso_for_exclude_selection():
 
 def test_zp_fig_all_empty_returns_none():
     assert zp_track_fig(pd.DataFrame(), truck_df=None) is None
+
+
+# ---- メトリクス地図（lateral error / acceleration / 自由フィールド）への Truck 適用 ----
+
+from src.queries.specs import LATERAL_ERROR  # noqa: E402
+from src.ui.views.map import _remap_to_truck, metric_map_fig  # noqa: E402
+
+
+def _metric_df():
+    # localization 由来の（ズレた）位置に lateral_error イベントが乗っている想定。
+    return pd.DataFrame(
+        {
+            "sec_time": ["2026-02-04T03:34:56Z", "2026-02-04T03:34:59Z"],
+            "latitude": [10.0, 10.0],      # わざと Truck と大きく離す
+            "longitude": [10.0, 10.0],
+            "lateral_error": [0.5, -0.3],
+            "cum_dist_km": [1.0, 1.2],
+        }
+    )
+
+
+def _truck_for_metric():
+    # 03:34:56Z / 03:34:59Z 近傍に Truck 位置がある（JST 12:34:5x をUTCへ）。
+    return load_truck_log(SAMPLE_LOG, assume_tz="Asia/Tokyo")
+
+
+def test_remap_moves_points_to_truck_positions():
+    out = _remap_to_truck(_metric_df(), _truck_for_metric())
+    assert len(out) == 2
+    # 位置が Truck 側（35.68.., 139.76..）に移設され、値は保持される
+    assert all(34.0 < v < 36.0 for v in out["latitude"])
+    assert list(out["lateral_error"]) == [0.5, -0.3]
+
+
+def test_remap_drops_points_without_nearby_truck():
+    df = _metric_df().assign(sec_time=["2030-01-01T00:00:00Z", "2030-01-01T00:00:01Z"])
+    assert _remap_to_truck(df, _truck_for_metric()).empty
+
+
+def test_metric_map_replace_uses_truck_positions():
+    fig = metric_map_fig(
+        LATERAL_ERROR,
+        [("A", _metric_df())],
+        colors={"A": "#ff0000"},
+        color_by="period",
+        truck_df=_truck_for_metric(),
+        truck_mode="replace",
+    )
+    assert fig is not None
+    # 置換後の点は Truck 位置（元の 10,10 ではない）
+    assert all(34.0 < v < 36.0 for v in fig.data[0].lat)
+
+
+def test_metric_map_overlay_adds_truck_track():
+    fig = metric_map_fig(
+        LATERAL_ERROR,
+        [("A", _metric_df())],
+        colors={"A": "#ff0000"},
+        color_by="period",
+        truck_df=_truck_for_metric(),
+        truck_mode="overlay",
+    )
+    names = [t.name for t in fig.data]
+    assert "Truck Tracker (GNSS/INS)" in names
+    # 重畳ではイベント点は元位置のまま（10,10）
+    metric_trace = next(t for t in fig.data if t.name == "A")
+    assert all(abs(v - 10.0) < 1e-6 for v in metric_trace.lat)
+
+
+def test_metric_map_without_truck_unchanged():
+    fig = metric_map_fig(LATERAL_ERROR, [("A", _metric_df())], colors={"A": "#ff0000"})
+    assert [t.name for t in fig.data] == ["A"]

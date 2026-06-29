@@ -11,6 +11,7 @@ import streamlit as st
 from src.domain.results import ChunkData, PeriodResult, RunResults
 from src.export.images import hist_png, scatter_png
 from src.queries.specs import HIST_TITLE, HIST_X_LABEL, METRICS, MetricSpec
+from src.services.truck_tracker import load_truck_log
 from src.ui.exclude_editor import handle_exclude_selection, selection_sec_times
 from src.ui.sidebar import SidebarValues
 from src.ui.state import AppState
@@ -31,6 +32,44 @@ def _warn_out_of_range(msgs: list[str]) -> None:
             "表示レンジ外のデータがあります（グラフから隠れている可能性があります）\n\n"
             + "\n".join(f"- {m}" for m in msgs)
         )
+
+
+def _load_truck_window(sb: SidebarValues, config, start, end):
+    """指定ウィンドウの Truck 位置を読み込む。OFF/未指定/失敗/0件は None。
+
+    地図ビューが多数あるため例外はここで握りつぶし（呼び出し側で 1 回だけ案内する）。
+    """
+    if not sb.truck_enable or not sb.truck_sources:
+        return None
+    try:
+        df = load_truck_log(
+            list(sb.truck_sources),
+            vehicle_id=config.vehicle_id,
+            start=start,
+            end=end,
+            assume_tz=sb.truck_tz,
+            match_vehicle=sb.truck_filter_vehicle,
+        )
+    except Exception:
+        return None
+    return df if (df is not None and not df.empty) else None
+
+
+def _aware_ts(dt):
+    """datetime を tz-aware な Timestamp に揃える（naive は UTC とみなす）。min/max 用。"""
+    ts = pd.Timestamp(dt)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts
+
+
+def _truck_caption(sb: SidebarValues, truck_df) -> None:
+    """Truck 参照 ON 時に、取り込み状況を 1 行で案内する。"""
+    if not sb.truck_enable:
+        return
+    if truck_df is None or truck_df.empty:
+        st.caption("⚠️ Truck Tracker: この期間・車両に合致する位置がありません（ログ/期間/TZ/車両ID を確認）。")
+    else:
+        verb = "重畳" if sb.truck_mode == "overlay" else "置換（イベント点を Truck 位置へ移設）"
+        st.caption(f"Truck Tracker（GNSS/INS）{len(truck_df)} 点を地図に{verb}。")
 
 
 # 画像タブのPNGはキャッシュする（matplotlib描画は1枚100ms前後かかる）。
@@ -111,11 +150,14 @@ def render_metric_views(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     map_value_range: tuple[float, float] | None = None,
+    truck_df=None,
+    truck_mode: str = "overlay",
 ) -> None:
     """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表の切替つき）を描画する。
 
     xlim / ylim は散布図・画像の軸レンジ（自由フィールドではフィールドごとに渡す）。
     map_value_range は地図の値グラデーションの色スケール範囲（|値|）。
+    truck_df / truck_mode は地図への Truck Tracker 重畳/置換に使う（None なら従来表示）。
     """
     st.markdown(f"### {spec.title}{title_suffix}")
     mode = _view_selector(key, VIEW_MODES)
@@ -144,6 +186,8 @@ def render_metric_views(
                     height=sb.map_height,
                     pending_excludes=pending,
                     value_range=map_value_range,
+                    truck_df=truck_df,
+                    truck_mode=truck_mode,
                 )
                 _show_fig_or_empty(
                     fig, key=f"plot_{key}_map_{i}", width=sb.map_width, state=state
@@ -157,6 +201,8 @@ def render_metric_views(
             height=sb.map_height,
             pending_excludes=pending,
             value_range=map_value_range,
+            truck_df=truck_df,
+            truck_mode=truck_mode,
         )
         _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width, state=state)
         return
@@ -270,6 +316,8 @@ def _render_chunk_content(
     state: AppState,
     *,
     key_prefix: str,
+    truck_df=None,
+    truck_mode: str = "overlay",
 ) -> None:
     if not chunk.ok:
         st.error(f"このチャンクの取得に失敗しました: {chunk.error}")
@@ -288,6 +336,8 @@ def _render_chunk_content(
                 xlim=sb.scatter_xlim,
                 ylim=sb.scatter_ylims.get(spec.key),
                 map_value_range=sb.map_value_ranges.get(spec.key),
+                truck_df=truck_df,
+                truck_mode=truck_mode,
             )
 
     _render_hist_block(
@@ -309,6 +359,8 @@ def _render_chunk_content(
             xlim=sb.custom_scatter_xlims.get(cf.key),
             ylim=sb.custom_scatter_ylims.get(cf.key),
             map_value_range=sb.custom_map_value_ranges.get(cf.key),
+            truck_df=truck_df,
+            truck_mode=truck_mode,
         )
         _render_hist_block(
             [(period.label, chunk.custom_hist_dfs.get(cf.key, pd.DataFrame()))],
@@ -340,14 +392,28 @@ def render_period_tab(
         st.info("この期間の結果がありません（未実行 or 取得失敗）")
         return
 
+    # Truck Tracker（オプトイン）: この期間の位置を一度だけ読み込み、各メトリクス地図へ渡す。
+    truck_df = (
+        _load_truck_window(sb, state.results.config, period.range.start, period.range.end)
+        if state.results
+        else None
+    )
+    _truck_caption(sb, truck_df)
+
     if len(period.chunks) == 1:
-        _render_chunk_content(period, period.chunks[0], sb, colors, state, key_prefix=f"{key_prefix}_c1")
+        _render_chunk_content(
+            period, period.chunks[0], sb, colors, state,
+            key_prefix=f"{key_prefix}_c1", truck_df=truck_df, truck_mode=sb.truck_mode,
+        )
         return
 
     chunk_tabs = st.tabs([f"区間{i + 1}/{len(period.chunks)}" for i in range(len(period.chunks))])
     for i, (tab, chunk) in enumerate(zip(chunk_tabs, period.chunks)):
         with tab:
-            _render_chunk_content(period, chunk, sb, colors, state, key_prefix=f"{key_prefix}_c{i + 1}")
+            _render_chunk_content(
+                period, chunk, sb, colors, state,
+                key_prefix=f"{key_prefix}_c{i + 1}", truck_df=truck_df, truck_mode=sb.truck_mode,
+            )
 
 
 @st.fragment
@@ -359,6 +425,14 @@ def render_compare_tab(
 ) -> None:
     st.subheader("比較（全期間）")
     st.caption("各テスト期間の結果を同じグラフ・同じ地図上に重ねて表示します。")
+
+    # Truck Tracker（オプトイン）: 全期間の和集合ウィンドウで一度だけ読み込む。
+    truck_df = None
+    if sb.truck_enable and sb.truck_sources and results.periods:
+        win_start = min(_aware_ts(p.range.start) for p in results.periods)
+        win_end = max(_aware_ts(p.range.end) for p in results.periods)
+        truck_df = _load_truck_window(sb, results.config, win_start, win_end)
+    _truck_caption(sb, truck_df)
 
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
@@ -374,6 +448,8 @@ def render_compare_tab(
                 xlim=sb.scatter_xlim,
                 ylim=sb.scatter_ylims.get(spec.key),
                 map_value_range=sb.map_value_ranges.get(spec.key),
+                truck_df=truck_df,
+                truck_mode=sb.truck_mode,
             )
 
     _render_hist_block(
@@ -398,6 +474,8 @@ def render_compare_tab(
             xlim=sb.custom_scatter_xlims.get(cf.key),
             ylim=sb.custom_scatter_ylims.get(cf.key),
             map_value_range=sb.custom_map_value_ranges.get(cf.key),
+            truck_df=truck_df,
+            truck_mode=sb.truck_mode,
         )
         _render_hist_block(
             results.compare_custom_hist_series(cf.key),

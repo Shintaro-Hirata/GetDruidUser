@@ -293,8 +293,13 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
 
         with st.expander("Truck Tracker 参照（任意）"):
             st.caption(
-                "Zero-Plotter（localization 由来）の自己位置がズレる日に、Truck Tracker の "
-                "GNSS/INS 位置を各期間の Zero-Plotter 地図へ重畳/置換します（既定 OFF）。"
+                "localization 由来の自己位置がズレる日に、Truck Tracker の GNSS/INS 位置を地図へ"
+                "重畳/置換します（既定 OFF）。対象は Zero-Plotter タブと、各メトリクス（lateral error /"
+                " acceleration / 自由フィールド）の地図。"
+            )
+            st.caption(
+                "置換: Zero-Plotter は Truck 軌跡へ差し替え。メトリクス地図は各イベント点を時刻最近傍の"
+                " Truck 位置へ移設（値・色は保持）。重畳: 元の表示に Truck 軌跡を重ねて表示。"
             )
             (
                 truck_enable,

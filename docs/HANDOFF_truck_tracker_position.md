@@ -209,7 +209,7 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 
 ## 8. GetDruidUser への実装（オプトイン）— sharp-hypatia ベース
 
-ベースは `claude/sharp-hypatia-ikb6a5`（レイヤ構成）。OFF 時は既存フロー完全無改変。既存の **Zero-Plotter 点群タブ**（各期間ごとの自己位置トラック地図）に Truck をオプトインで重畳/置換する。パーサ＋地図ロジックは pytest で実環境テスト済み（`tests/test_truck_tracker.py`：14 件、既存 `tests/test_zero_plotter_view.py`・`tests/test_map_view.py`・`tests/test_app_smoke.py` も含め回帰なし）。
+ベースは `claude/sharp-hypatia-ikb6a5`（レイヤ構成）。OFF 時は既存フロー完全無改変。Truck をオプトインで重畳/置換する対象は **(a) Zero-Plotter 点群タブ**（自己位置トラック）と **(b) 各メトリクス地図**（lateral error / acceleration / 自由フィールド、比較タブ含む）。パーサ＋地図ロジックは pytest で実環境テスト済み（`tests/test_truck_tracker.py`：19 件、既存 `tests/test_zero_plotter_view.py`・`tests/test_map_view.py`・`tests/test_app_smoke.py` も含め回帰なし）。
 
 実装ファイル:
 1. **`src/services/truck_tracker.py`（新規）** — `load_truck_log(source, *, vehicle_id, start, end, assume_tz="UTC", match_vehicle=True) -> DataFrame[ts(UTC), lat, lon, speed, truck_id, vehicle_num]`
@@ -220,14 +220,24 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 2. **`src/ui/views/zero_plotter.py`** — `zp_track_fig(df, *, height, truck_df=None, truck_mode="overlay")` に拡張。
    - `_truck_trace()`：Truck 位置（赤）の `go.Scattermap`。`customdata[0]` は UTC 生時刻（zero-plotter 点と同形式＝除外編集の選択でも整合）、`[1]` JST、`[2]` 速度。
    - `truck_mode="replace"` かつ Truck 点ありなら zp 点を描かず Truck のみ。中心/ズームは描画した全点の bbox から再計算。
-3. **`src/ui/views/pages.py`** — `render_zero_plotter_tab` で、ON のとき当該期間・車両・TZ で `load_truck_log` し `zp_track_fig` に渡す。zp 取得失敗時も Truck だけ表示できるよう警告に留めて続行。
-4. **`src/ui/sidebar/main.py` / `values.py`** — サイドバー「表示設定」に **「Truck Tracker 参照（任意）」expander**（`_render_truck_tracker`、既定 OFF）。`SidebarValues` に `truck_enable/truck_mode/truck_tz/truck_filter_vehicle/truck_sources` を追加（全てデフォルト付き＝設定IOに非破壊）。
-5. 依存追加なし（`plotly>=5.24` は既存。パーサは pandas+stdlib のみ）。
+3. **`src/ui/views/map.py`** — メトリクス地図 `metric_map_fig(..., truck_df=None, truck_mode="overlay")` に拡張。
+   - `_remap_to_truck()`：`merge_asof`（最近傍・許容差 5 秒）で各イベント点の緯度経度を時刻最近傍の Truck 位置へ移設（値・色・時刻は保持、合致しない点は除外）。**置換**で使用。
+   - `_truck_ref_trace()`：**重畳**用の Truck 参照軌跡（細線＋小マーカー、グレー）。中心/ズームは描画した全点（移設後/参照軌跡含む）の bbox から再計算。
+4. **`src/ui/views/zero_plotter.py`** — `zp_track_fig(df, *, height, truck_df=None, truck_mode="overlay")` に拡張。
+   - `_truck_trace()`：Truck 位置（赤）の `go.Scattermap`。`customdata[0]` は UTC 生時刻（zero-plotter 点と同形式＝除外編集の選択でも整合）、`[1]` JST、`[2]` 速度。
+   - `truck_mode="replace"` かつ Truck 点ありなら zp 点を描かず Truck のみ。
+5. **`src/ui/views/pages.py`** — `render_period_tab`/`render_compare_tab` で当該期間（比較は全期間の和集合）の Truck を一度だけ `load_truck_log` し、各メトリクス地図（`render_metric_views`→`metric_map_fig`）へ受け渡し。1 行キャプションで取り込み点数/該当なしを案内。`render_zero_plotter_tab` も同様にロードして `zp_track_fig` へ。zp 取得失敗時も Truck だけ表示できるよう続行。
+6. **`src/ui/sidebar/main.py` / `values.py`** — サイドバー「表示設定」に **「Truck Tracker 参照（任意）」expander**（`_render_truck_tracker`、既定 OFF）。`SidebarValues` に `truck_enable/truck_mode/truck_tz/truck_filter_vehicle/truck_sources` を追加（全てデフォルト付き＝設定IOに非破壊）。
+7. 依存追加なし（`plotly>=5.24` は既存。パーサは pandas+stdlib のみ）。
+
+置換の意味（地図種別ごと）:
+- **Zero-Plotter**: Truck 軌跡へ差し替え（点群そのものを置換）。
+- **メトリクス地図**: 各イベント点を時刻最近傍の Truck 位置へ**移設**（lateral_error/acceleration/自由フィールドの値・色は保持）。ドリフトした localization 位置ではなく正しい位置にイベントが乗る。
+- **重畳**: いずれも元表示＋Truck 軌跡を重ねる。
 
 設計判断・残課題:
-- **Zero-Plotter 地図に統合**（独自タブを新設しない）。要件「自己位置を Truck で重畳/置換」に最も合致し、既存 UI・タブ index を一切変えない。
-- 計測地図（Q1/Q2 のイベント点）への Truck 重畳は未対応（自己位置の比較は Zero-Plotter タブで完結するため）。必要なら同様に拡張可能。
-- **データ結合（距離/イベント計算への位置差し替え）は未実装**（§0「まずは地図表示のみが安全」）。表示レイヤの重畳/置換で表現。
+- 時刻マッチ許容差は 5 秒（`TRUCK_MATCH_TOLERANCE_S`、Truck は約 0.33Hz）。合致しない点は移設できないため除外する。
+- **距離計算（cum_dist_km）やイベント抽出そのものの位置差し替えは未実装**（§0「まずは地図表示のみが安全」）。表示レイヤの重畳/移設で表現。距離・イベント定義へ波及させるかは運用で判断。
 - 実 `truck_*.log` を用いた実機確認（TZ ズレの有無、車両番号一致、BigQuery/Druid 実クエリとの重ね合わせ）は社内環境で要最終確認。
 
 ---
