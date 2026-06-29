@@ -33,14 +33,16 @@ def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
     """
     if "sec_time" not in d.columns:
         return d.iloc[0:0]
+    # merge_asof は結合キーの dtype（時間解像度）が完全一致である必要がある。
+    # sec_time の文字列パースは us、truck の ts は ns になり得るため両方 ns に揃える。
     left = d.copy()
-    left["_t"] = pd.to_datetime(left["sec_time"], utc=True, errors="coerce")
+    left["_t"] = pd.to_datetime(left["sec_time"], utc=True, errors="coerce").dt.as_unit("ns")
     left = left.dropna(subset=["_t"]).sort_values("_t")
     if left.empty:
         return left.drop(columns=["_t"], errors="ignore")
 
     right = truck_df.copy()
-    right["_tt"] = pd.to_datetime(right["ts"], utc=True, errors="coerce")
+    right["_tt"] = pd.to_datetime(right["ts"], utc=True, errors="coerce").dt.as_unit("ns")
     right["lat"] = pd.to_numeric(right["lat"], errors="coerce")
     right["lon"] = pd.to_numeric(right["lon"], errors="coerce")
     right = right.dropna(subset=["_tt", "lat", "lon"]).sort_values("_tt")

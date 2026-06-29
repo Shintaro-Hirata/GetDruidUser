@@ -204,3 +204,30 @@ def test_metric_map_overlay_adds_truck_track():
 def test_metric_map_without_truck_unchanged():
     fig = metric_map_fig(LATERAL_ERROR, [("A", _metric_df())], colors={"A": "#ff0000"})
     assert [t.name for t in fig.data] == ["A"]
+
+
+def test_remap_handles_mixed_datetime_resolutions():
+    # merge_asof は結合キーの解像度一致が必須。sec_time=us / truck ts=ns の混在でも落ちないこと。
+    metric = pd.DataFrame(
+        {
+            "sec_time": pd.to_datetime(
+                ["2026-02-04T03:34:56Z", "2026-02-04T03:34:59Z"], utc=True
+            ).as_unit("us"),
+            "latitude": [10.0, 10.0],
+            "longitude": [10.0, 10.0],
+            "lateral_error": [0.1, 0.2],
+            "cum_dist_km": [1.0, 1.1],
+        }
+    )
+    truck = pd.DataFrame(
+        {
+            "ts": pd.to_datetime(
+                ["2026-02-04T03:34:55Z", "2026-02-04T03:34:58Z"], utc=True
+            ).as_unit("ns"),
+            "lat": [35.68, 35.69],
+            "lon": [139.76, 139.77],
+        }
+    )
+    out = _remap_to_truck(metric, truck)  # 修正前は MergeError
+    assert len(out) == 2
+    assert all(34.0 < v < 36.0 for v in out["latitude"])
