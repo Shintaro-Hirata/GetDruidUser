@@ -53,6 +53,7 @@ class SidebarValues:
     truck_tz: str = "UTC"                # ログ時刻の TZ 解釈（"UTC" | "Asia/Tokyo"）
     truck_filter_vehicle: bool = True    # vehicle_id（番号）で絞るか
     truck_sources: tuple = ()            # アップロードファイル/サーバパス等のソース列
+    truck_log_path: str = ""             # サーバ上のパス（設定JSONに保存・復元可能な唯一のソース）
 
 
 def range_or_none(min_v: float, max_v: float) -> tuple[float, float] | None:

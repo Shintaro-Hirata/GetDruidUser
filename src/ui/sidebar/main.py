@@ -92,11 +92,12 @@ def _render_map_value_ranges(custom_fields):
     return mv, cmv
 
 
-def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple]:
+def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple, str]:
     """Truck Tracker 参照（オプトイン）の UI。
 
-    既定 OFF。ON のときだけ Zero-Plotter タブの地図に GNSS/INS 由来の Truck 位置を
-    重畳/置換する。戻り値: (enable, mode, tz, filter_vehicle, sources)。
+    既定 OFF。ON のときだけ地図に GNSS/INS 由来の Truck 位置を重畳/置換する。
+    戻り値: (enable, mode, tz, filter_vehicle, sources, log_path)。
+    log_path は設定JSONに保存・復元できるソース（アップロード本体は保存不可）。
     """
     enable = st.checkbox(
         "Truck Tracker を参照する（Zero-Plotter 地図に重畳/置換）",
@@ -108,6 +109,7 @@ def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple]:
     tz = "UTC"
     filter_vehicle = True
     sources: list = []
+    path = ""
     if enable:
         mode = str(
             st.radio(
@@ -148,7 +150,7 @@ def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple]:
             sources.extend(uploaded if isinstance(uploaded, list) else [uploaded])
         if path:
             sources.append(path)
-    return enable, mode, tz, filter_vehicle, tuple(sources)
+    return enable, mode, tz, filter_vehicle, tuple(sources), path
 
 
 def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
@@ -307,6 +309,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                 truck_tz,
                 truck_filter_vehicle,
                 truck_sources,
+                truck_log_path,
             ) = _render_truck_tracker()
 
         with st.expander("開発用（任意）"):
@@ -357,6 +360,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         truck_tz=truck_tz,
         truck_filter_vehicle=truck_filter_vehicle,
         truck_sources=truck_sources,
+        truck_log_path=truck_log_path,
     )
 
     # 設定の書き出し UI を「設定を読み込む」の直下（プレースホルダ）に描画する。

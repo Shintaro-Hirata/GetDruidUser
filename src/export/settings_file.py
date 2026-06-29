@@ -58,6 +58,8 @@ def _custom_fields_list(fields) -> list[dict]:
             "集計": "既存指標と同じ" if f.agg_mode == "metric" else "汎用時系列",
             "|値|>=": f.threshold,
             "ビン幅": f.hist_bin,
+            "係数(×)": f.scale,
+            "加算(+)": f.offset,
         }
         for f in fields
     ]
@@ -106,6 +108,16 @@ def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
         "画像サイズ（インチ）": {
             "単体（幅, 高さ）": list(sb.fig_size_single),
             "比較（幅, 高さ）": list(sb.fig_size_compare),
+        },
+        "Truck Tracker参照": {
+            "参照": bool(sb.truck_enable),
+            "表示方法": "重畳" if sb.truck_mode == "overlay" else "置換",
+            "mode": sb.truck_mode,
+            "TZ解釈": sb.truck_tz,
+            "車両IDでフィルタ": bool(sb.truck_filter_vehicle),
+            # アップロードしたログ本体は保存できない（Streamlit が file_uploader を
+            # プログラムから復元できないため）。サーバ上のパスのみ保存・復元可能。
+            "ログパス": sb.truck_log_path,
         },
     }
 

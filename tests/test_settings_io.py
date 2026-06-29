@@ -109,7 +109,7 @@ def test_custom_fields_roundtrip():
     assert rows == [{
         "label": "ヨーレート", "table": "t2_localization_compositor_pose",
         "column": ".pose.angular_velocity_vrf.z", "agg_mode": "timeseries",
-        "threshold": 0.0, "hist_bin": 0.1,
+        "threshold": 0.0, "hist_bin": 0.1, "scale": 1.0, "offset": 0.0,
     }]
 
 

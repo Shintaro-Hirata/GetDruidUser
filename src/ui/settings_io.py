@@ -61,10 +61,14 @@ def _custom_field_rows(items: list) -> list[dict]:
         if not (label and table and column):
             continue
         agg = "timeseries" if str(it.get("集計") or "").strip() == "汎用時系列" else "metric"
+        scale = _as_float(it.get("係数(×)"))
+        offset = _as_float(it.get("加算(+)"))
         rows.append({
             "label": label, "table": table, "column": column, "agg_mode": agg,
             "threshold": _as_float(it.get("|値|>=")) or 0.0,
             "hist_bin": _as_float(it.get("ビン幅")) or 0.2,
+            "scale": 1.0 if scale is None else scale,
+            "offset": 0.0 if offset is None else offset,
         })
     return rows
 
@@ -230,6 +234,21 @@ def extract_session_values(d: dict) -> dict[str, Any]:
         cmap = {str(k): str(v) for k, v in colors.items() if isinstance(v, str)}
         if cmap:
             out["__color_map__"] = cmap
+
+    # Truck Tracker 参照（アップロード本体は復元不可。トグル/モード/TZ/フィルタ/パスのみ）
+    tt = disp.get("Truck Tracker参照") if isinstance(disp.get("Truck Tracker参照"), dict) else {}
+    if isinstance(tt.get("参照"), bool):
+        out["tt_enable"] = tt["参照"]
+    if tt.get("mode") in ("overlay", "replace"):
+        out["tt_mode"] = tt["mode"]
+    elif isinstance(tt.get("表示方法"), str):
+        out["tt_mode"] = "replace" if "置換" in tt["表示方法"] else "overlay"
+    if tt.get("TZ解釈") in ("UTC", "Asia/Tokyo"):
+        out["tt_assume_tz"] = tt["TZ解釈"]
+    if isinstance(tt.get("車両IDでフィルタ"), bool):
+        out["tt_filter_vehicle"] = tt["車両IDでフィルタ"]
+    if isinstance(tt.get("ログパス"), str):
+        out["tt_log_path"] = tt["ログパス"]
 
     fig = disp.get("画像サイズ（インチ）") if isinstance(disp.get("画像サイズ（インチ）"), dict) else {}
     for json_key, (w_key, h_key) in (

@@ -366,12 +366,25 @@ def build_columns_query(p: QueryParams, table: str) -> str:
     )
 
 
+def _value_expr(col_expr: str, field) -> str:
+    """取得列に線形変換（* scale + offset）を適用した SQL 式を返す。
+
+    scale=1.0 / offset=0.0（既定）のときは変換せず元の式をそのまま使う。
+    scale/offset は数値（float）なので SQL へ直接埋め込んでも安全。
+    """
+    scale = float(getattr(field, "scale", 1.0))
+    offset = float(getattr(field, "offset", 0.0))
+    if scale == 1.0 and offset == 0.0:
+        return col_expr
+    return f"({col_expr} * {scale} + {offset})"
+
+
 def build_custom_metric_query(
     field, p: QueryParams, *, dist_mode: DistanceMode = "latlon", has_latlon: bool = True
 ) -> str:
     """既存指標と同じ集計のカスタムクエリ（自動運転・1分窓max-abs・距離JOIN）。"""
     d = p.dialect
-    col = d.col(field.column)
+    col = _value_expr(d.col(field.column), field)
     table = d.table(field.table)
     distance_cte = _distance_cte(dist_mode, p)
 
@@ -453,10 +466,11 @@ def build_custom_timeseries_query(
         f",\n  AVG({d.col('#latitude')})  AS latitude,\n  AVG({d.col('#longitude')}) AS longitude"
         if has_latlon else ""
     )
+    value_expr = _value_expr(f"AVG({col})", field)
     return f"""
 SELECT
   {d.floor_sec(d.time_col)} AS sec_time,
-  AVG({col}) AS value{latlon}
+  {value_expr} AS value{latlon}
 FROM {table}
 WHERE {_time_filter(p)}
 GROUP BY {d.floor_sec(d.time_col)}
@@ -467,7 +481,7 @@ ORDER BY 1
 def build_custom_hist_query(field, p: QueryParams, *, state_condition: str) -> str:
     """カスタムフィールドの値分布ヒストグラム（自動/手動分割用）。"""
     d = p.dialect
-    col = f"p.{d.col(field.column)}"
+    col = _value_expr(f"p.{d.col(field.column)}", field)
     p_time = f"p.{d.time_col}"
     bin_w = float(field.hist_bin)
 

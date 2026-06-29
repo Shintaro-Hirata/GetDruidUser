@@ -259,3 +259,19 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 - **apollo-sandbox `truck_tracker/*`（全文 Read 済み・高信頼）**: 本セッションでローカルクローンを全文確認。§7 の 4 件は独立エージェント 4 体による敵対的検証で全て **confirmed**（指摘は精度補足のみで結論不変）。前回 doc の「UTC 基準／高レート→1秒リサンプル／BESTGNSSPOS が正」は §7 のとおり是正。
 - **実環境テスト（sharp-hypatia ベース）**: `tests/test_truck_tracker.py`（14 件＝パーサ＋Zero-Plotter 地図の重畳/置換）を pytest で実行し PASS。既存 `tests/`（matplotlib/openpyxl 導入後）も回帰なし（BigQuery を要する `test_pipeline`/`test_settings_io`/`test_excludes_and_misc` のみ env 都合で未実行＝本変更と無関係）。Druid/BigQuery 実クエリと Streamlit 実描画は社内環境で要最終確認。
 - **前回（main ベース）実装のレビュー知見も反映済み**: アップロード file-like は `seek(0)` 後に読む／時刻窓は tz-aware に統一して比較。期間セレクタの重複ラベル問題は sharp-hypatia では各期間が独立タブのため非該当。
+
+---
+
+## 11. 追加機能（2026-06-29）
+
+### 11-1. Truck Tracker 参照を設定JSONへ保存/復元
+- `settings.json`（設定スナップショット）に **「Truck Tracker参照」** セクションを追加（`src/export/settings_file.py` `_display_dict`）。保存項目: 参照ON/OFF・表示方法(overlay/replace)・TZ解釈・車両IDフィルタ・**ログパス**。
+- 復元は `src/ui/settings_io.py` `extract_session_values` がウィジェットキー（`tt_enable`/`tt_mode`/`tt_assume_tz`/`tt_filter_vehicle`/`tt_log_path`）へ反映。`SidebarValues.truck_log_path` を新設。
+- **アップロードしたログ本体は保存・復元できない**（Streamlit が `st.file_uploader` の値をプログラムから復元できず、1日分のログを JSON へ埋めると肥大化するため）。→ 再現性が要るときは**サーバ上のパス（ログパス）入力**を使う運用を推奨（パスは完全に round-trip する）。トグル/モード/TZ/フィルタは upload 運用でも復元される。
+
+### 11-2. 自由フィールドの線形変換（値 × 係数 + 加算）
+- `CustomField` に `scale`(既定1.0)/`offset`(既定0.0) を追加（`src/domain/models.py`）。**表示値 = 取得値 × scale + offset**。例: `scale=-1` で符号反転、`scale=3.6` で m/s→km/h。
+- 変換は **SQL 側**で適用（`src/queries/builder.py` `_value_expr`）。metric/timeseries/hist の3クエリすべてに反映し、**しきい値・1分窓の最大値抽出・ヒストグラムのビン**も変換後の値で一貫処理。`scale=1,offset=0` のときは式を挟まず元の列のまま（無害・既存SQL不変）。
+- サイドバーの自由フィールド表（`src/ui/sidebar/custom_fields.py`）に **「係数(×)」「加算(+)」** 列を追加。`settings.json` にも保存/復元（`_custom_fields_list` / `_custom_field_rows`）。
+- 四則演算（定数）はこの線形変換で表現可能。列同士の演算や一般式（例: 2乗・比）が必要になれば、`column` を式として扱う拡張で対応可能（今回は安全・最小の線形変換に限定）。
+- テスト: `tests/test_custom_transform.py`（変換SQL＋設定 round-trip）。全 **172 件 PASS**（BigQuery 系含む全 `tests/`）。

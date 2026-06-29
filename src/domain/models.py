@@ -63,6 +63,10 @@ class CustomField:
     agg_mode: CustomAggMode = "metric"
     threshold: float = 0.0   # metric モードの |値| 下限
     hist_bin: float = 0.2    # ヒストグラムのビン幅
+    # 取得値への線形変換: 表示値 = 取得値 * scale + offset（例 scale=-1 で符号反転）。
+    # しきい値・ヒストグラムのビン・1分窓の最大値抽出も変換後の値で一貫して扱う。
+    scale: float = 1.0       # 取得値に掛ける係数
+    offset: float = 0.0      # 係数を掛けた後に足す値
 
     # MetricSpec 互換インターフェース（描画の再利用のため）
     @property
