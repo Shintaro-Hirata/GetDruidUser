@@ -8,7 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.domain.results import ChunkData, PeriodResult, RunResults
+from src.domain.results import ChunkData, PeriodResult, RunResults, rebin_hist
 from src.export.images import hist_png, scatter_png
 from src.queries.specs import HIST_TITLE, HIST_X_LABEL, METRICS, MetricSpec
 from src.services.truck_tracker import load_truck_log
@@ -260,8 +260,12 @@ def _render_hist_block(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     x_label: str = HIST_X_LABEL,
+    display_bin: float | None = None,
 ) -> None:
     st.markdown(f"### {head}（自動/手動）{title_suffix}")
+    # 取得時の微細ビンを表示ビン幅へ再集計する（再実行不要）。
+    if display_bin and display_bin > 0:
+        series = [(label, rebin_hist(df, display_bin)) for label, df in series]
     hist_mode = st.segmented_control(
         "表示",
         HIST_VIEW_MODES,
@@ -342,7 +346,7 @@ def _render_chunk_content(
 
     _render_hist_block(
         [(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist",
-        xlim=sb.hist_xlim, ylim=sb.hist_ylim,
+        xlim=sb.hist_xlim, ylim=sb.hist_ylim, display_bin=sb.hist_bin_q3,
     )
 
     # カスタムフィールド（任意テーブル×列）：散布図/画像/地図/表 ＋ 分布ヒストグラム
@@ -370,6 +374,7 @@ def _render_chunk_content(
             xlim=sb.custom_hist_xlims.get(cf.key),
             ylim=sb.custom_hist_ylims.get(cf.key),
             x_label=cf.label,
+            display_bin=float(cf.hist_bin) * sb.hist_bin_custom_mult,
         )
 
 
@@ -459,6 +464,7 @@ def render_compare_tab(
         title_suffix="（比較）",
         xlim=sb.hist_xlim,
         ylim=sb.hist_ylim,
+        display_bin=sb.hist_bin_q3,
     )
 
     for cf in results.config.custom_fields:
@@ -486,6 +492,7 @@ def render_compare_tab(
             xlim=sb.custom_hist_xlims.get(cf.key),
             ylim=sb.custom_hist_ylims.get(cf.key),
             x_label=cf.label,
+            display_bin=float(cf.hist_bin) * sb.hist_bin_custom_mult,
         )
 
 

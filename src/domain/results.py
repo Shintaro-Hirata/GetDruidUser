@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from src.domain.models import RunConfig, TimeRange
@@ -83,6 +84,46 @@ def add_ratio(df: pd.DataFrame, cnt_col: str, ratio_col: str) -> pd.DataFrame:
     total = float(out[cnt_col].sum())
     out[ratio_col] = out[cnt_col] / total if total > 0 else 0.0
     return out
+
+
+def rebin_hist(df: pd.DataFrame, target_bin: float) -> pd.DataFrame:
+    """ヒストグラム（取得時の微細ビン）を表示用の粗いビン幅へ再集計する。
+
+    取得時の基準ビン幅（bin_end-bin_start）を検出し、target_bin をその整数倍へ丸めた
+    幅 W で隣接ビンの cnt_auto/cnt_manual を合算、ratio を再計算する。
+    target が基準以下（より細かく）にはできないため、その場合は元のまま返す（再実行が必要）。
+    cnt 列が無い場合も正確に再集計できないので元のまま返す。
+    """
+    if df is None or df.empty or "bin_start" not in df.columns:
+        return df
+    if not {"cnt_auto", "cnt_manual"}.issubset(df.columns):
+        return df
+
+    d = df.copy()
+    d["bin_start"] = pd.to_numeric(d["bin_start"], errors="coerce")
+    if "bin_end" in d.columns:
+        widths = pd.to_numeric(d["bin_end"], errors="coerce") - d["bin_start"]
+        base = float(widths.median()) if widths.notna().any() else 0.0
+    else:
+        diffs = d["bin_start"].sort_values().diff().dropna()
+        base = float(diffs.median()) if not diffs.empty else 0.0
+    if base <= 0 or not np.isfinite(base):
+        return df
+
+    n = max(1, int(round(float(target_bin) / base)))
+    if n == 1:
+        return df  # 既に目的のビン幅（基準と同じ）
+
+    w = round(n * base, 9)
+    d = d.dropna(subset=["bin_start"])
+    if d.empty:
+        return df
+    d["bin_start"] = (np.floor(d["bin_start"] / w + 1e-9) * w).round(9)
+    d["bin_end"] = (d["bin_start"] + w).round(9)
+    g = d.groupby(["bin_start", "bin_end"], as_index=False)[["cnt_auto", "cnt_manual"]].sum()
+    g = add_ratio(g, cnt_col="cnt_auto", ratio_col="ratio_auto")
+    g = add_ratio(g, cnt_col="cnt_manual", ratio_col="ratio_manual")
+    return g.sort_values("bin_start").reset_index(drop=True)
 
 
 def merge_auto_manual_hist(auto: pd.DataFrame, manual: pd.DataFrame) -> pd.DataFrame:

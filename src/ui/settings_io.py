@@ -197,6 +197,13 @@ def extract_session_values(d: dict) -> dict[str, Any]:
     if sw is not None:
         out["smooth_window_q3"] = sw
 
+    hb = _as_float(disp.get("Q3ヒストグラムビン幅（表示）"))
+    if hb is not None and hb > 0:
+        out["hist_bin_q3"] = hb
+    hm = _as_int(disp.get("自由フィールドヒストグラムビン幅倍率（表示）"))
+    if hm is not None and hm >= 1:
+        out["hist_bin_custom_mult"] = hm
+
     map_cfg = disp.get("地図設定") if isinstance(disp.get("地図設定"), dict) else {}
     cby = map_cfg.get("プロット色")
     if isinstance(cby, str):

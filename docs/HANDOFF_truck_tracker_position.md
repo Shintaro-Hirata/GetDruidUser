@@ -280,4 +280,17 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 - 課題: 比較タブは全期間の和集合で Truck を読むため、アップロードしたログが一部期間しか含まないと、未取得の期間がメトリクス地図（置換時）から消えていた（`_remap_to_truck` が合致しない点を全部落としていた）。
 - 修正（`src/ui/views/map.py` `_remap_to_truck`）: **系列に合致する Truck 点が 1 件も無いときは置換せず元の位置（localization=Zero-Plotter 由来）のまま返す**。1 件でも合致すれば従来どおり合致点を Truck 位置へ移し、許容差外の点のみ落とす。
 - 各期間タブ（Zero-Plotter タブ／メトリクス地図）は、その期間の Truck が 0 件なら従来から元表示にフォールバックしていた（`truck_present=False`）。今回の修正で**比較タブ**でも未取得期間が消えなくなった。
-- テスト: `tests/test_truck_tracker.py` に「未合致系列は元位置を保持」「比較相当で地図が空にならない」を追加。全 **173 件 PASS**（BigQuery 系含む全 `tests/`）。
+- テスト: `tests/test_truck_tracker.py` に「未合致系列は元位置を保持」「比較相当で地図が空にならない」を追加。
+
+### 11-4. ヒストグラム（Q3・自由フィールド）のビン幅を再実行不要に
+- 課題: ビン幅を SQL（`FLOOR(x/bin)*bin`）で焼き込んでいたため、刻み幅変更＝再取得だった。
+- 方針: **取得は微細な基準ビンで行い、表示時に表示ビン幅へ再集計**（`smooth_window` と同じ表示時処理）。
+  - Q3（横G）の取得基準ビン = `Q3_HIST_BASE_BIN = 0.05`（`src/queries/builder.py`、旧 0.2 固定を置換）。
+  - 自由フィールドの取得基準ビン = 各フィールドの「ビン幅」（=最小/取得解像度）。
+- 再集計: `src/domain/results.py` `rebin_hist(df, target_bin)`。基準ビンの整数倍へ `cnt_auto/cnt_manual` を合算し ratio を再計算（cnt が無い/基準より細かい指定は元のまま）。
+- 表示設定（再実行不要、`SidebarValues.hist_bin_q3` / `hist_bin_custom_mult`）:
+  - **Q3 ヒストグラム ビン幅（表示）**: 絶対値（既定 0.2、0.05 刻み）。
+  - **自由フィールド ヒストグラム ビン幅 倍率（表示）**: 各フィールドの「ビン幅」×N（既定 1）。細かくするには「ビン幅」を下げて再実行。
+- 反映箇所: 画面（`pages.py` `_render_hist_block`）＋ 画像一括ZIP（`export/images.py`）の両方で再集計（見た目を一致）。`settings.json` にも保存/復元。
+- 既定値は従来と同じ見た目（Q3=0.2 / 自由F=各ビン幅）になるよう設定。
+- テスト: `tests/test_hist_rebin.py`（再集計・基準ビン）＋設定 round-trip。全 **180 件 PASS**（BigQuery 系含む全 `tests/`）。

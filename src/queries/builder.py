@@ -316,6 +316,11 @@ ORDER BY r.win_1m
 # 横Gヒストグラムクエリ（旧 Query3）
 # ============================================================
 
+# Q3（横G）ヒストグラムの取得時ビン幅（基準）。表示時はこの整数倍へ再集計する
+# （ビン幅変更で再実行が不要になる）。細かいほど表示ビン幅の自由度が上がるが行数も増える。
+Q3_HIST_BASE_BIN = 0.05
+
+
 def build_hist_query(
     p: QueryParams,
     *,
@@ -324,11 +329,12 @@ def build_hist_query(
     d = p.dialect
     accel_col = f"p.{d.col('.pose.linear_acceleration_vrf.y')}"
     p_time = f"p.{d.time_col}"
+    b = Q3_HIST_BASE_BIN
 
     return f"""
 SELECT
-  CAST(FLOOR({accel_col} / 0.2) * 0.2 AS {d.double_type}) AS bin_start,
-  CAST(FLOOR({accel_col} / 0.2) * 0.2 + 0.2 AS {d.double_type}) AS bin_end,
+  CAST(FLOOR({accel_col} / {b}) * {b} AS {d.double_type}) AS bin_start,
+  CAST(FLOOR({accel_col} / {b}) * {b} + {b} AS {d.double_type}) AS bin_end,
   COUNT(*) AS cnt
 FROM {d.table(p.tables.pose_table)} p
 JOIN (

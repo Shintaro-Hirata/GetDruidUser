@@ -112,6 +112,17 @@ def test_settings_roundtrip_truck_and_custom_transform():
     assert rows[0]["offset"] == 2.0
 
 
+def test_settings_roundtrip_hist_display_bins():
+    from src.export.settings_file import build_input_settings_dict
+    from src.ui.state import AppState
+
+    sb = _sidebar(hist_bin_q3=0.5, hist_bin_custom_mult=3)
+    d = build_input_settings_dict(sb, AppState(), "", bq_project="t2-integration")
+    out = extract_session_values(d)
+    assert out["hist_bin_q3"] == 0.5
+    assert out["hist_bin_custom_mult"] == 3
+
+
 def test_settings_roundtrip_truck_overlay_default_path_empty():
     from src.export.settings_file import build_input_settings_dict
     from src.ui.state import AppState

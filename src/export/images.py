@@ -16,7 +16,7 @@ matplotlib.use("Agg")  # GUI不要のバックエンド（サーバー実行用�
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from src.domain.results import RunResults
+from src.domain.results import RunResults, rebin_hist
 from src.queries.specs import METRICS, MetricSpec
 
 X_LABEL = "移動距離[km]"
@@ -248,6 +248,8 @@ def results_to_image_zip(
     custom_scatter_ylims: dict | None = None,
     custom_hist_xlims: dict | None = None,
     custom_hist_ylims: dict | None = None,
+    hist_bin_q3: float = 0.0,
+    hist_bin_custom_mult: int = 1,
     extra_files: dict[str, bytes] | None = None,
 ) -> bytes:
     """
@@ -268,6 +270,12 @@ def results_to_image_zip(
         if png is not None:
             images.append((path, png))
 
+    def rebin(series, target: float):
+        """表示ビン幅へ再集計（画面表示と同じ見た目にする）。target<=0 ならそのまま。"""
+        if not target or target <= 0:
+            return series
+        return [(label, rebin_hist(df, target)) for label, df in series]
+
     # ---- 期間ごと（チャンクは結合して1枚に）----
     for period in results.periods:
         folder = _safe(period.label)
@@ -282,7 +290,7 @@ def results_to_image_zip(
             add(png, f"{folder}/Q{q_idx}_{spec.name}.png")
 
         png = _hist_png(
-            [(period.label, period.combined_hist_df())],
+            rebin([(period.label, period.combined_hist_df())], hist_bin_q3),
             smooth_window=smooth_window,
             xlim=hist_xlim,
             ylim=hist_ylim,
@@ -303,7 +311,10 @@ def results_to_image_zip(
             )
             add(
                 _hist_png(
-                    [(period.label, period.combined_custom_hist_df(cf.key))],
+                    rebin(
+                        [(period.label, period.combined_custom_hist_df(cf.key))],
+                        float(cf.hist_bin) * hist_bin_custom_mult,
+                    ),
                     smooth_window=smooth_window,
                     xlim=custom_hist_xlims.get(cf.key),
                     ylim=custom_hist_ylims.get(cf.key),
@@ -325,7 +336,7 @@ def results_to_image_zip(
             add(png, f"比較/Q{q_idx}_{spec.name}_比較.png")
 
         png = _hist_png(
-            results.compare_hist_series(),
+            rebin(results.compare_hist_series(), hist_bin_q3),
             smooth_window=smooth_window,
             xlim=hist_xlim,
             ylim=hist_ylim,
@@ -345,7 +356,10 @@ def results_to_image_zip(
             )
             add(
                 _hist_png(
-                    results.compare_custom_hist_series(cf.key),
+                    rebin(
+                        results.compare_custom_hist_series(cf.key),
+                        float(cf.hist_bin) * hist_bin_custom_mult,
+                    ),
                     smooth_window=smooth_window,
                     xlim=custom_hist_xlims.get(cf.key),
                     ylim=custom_hist_ylims.get(cf.key),

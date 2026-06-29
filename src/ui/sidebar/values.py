@@ -47,6 +47,10 @@ class SidebarValues:
     map_value_ranges: dict[str, tuple[float, float] | None] = field(default_factory=dict)
     custom_map_value_ranges: dict[str, tuple[float, float] | None] = field(default_factory=dict)
 
+    # ヒストグラムの表示ビン幅（再実行不要。取得は微細な基準ビンで行い表示時に再集計する）
+    hist_bin_q3: float = 0.2        # Q3（横G）の表示ビン幅（絶対値）
+    hist_bin_custom_mult: int = 1   # 自由フィールドの表示ビン幅 = 各フィールドの「ビン幅」× この倍率
+
     # Truck Tracker 参照（オプトイン。既定は Zero-Plotter のみ表示。再実行不要）
     truck_enable: bool = False
     truck_mode: str = "overlay"          # "overlay"（重畳） | "replace"（Truck で置換）

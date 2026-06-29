@@ -98,6 +98,8 @@ def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
         },
         "自由フィールド表示レンジ": _custom_ranges_dict(sb),
         "Q3平滑度（移動平均ウィンドウ幅）": sb.smooth_window,
+        "Q3ヒストグラムビン幅（表示）": sb.hist_bin_q3,
+        "自由フィールドヒストグラムビン幅倍率（表示）": sb.hist_bin_custom_mult,
         "地図設定": {
             "プロット色": "期間ごとの色" if sb.map_color_by == "period" else "値の大きさ（グラデーション）",
             "高さ(px)": sb.map_height,

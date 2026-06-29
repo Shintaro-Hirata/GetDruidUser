@@ -276,6 +276,33 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
             help="1=平滑化なし。大きいほど滑らかになります。",
         )
 
+        # ヒストグラムのビン幅は表示時に再集計する（再実行不要）。
+        # 取得は微細な基準ビン（Q3=0.05 / 自由フィールド=各「ビン幅」）で行う。
+        hist_bin_q3 = float(
+            st.number_input(
+                "Q3 ヒストグラム ビン幅（表示・再実行不要）",
+                min_value=0.05,
+                max_value=5.0,
+                value=float(st.session_state.get("hist_bin_q3", 0.2)),
+                step=0.05,
+                format="%.2f",
+                key="hist_bin_q3",
+                help="横Gヒストグラムの表示ビン幅。0.05 刻みで変更でき、再実行は不要です。",
+            )
+        )
+        hist_bin_custom_mult = int(
+            st.number_input(
+                "自由フィールド ヒストグラム ビン幅 倍率（表示・再実行不要）",
+                min_value=1,
+                max_value=50,
+                value=int(st.session_state.get("hist_bin_custom_mult", 1)),
+                step=1,
+                key="hist_bin_custom_mult",
+                help="各自由フィールドの『ビン幅』の整数倍で表示ビンを粗くします（再実行不要）。"
+                "さらに細かくするには『ビン幅』を小さくして再実行してください。",
+            )
+        )
+
         with st.expander("地図設定"):
             map_color_by = st.radio(
                 "プロット色",
@@ -344,6 +371,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         hist_xlim=range_or_none(q3_x_min, q3_x_max),
         hist_ylim=range_or_none(q3_y_min, q3_y_max),
         smooth_window=int(smooth_window),
+        hist_bin_q3=hist_bin_q3,
+        hist_bin_custom_mult=hist_bin_custom_mult,
         map_color_by=str(map_color_by),
         map_height=int(map_height),
         map_width=map_width,

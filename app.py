@@ -212,6 +212,8 @@ if st.button("画像を生成", key="gen_images"):
                 custom_scatter_ylims=sb.custom_scatter_ylims,
                 custom_hist_xlims=sb.custom_hist_xlims,
                 custom_hist_ylims=sb.custom_hist_ylims,
+                hist_bin_q3=sb.hist_bin_q3,
+                hist_bin_custom_mult=sb.hist_bin_custom_mult,
                 extra_files={"settings.json": settings_json},
             )
     except Exception as ex:
