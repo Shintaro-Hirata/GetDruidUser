@@ -56,6 +56,15 @@ def test_hist_query_bins_on_transformed_value():
     assert '(p.".pose.z" * -1.0 + 2.0)' in sql
 
 
+def test_timeseries_query_includes_distance():
+    # timeseries 自由フィールドも移動距離Xで描けるよう cum_dist_km を距離CTEから付与する
+    sql = build_custom_timeseries_query(_field(), _params(), dist_mode="latlon")
+    assert "cum_dist_km" in sql
+    assert "LEFT JOIN cum" in sql
+    assert "distance mode=latlon" in sql
+    assert "ts.value" in sql
+
+
 # ---- 設定JSONの保存/復元 ----
 
 def _sidebar(**over) -> SidebarValues:

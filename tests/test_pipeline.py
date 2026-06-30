@@ -279,7 +279,8 @@ def test_custom_metric_field_fetched_with_distance_and_hist():
     assert not results.periods[0].combined_custom_df("cf1").empty
 
 
-def test_custom_timeseries_field_no_distance():
+def test_custom_timeseries_field_includes_distance():
+    # timeseries 自由フィールドも移動距離X/経過時間X で描けるよう cum_dist_km を付与する
     backend = StubBackend()
     results = run_pipeline(
         backend=backend,
@@ -289,7 +290,9 @@ def test_custom_timeseries_field_no_distance():
     )
     cf_df = results.periods[0].chunks[0].custom_dfs["cf1"]
     assert "value" in cf_df.columns
-    assert "cum_dist_km" not in cf_df.columns     # timeseries は距離なし（X=時刻）
+    assert "cum_dist_km" in cf_df.columns
+    # 距離CTEは制御テーブル由来なので、timeseries クエリにも距離結合が入る
+    assert any("LEFT JOIN cum" in q for q in backend.queries)
 
 
 def test_custom_field_skips_latlon_when_absent():

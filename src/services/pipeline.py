@@ -206,7 +206,9 @@ def fetch_chunk(
 
         if cf.agg_mode == "timeseries":
             def cf_builder(s: datetime, e: datetime, _cf=cf, _ll=has_latlon) -> str:
-                return build_custom_timeseries_query(_cf, _query_params(config, s, e), has_latlon=_ll)
+                return build_custom_timeseries_query(
+                    _cf, _query_params(config, s, e), has_latlon=_ll, dist_mode=config.dist_mode
+                )
         else:  # "metric"
             def cf_builder(s: datetime, e: datetime, _cf=cf, _ll=has_latlon) -> str:
                 return build_custom_metric_query(

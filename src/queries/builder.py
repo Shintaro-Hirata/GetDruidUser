@@ -462,25 +462,43 @@ ORDER BY r.win_1m
 
 
 def build_custom_timeseries_query(
-    field, p: QueryParams, *, has_latlon: bool = True
+    field, p: QueryParams, *, has_latlon: bool = True, dist_mode: DistanceMode = "latlon"
 ) -> str:
-    """1秒平均そのままのカスタムクエリ（X=時刻・フィルタなし）。"""
+    """1秒平均そのままのカスタムクエリ（フィルタなし）。
+
+    移動距離Xでも描けるよう cum_dist_km を距離CTEから付与する（横軸=移動距離/経過時間/時刻
+    を取得し直さずに切り替えられる）。距離は制御テーブル由来でフィールドのテーブルに依らない。
+    """
     d = p.dialect
     col = d.col(field.column)
     table = d.table(field.table)
-    latlon = (
-        f",\n  AVG({d.col('#latitude')})  AS latitude,\n  AVG({d.col('#longitude')}) AS longitude"
+    sel_latlon = (
+        f",\n    AVG({d.col('#latitude')})  AS latitude,\n    AVG({d.col('#longitude')}) AS longitude"
         if has_latlon else ""
     )
+    out_latlon = ",\n  ts.latitude,\n  ts.longitude" if has_latlon else ""
     value_expr = _value_expr(f"AVG({col})", field)
+    distance_cte = _distance_cte(dist_mode, p)
     return f"""
+WITH ts AS (
+  SELECT
+    {d.floor_sec(d.time_col)} AS sec_time,
+    {value_expr} AS value{sel_latlon}
+  FROM {table}
+  WHERE {_time_filter(p)}
+  GROUP BY {d.floor_sec(d.time_col)}
+),
+
+{distance_cte}
+
 SELECT
-  {d.floor_sec(d.time_col)} AS sec_time,
-  {value_expr} AS value{latlon}
-FROM {table}
-WHERE {_time_filter(p)}
-GROUP BY {d.floor_sec(d.time_col)}
-ORDER BY 1
+  ts.sec_time,
+  ts.value{out_latlon},
+  c.cum_dist_km
+FROM ts
+LEFT JOIN cum c
+  ON ts.sec_time = c.sec_time
+ORDER BY ts.sec_time
 """
 
 

@@ -307,4 +307,11 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
   - **複数期間の比較は「経過時間」が最適**。各期間が自分の開始からの分になるため、**全期間が 0 分起点で揃い**、同じ場面（出発直後など）を重ねて比較できる（時刻軸だと別日でズレる）。
   - 「自由フィールド＋汎用時系列（1秒平均）＋経過時間」が、指定期間の信号推移を見るのに一番素直。
   - 単位は分（固定）。秒/時間への自動切替が要れば拡張可能。
-- テスト: `tests/test_scatter_xaxis.py`（モード解決・経過分換算・期間整列・設定 round-trip）。全 **186 件 PASS**（BigQuery 系含む全 `tests/`）。
+- テスト: `tests/test_scatter_xaxis.py`（モード解決・経過分換算・期間整列・設定 round-trip）。
+
+### 11-6. バグ修正（設定再適用 / 自由フィールド timeseries の移動距離X）
+- **① 同じ settings.json を読み込んでも反映されないことがある**: 読み込みは `(name, size)` で重複適用を抑止しており（毎 rerun の上書き防止）、同じファイルの再読込が無視されていた。`src/ui/sidebar/settings_panel.py` に **「再適用」ボタン**を追加（新規ファイルは従来どおり自動適用、同一ファイルはボタンで明示的に再適用）。
+  - 補足: 取得条件（vehicle_id / 時間帯 / しきい値 / テーブル等）は読み込んでも**グラフ（前回実行のキャッシュ）には即反映されない**＝「実行」が必要（ドリフト警告で通知）。表示設定（レンジ/色/平滑/ビン幅/横軸）は即反映。
+- **② 自由フィールド（汎用時系列）で横軸「移動距離」を選んでも時刻になる**: timeseries クエリは `cum_dist_km` を取得していなかったため distance が描けず time にフォールバックしていた（metric 集計は元から距離あり）。`build_custom_timeseries_query` に**距離CTEを LEFT JOIN して `cum_dist_km` を付与**（`dist_mode` 引数追加、`src/services/pipeline.py` から `config.dist_mode` を渡す）。距離は制御テーブル由来でフィールドのテーブルに依らない。
+  - 反映には**一度「実行」が必要**（既存のキャッシュ結果には距離列が無いため）。以降は表示切替（移動距離/経過時間/時刻）のみで再実行不要。
+- テスト: `tests/test_custom_transform.py`（timeseries に距離結合）＋ `tests/test_pipeline.py` 更新。全 **187 件 PASS**。

@@ -23,8 +23,14 @@ def render_settings_loader(state: AppState) -> None:
         if uploaded is None:
             return
         sig = (uploaded.name, uploaded.size)
-        if st.session_state.get("_settings_loaded_sig") == sig:
-            return  # 同一ファイルの再適用を防ぐ（読み込み後のユーザー編集を上書きしない）
+        # 新しいファイルは自動適用する。同じファイルは自動では再適用しない
+        # （読み込み後の手動編集や実行結果を毎 rerun で上書きしないため）。
+        # 同じ内容をもう一度反映したいときは「再適用」ボタンで明示的に行う。
+        already = st.session_state.get("_settings_loaded_sig") == sig
+        if already:
+            st.caption("この設定は適用済みです。変更後にもう一度反映するには「再適用」を押してください。")
+            if not st.button("再適用", key="settings_reapply", width="stretch"):
+                return
 
         import json
 
