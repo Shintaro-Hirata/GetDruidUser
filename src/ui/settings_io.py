@@ -204,6 +204,16 @@ def extract_session_values(d: dict) -> dict[str, Any]:
     if hm is not None and hm >= 1:
         out["hist_bin_custom_mult"] = hm
 
+    xam = disp.get("x_axis_mode")
+    if xam in ("distance", "elapsed", "time"):
+        out["x_axis_mode"] = xam
+    else:
+        xam_disp = disp.get("横軸（散布図・時系列）")
+        if isinstance(xam_disp, str):
+            out["x_axis_mode"] = {"移動距離": "distance", "経過時間": "elapsed", "時刻": "time"}.get(
+                xam_disp, "distance"
+            )
+
     map_cfg = disp.get("地図設定") if isinstance(disp.get("地図設定"), dict) else {}
     cby = map_cfg.get("プロット色")
     if isinstance(cby, str):

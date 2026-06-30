@@ -51,6 +51,10 @@ class SidebarValues:
     hist_bin_q3: float = 0.2        # Q3（横G）の表示ビン幅（絶対値）
     hist_bin_custom_mult: int = 1   # 自由フィールドの表示ビン幅 = 各フィールドの「ビン幅」× この倍率
 
+    # 散布図・自由フィールド時系列の横軸（再実行不要）
+    # "distance"=移動距離(km) / "elapsed"=期間開始からの経過時間(分) / "time"=時刻(JST)
+    x_axis_mode: str = "distance"
+
     # Truck Tracker 参照（オプトイン。既定は Zero-Plotter のみ表示。再実行不要）
     truck_enable: bool = False
     truck_mode: str = "overlay"          # "overlay"（重畳） | "replace"（Truck で置換）

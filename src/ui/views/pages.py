@@ -152,6 +152,7 @@ def render_metric_views(
     map_value_range: tuple[float, float] | None = None,
     truck_df=None,
     truck_mode: str = "overlay",
+    period_starts: dict | None = None,
 ) -> None:
     """1メトリクス分のブロック（散布図⇔画像⇔地図⇔表の切替つき）を描画する。
 
@@ -167,8 +168,10 @@ def render_metric_views(
     pending = tuple(r for r in state.excludes if r not in applied)
 
     # 表示レンジ外データ（散布図/画像で隠れる可能性）の警告。地図/表では非表示。
+    # X レンジ（km）は移動距離Xのときだけ有効。経過時間/時刻Xでは X 警告を出さない。
+    x_is_dist_eff = sb.x_axis_mode == "distance" and _uses_distance_x(series)
     scatter_msgs = scatter_range_warnings(
-        series, spec, xlim=xlim, ylim=ylim, x_is_dist=_uses_distance_x(series)
+        series, spec, xlim=xlim, ylim=ylim, x_is_dist=x_is_dist_eff
     )
 
     if mode == "地図":
@@ -246,6 +249,8 @@ def render_metric_views(
         xlim=xlim,
         ylim=ylim,
         pending_excludes=pending,
+        x_mode=sb.x_axis_mode,
+        period_starts=period_starts,
     )
     _show_fig_or_empty(fig, key=f"plot_{key}_scatter", state=state)
 
@@ -327,6 +332,9 @@ def _render_chunk_content(
         st.error(f"このチャンクの取得に失敗しました: {chunk.error}")
         return
 
+    # 経過時間Xのための期間開始（この期間ラベル→開始時刻）
+    starts = {period.label: period.range.start}
+
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
         with col:
@@ -342,6 +350,7 @@ def _render_chunk_content(
                 map_value_range=sb.map_value_ranges.get(spec.key),
                 truck_df=truck_df,
                 truck_mode=truck_mode,
+                period_starts=starts,
             )
 
     _render_hist_block(
@@ -365,6 +374,7 @@ def _render_chunk_content(
             map_value_range=sb.custom_map_value_ranges.get(cf.key),
             truck_df=truck_df,
             truck_mode=truck_mode,
+            period_starts=starts,
         )
         _render_hist_block(
             [(period.label, chunk.custom_hist_dfs.get(cf.key, pd.DataFrame()))],
@@ -439,6 +449,9 @@ def render_compare_tab(
         truck_df = _load_truck_window(sb, results.config, win_start, win_end)
     _truck_caption(sb, truck_df)
 
+    # 経過時間Xでは各期間が自分の開始からの分になり、全期間が0分起点で揃う。
+    starts = {p.label: p.range.start for p in results.periods}
+
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
         with col:
@@ -455,6 +468,7 @@ def render_compare_tab(
                 map_value_range=sb.map_value_ranges.get(spec.key),
                 truck_df=truck_df,
                 truck_mode=sb.truck_mode,
+                period_starts=starts,
             )
 
     _render_hist_block(
@@ -482,6 +496,7 @@ def render_compare_tab(
             map_value_range=sb.custom_map_value_ranges.get(cf.key),
             truck_df=truck_df,
             truck_mode=sb.truck_mode,
+            period_starts=starts,
         )
         _render_hist_block(
             results.compare_custom_hist_series(cf.key),

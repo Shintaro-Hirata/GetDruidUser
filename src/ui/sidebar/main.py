@@ -245,6 +245,20 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         st.markdown("---")
         st.header("表示設定（即時反映）")
 
+        x_axis_mode = st.radio(
+            "横軸（散布図・自由フィールド時系列）",
+            options=["distance", "elapsed", "time"],
+            format_func=lambda v: {
+                "distance": "移動距離 (km)",
+                "elapsed": "経過時間 (分)",
+                "time": "時刻 (JST)",
+            }[v],
+            key="x_axis_mode",
+            horizontal=True,
+            help="経過時間は各期間の開始からの分。比較タブでは全期間が0分起点で揃うため時系列を比較しやすくなります。"
+            "移動距離が無い系列（自由フィールドの汎用時系列など）では時刻にフォールバックします。再実行は不要。",
+        )
+
         with st.expander("表示レンジ（任意）"):
             x_min = st.number_input("X最小（km）", value=0.0, key="rng_x_min")
             x_max = st.number_input("X最大（km）", value=0.0, key="rng_x_max")
@@ -373,6 +387,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         smooth_window=int(smooth_window),
         hist_bin_q3=hist_bin_q3,
         hist_bin_custom_mult=hist_bin_custom_mult,
+        x_axis_mode=str(x_axis_mode),
         map_color_by=str(map_color_by),
         map_height=int(map_height),
         map_width=map_width,

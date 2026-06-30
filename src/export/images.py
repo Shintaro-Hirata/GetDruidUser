@@ -21,9 +21,16 @@ from src.queries.specs import METRICS, MetricSpec
 
 X_LABEL = "移動距離[km]"
 X_LABEL_TIME = "時刻(JST)"
+X_LABEL_ELAPSED = "経過時間[分]"
 HIST_X_LABEL = "横G [m/s^2]"
 HIST_Y_LABEL = "発生頻度"
 JST = timezone(timedelta(hours=9))
+X_LABELS = {"distance": X_LABEL, "elapsed": X_LABEL_ELAPSED, "time": X_LABEL_TIME}
+
+
+def _aware_utc(dt) -> pd.Timestamp:
+    ts = pd.Timestamp(dt)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 # 旧実装（show_query3_compare）と同じ期間別の線種・マーカー
 _LINE_STYLES = ["-", "--", ":", "-."]
@@ -83,16 +90,32 @@ def _uses_distance_x(series: list[tuple[str, pd.DataFrame]]) -> bool:
     )
 
 
-def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec, *, x_is_dist: bool) -> pd.DataFrame:
-    """X軸用の列 _x（移動距離 or 時刻JST）と値列を整形して返す。"""
+def _effective_x_mode(series: list[tuple[str, pd.DataFrame]], x_mode: str) -> str:
+    if x_mode == "distance":
+        return "distance" if _uses_distance_x(series) else "time"
+    if x_mode == "elapsed":
+        has_time = any(
+            df is not None and not df.empty and "sec_time" in df.columns for _, df in series
+        )
+        return "elapsed" if has_time else "time"
+    return "time"
+
+
+def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec, *, mode: str, period_start=None) -> pd.DataFrame:
+    """X軸用の列 _x（移動距離 / 経過時間[分] / 時刻JST）と値列を整形して返す。"""
     if df is None or df.empty or spec.name not in df.columns:
         return pd.DataFrame()
     d = df.copy()
     d[spec.name] = pd.to_numeric(d[spec.name], errors="coerce")
-    if x_is_dist:
+    if mode == "distance":
         if "cum_dist_km" not in d.columns:
             return pd.DataFrame()
         d["_x"] = pd.to_numeric(d["cum_dist_km"], errors="coerce")
+    elif mode == "elapsed":
+        if "sec_time" not in d.columns or period_start is None:
+            return pd.DataFrame()
+        t = pd.to_datetime(d["sec_time"], utc=True, errors="coerce")
+        d["_x"] = (t - _aware_utc(period_start)).dt.total_seconds() / 60.0
     else:
         if "sec_time" not in d.columns:
             return pd.DataFrame()
@@ -103,30 +126,33 @@ def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec, *, x_is_dist: bool) -> 
 def _scatter_single_png(
     df: pd.DataFrame, spec: MetricSpec, *, xlim, ylim,
     figsize: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
+    x_mode: str = "distance", period_start=None,
 ) -> bytes | None:
-    """単体散布図（デフォルト色・凡例なし）。X軸は距離 or 時刻を自動採用。"""
-    x_is_dist = _uses_distance_x([("", df)])
-    d = _clean_metric_df(df, spec, x_is_dist=x_is_dist)
+    """単体散布図（デフォルト色・凡例なし）。X軸は距離/経過時間/時刻。"""
+    mode = _effective_x_mode([("", df)], x_mode)
+    d = _clean_metric_df(df, spec, mode=mode, period_start=period_start)
     if d.empty:
         return None
     fig, ax = plt.subplots(figsize=figsize)
     ax.scatter(d["_x"], d[spec.name])
-    ax.set_xlabel(X_LABEL if x_is_dist else X_LABEL_TIME)
+    ax.set_xlabel(X_LABELS[mode])
     ax.set_ylabel(spec.y_label)
-    _apply_limits(ax, xlim if x_is_dist else None, ylim)
+    _apply_limits(ax, xlim if mode == "distance" else None, ylim)
     return _fig_to_png(fig)
 
 
 def _scatter_compare_png(
     series: list[tuple[str, pd.DataFrame]], spec: MetricSpec, *, xlim, ylim,
     figsize: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+    x_mode: str = "distance", period_starts: dict | None = None,
 ) -> bytes | None:
-    """比較散布図（色サイクル・凡例右外）。X軸は距離 or 時刻を自動採用。"""
-    x_is_dist = _uses_distance_x(series)
+    """比較散布図（色サイクル・凡例右外）。X軸は距離/経過時間/時刻。"""
+    mode = _effective_x_mode(series, x_mode)
+    starts = period_starts or {}
     fig, ax = plt.subplots(figsize=figsize)
     any_plotted = False
     for label, df in series:
-        d = _clean_metric_df(df, spec, x_is_dist=x_is_dist)
+        d = _clean_metric_df(df, spec, mode=mode, period_start=starts.get(label))
         if d.empty:
             continue
         ax.scatter(d["_x"], d[spec.name], label=label, s=18)
@@ -134,9 +160,9 @@ def _scatter_compare_png(
     if not any_plotted:
         plt.close(fig)
         return None
-    ax.set_xlabel(X_LABEL if x_is_dist else X_LABEL_TIME)
+    ax.set_xlabel(X_LABELS[mode])
     ax.set_ylabel(spec.y_label)
-    _apply_limits(ax, xlim if x_is_dist else None, ylim)
+    _apply_limits(ax, xlim if mode == "distance" else None, ylim)
     _legend_outside(ax)
     return _fig_to_png(fig)
 
@@ -250,6 +276,7 @@ def results_to_image_zip(
     custom_hist_ylims: dict | None = None,
     hist_bin_q3: float = 0.0,
     hist_bin_custom_mult: int = 1,
+    x_axis_mode: str = "distance",
     extra_files: dict[str, bytes] | None = None,
 ) -> bytes:
     """
@@ -286,6 +313,8 @@ def results_to_image_zip(
                 xlim=scatter_xlim,
                 ylim=scatter_ylims.get(spec.key),
                 figsize=figsize_single,
+                x_mode=x_axis_mode,
+                period_start=period.range.start,
             )
             add(png, f"{folder}/Q{q_idx}_{spec.name}.png")
 
@@ -306,6 +335,7 @@ def results_to_image_zip(
                     period.combined_custom_df(cf.key), cf,
                     xlim=custom_scatter_xlims.get(cf.key),
                     ylim=custom_scatter_ylims.get(cf.key), figsize=figsize_single,
+                    x_mode=x_axis_mode, period_start=period.range.start,
                 ),
                 f"{folder}/{_safe(cf.label)}.png",
             )
@@ -325,6 +355,7 @@ def results_to_image_zip(
 
     # ---- 比較（全期間重ね描き）----
     if len(results.periods) >= 2:
+        compare_starts = {p.label: p.range.start for p in results.periods}
         for q_idx, spec in enumerate(METRICS, start=1):
             png = _scatter_compare_png(
                 results.compare_metric_series(spec.key),
@@ -332,6 +363,8 @@ def results_to_image_zip(
                 xlim=scatter_xlim,
                 ylim=scatter_ylims.get(spec.key),
                 figsize=figsize_compare,
+                x_mode=x_axis_mode,
+                period_starts=compare_starts,
             )
             add(png, f"比較/Q{q_idx}_{spec.name}_比較.png")
 
@@ -351,6 +384,7 @@ def results_to_image_zip(
                     results.compare_custom_series(cf.key), cf,
                     xlim=custom_scatter_xlims.get(cf.key),
                     ylim=custom_scatter_ylims.get(cf.key), figsize=figsize_compare,
+                    x_mode=x_axis_mode, period_starts=compare_starts,
                 ),
                 f"比較/{_safe(cf.label)}_比較.png",
             )

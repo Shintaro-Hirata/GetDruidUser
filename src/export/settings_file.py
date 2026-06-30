@@ -100,6 +100,10 @@ def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
         "Q3平滑度（移動平均ウィンドウ幅）": sb.smooth_window,
         "Q3ヒストグラムビン幅（表示）": sb.hist_bin_q3,
         "自由フィールドヒストグラムビン幅倍率（表示）": sb.hist_bin_custom_mult,
+        "横軸（散布図・時系列）": {"distance": "移動距離", "elapsed": "経過時間", "time": "時刻"}.get(
+            sb.x_axis_mode, "移動距離"
+        ),
+        "x_axis_mode": sb.x_axis_mode,
         "地図設定": {
             "プロット色": "期間ごとの色" if sb.map_color_by == "period" else "値の大きさ（グラデーション）",
             "高さ(px)": sb.map_height,

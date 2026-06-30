@@ -293,4 +293,18 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
   - **自由フィールド ヒストグラム ビン幅 倍率（表示）**: 各フィールドの「ビン幅」×N（既定 1）。細かくするには「ビン幅」を下げて再実行。
 - 反映箇所: 画面（`pages.py` `_render_hist_block`）＋ 画像一括ZIP（`export/images.py`）の両方で再集計（見た目を一致）。`settings.json` にも保存/復元。
 - 既定値は従来と同じ見た目（Q3=0.2 / 自由F=各ビン幅）になるよう設定。
-- テスト: `tests/test_hist_rebin.py`（再集計・基準ビン）＋設定 round-trip。全 **180 件 PASS**（BigQuery 系含む全 `tests/`）。
+- テスト: `tests/test_hist_rebin.py`（再集計・基準ビン）＋設定 round-trip。
+
+### 11-5. 散布図・自由フィールド時系列に「経過時間」横軸を追加
+- 要望: 時刻ではなく **指定期間開始からの経過時間**を横軸にして時系列変化を見たい。
+- 実装: 横軸モード `SidebarValues.x_axis_mode`（`"distance"`=移動距離 / `"elapsed"`=経過時間[分] / `"time"`=時刻JST、既定 distance＝従来通り）。**表示時のみ**で再実行不要。
+  - `経過時間[分] = (sec_time − 期間開始) / 60`。期間開始は `period.range.start`。
+  - `src/ui/views/scatter.py`：`metric_scatter_fig(..., x_mode, period_starts)`、`_effective_x_mode`（描けないモードは time へフォールバック）、`_clean_df` が mode に応じて `_x` を生成。X レンジ(km)は distance のときだけ適用。
+  - `src/ui/views/pages.py`：`render_metric_views` に `period_starts` を渡す。期間タブは `{label: period開始}`、比較タブは全期間の `{label: 開始}`。
+  - `src/export/images.py`：画像一括ZIP の散布図も同じ横軸モードで描画（`x_axis_mode` 引数）。`settings.json` 保存/復元対応。
+- **おすすめの使い方（見やすさ）**:
+  - 単一期間の時系列を見る → 横軸「経過時間」。1 期間内の推移が 0 分起点で読める。
+  - **複数期間の比較は「経過時間」が最適**。各期間が自分の開始からの分になるため、**全期間が 0 分起点で揃い**、同じ場面（出発直後など）を重ねて比較できる（時刻軸だと別日でズレる）。
+  - 「自由フィールド＋汎用時系列（1秒平均）＋経過時間」が、指定期間の信号推移を見るのに一番素直。
+  - 単位は分（固定）。秒/時間への自動切替が要れば拡張可能。
+- テスト: `tests/test_scatter_xaxis.py`（モード解決・経過分換算・期間整列・設定 round-trip）。全 **186 件 PASS**（BigQuery 系含む全 `tests/`）。
