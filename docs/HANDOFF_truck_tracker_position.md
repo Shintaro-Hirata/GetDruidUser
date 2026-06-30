@@ -315,3 +315,13 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 - **② 自由フィールド（汎用時系列）で横軸「移動距離」を選んでも時刻になる**: timeseries クエリは `cum_dist_km` を取得していなかったため distance が描けず time にフォールバックしていた（metric 集計は元から距離あり）。`build_custom_timeseries_query` に**距離CTEを LEFT JOIN して `cum_dist_km` を付与**（`dist_mode` 引数追加、`src/services/pipeline.py` から `config.dist_mode` を渡す）。距離は制御テーブル由来でフィールドのテーブルに依らない。
   - 反映には**一度「実行」が必要**（既存のキャッシュ結果には距離列が無いため）。以降は表示切替（移動距離/経過時間/時刻）のみで再実行不要。
 - テスト: `tests/test_custom_transform.py`（timeseries に距離結合）＋ `tests/test_pipeline.py` 更新。全 **187 件 PASS**。
+
+### 11-7. ステアリング（操舵角・操舵トルク）の取得 ＋ BQ 配列カラムのバグ修正
+- 調査: Truck Tracker の GNSS ログ（`truck_*.log`）には操舵は無い（lat/lon/speed のみ）。一方 **Yatagarasu debug_monitor の `can_message`** に操舵があり、これは **Druid/BigQuery データソースにも列として存在**する（zero-plotter exporter 経由）。GetDruidUser の既存「自由フィールド」で取得できる（コード変更不要）。
+- 主な操舵変数（型は全て double。SV=目標 / PV=実測）:
+  - `t2_debug_monitor_summary`（= Truck Tracker が表示しているのと同じ値）: `.can_message[0].str_angle_sv_mabx`（操舵角・目標, ご質問の steer_angle_sv 相当）、`.can_message[0].str_angle_pv`（操舵角・実測）、`.can_message[0].str_angle`、`.can_message[0].str_angular_speed(_pv)`（操舵角速度）、`.can_message[0].eps_target_torque`（操舵トルク・目標）。**※ 配列インデックス付き＝下記修正前は BQ で取得不可**。
+  - `t2_control_debug`（既存の Q1/Q2 と同じデータソース・両gen・両backend安全）: `.steering_angle_rad`（操舵角[rad]）、`.steering_angle_rate_rad_per_sec`（操舵角速度[rad/s]）、`.debug_for_mcap.steering_angle`。**最も確実な推奨**。
+  - MABX 生 CAN（フラット列・両backend安全, gen-1_2）: `t2_main_mabx_response12 .str_angle_sv_mabx`（目標）、`t2_main_mabx_response3 .str_angle_pv`／`.eps_trq_pv`（実測トルク）、`t2_main_mabx_response2 .eps_trq_sv_bywire`（目標トルク）、`t2_main_mabx_eps001 .str_angle`／`.str_angular_speed`、`t2_main_mabx_eps002 .eps_trq_pv`／`.str_total_trq_pv`。gen-1_1 は `t2_main_mabx_reader_debug_can .response*/.eps001.*`（ネスト・括弧なし＝安全）。
+- **バグ修正（BQ 配列カラム）**: `Dialect.col` は BQ で `.`→`:` しか行わず `[0]` を残していたが、BQ 実カラムは `clean_column_name` で `[0]→_0_` 済み（`:can_message_0_:str_angle_sv_mabx`）。不一致で**配列インデックス列が BigQuery で常に column-not-found**だった（Druid は正常）。`src/queries/builder.py` `Dialect.col` の BQ 変換を `clean_column_name` と一致（`[ ] ( ) 空白 → _`）させて修正。これで `t2_debug_monitor_summary .can_message[0].*` も BQ で取得可能に。非配列列は無影響。
+- 取得手順（自由フィールド）: テーブル=データソース名、フィールド=列名（ドット形式、例 `.can_message[0].str_angle_sv_mabx`／`.steering_angle_rad`）、集計=「汎用時系列」（連続トレース・1秒平均）or「既存指標と同じ」（自動運転中・1分窓 max|値|）。横軸（移動距離/経過時間/時刻）・係数(×)（rad→deg は 57.2958）も使える。
+- テスト: `tests/test_dialect_col.py`（BQ サニタイズ＝DDL一致・Druid 逐語・# 列不変）。全 **191 件 PASS**。

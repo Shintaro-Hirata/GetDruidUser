@@ -38,9 +38,24 @@ class Dialect:
         return f'"{name}"'
 
     def col(self, name: str) -> str:
-        """列参照。BQ はドット区切りがコロンに置き換わる。"""
+        """列参照。
+
+        BQ の実カラム名は zero-plotter の `clean_column_name`（schema/generate_bq_ddl.py・
+        exporter.py）と同じ規則でサニタイズされている：ドット→コロン、角括弧・空白・丸括弧→
+        アンダースコア。配列インデックス列（例 `.can_message[0].str_angle_sv_mabx` →
+        `:can_message_0_:str_angle_sv_mabx`）も参照できるよう同じ変換で引用する。
+        Druid はドット区切りの dimension 名をそのまま二重引用する。
+        """
         if self.is_bq:
-            return f"`{name.replace('.', ':')}`"
+            s = (
+                name.replace(".", ":")
+                .replace("[", "_")
+                .replace("]", "_")
+                .replace(" ", "_")
+                .replace("(", "_")
+                .replace(")", "_")
+            )
+            return f"`{s}`"
         return f'"{name}"'
 
     @property
