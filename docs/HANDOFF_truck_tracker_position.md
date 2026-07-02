@@ -355,3 +355,17 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
   - サイドバー `_render_map_view_lock(state)`: 冒頭で `_apply_map_view` を取り込み **`map_lock_view=True` ＋ 中心/ズームを反映**（ウィジェットキーはサイドバー描画後に確定するため素のキー経由で受け渡す）。「地図で範囲を選んで視点を決める」チェック（`map_view_pick_mode` → `state.view_pick_mode`）を追加。除外編集モード中は競合するため無効化して案内。数値入力・「直近の自動視点を取り込む」ボタン・設定 round-trip は §11-8 のまま併存（手動微調整・再現用）。
 - 使い方: 「視点を固定する」または「地図で範囲を選んで視点を決める」を ON → 地図上でドラッグ（box）等で見せたい範囲を選択 → 地図下の「この視点を全地図に適用」→ 全地図（全メトリクス・全期間・Zero-Plotter）が同じ中心・ズームで揃う。
 - テスト: `tests/test_view_pick.py`（lat/lon 抽出・視点算出・単点=最大ズーム・`_apply_map_view` の取り込みで全地図が固定される end-to-end）。全 **204 件 PASS**（今回 +6）。
+
+### 11-10. ③（視点固定・視点選択）を撤回（ユーザー判断）
+- 判断: §11-8③（中心・ズームの数値固定）と §11-9（選択で視点を決めて全地図に適用）は、ユーザーの好みからずれるとの判断で **両方とも撤去**。技術的制約（`st.plotly_chart` はパン/ズーム＝relayout を Python へ返さないため、マウス操作の逐次追従は JS コンポーネント無しには不可）を踏まえ、機能自体を残さない方針。
+- 撤去内容（③関連のみ。①②＝表示チップ一貫化・比較タブの「表示する期間」は維持）:
+  - 削除: `src/ui/view_pick.py`、`tests/test_view_pick.py`。
+  - `src/ui/views/map.py` / `zero_plotter.py`: `center`/`zoom` 引数・`_record_auto_view`・`LAST_MAP_VIEW_STATE_KEY` を撤去（データからの自動フィットのみに戻す）。
+  - `src/ui/views/pages.py`: `_locked_center`/`_locked_zoom`・`_show_fig_or_empty` の `selectable_for_view`／視点選択分岐・地図呼び出しの `center=/zoom=`／`selectable_for_view=True` を撤去（`_persist_selector`＝①、`_visible_series`＋比較タブ multiselect＝②は残置）。
+  - `src/ui/sidebar/main.py`: `_render_map_view_lock` と 地図設定内の呼び出し・関連 import・`SidebarValues` への4引数を撤去。
+  - `src/ui/sidebar/values.py`: `map_lock_view`/`map_center_lat`/`map_center_lon`/`map_zoom` を撤去。
+  - `src/ui/state.py`: `view_pick_mode`/`view_pick_consumed_sig`/`view_pick_nonce` を撤去。
+  - `src/export/settings_file.py` / `src/ui/settings_io.py`: 地図設定の「視点固定」保存/復元を撤去。
+  - テスト: `test_map_view.py` の center/zoom 上書きテスト、`test_custom_transform.py` の視点固定 round-trip 2件を撤去。
+- 代替（マウス位置の緯度経度）: 地図の**各データ点ホバーで 緯度/経度 を表示済み**（`_map_trace`・Zero-Plotter 点・Truck 点の hovertemplate 末尾）。走行軌跡は点が密なので、軌跡上ならホバーで座標が読める。地図の空白部を含む「任意カーソル位置」の逐次表示は Plotly＋Streamlit では JS 無しには不可。
+- 全 **195 件 PASS**（①②のテストは維持）。

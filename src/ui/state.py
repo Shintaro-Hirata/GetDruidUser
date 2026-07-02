@@ -41,13 +41,6 @@ class AppState:
     # チャートの widget key が変わり、Plotly の選択（ハイライト）がクリアされる。
     exclude_select_nonce: int = 0
 
-    # 視点選択モード（地図上の選択範囲から中心・ズームを決め、全地図の視点を揃える）
-    view_pick_mode: bool = False
-    # 既に処理済みの視点選択（rerun 後も残る選択を再処理しないための番兵）
-    view_pick_consumed_sig: tuple[float, ...] | None = None
-    # 視点選択のハイライトを解除するための番兵（exclude_select_nonce と同じ役割）
-    view_pick_nonce: int = 0
-
     # zero-plotter の運行（leg）から取り込んだメタデータ（期間ラベル -> meta）。
     # 実行時に PeriodResult.meta へ引き継がれ、バージョン比較等に使う。
     leg_meta: dict[str, dict] = field(default_factory=dict)

@@ -97,20 +97,17 @@ def _show_fig_or_empty(
     key: str,
     width: int | None = None,
     state: AppState | None = None,
-    selectable_for_view: bool = False,
 ) -> None:
-    """図を表示する。
-
-    除外編集モード中は選択イベントを受けて除外候補を提案する。
-    視点選択モード中（かつ地図＝selectable_for_view）は選択範囲から視点を決め、
-    「全地図に適用」で全地図の中心・ズームを揃える。両モードが同時 ON のときは
-    除外編集を優先する（サイドラインで視点選択を無効化して案内する）。
-    """
+    """図を表示する。除外編集モード中は選択イベントを受けて除外候補を提案する。"""
     if fig is None:
         st.info("結果0件")
         return
 
-    width_kw = "stretch" if width is None else width
+    kwargs: dict = {"key": key}
+    if width is None:
+        kwargs["width"] = "stretch"
+    else:
+        kwargs["width"] = width
 
     if state is not None and state.exclude_edit_mode:
         # 点を選択しても未選択点を薄くしない（除外範囲の判断のため分布を見たい）
@@ -118,29 +115,16 @@ def _show_fig_or_empty(
         # nonce を key に含める：「追加」「やり直す」で nonce が増えると
         # チャートが作り直され、Plotly の選択（点のハイライト）が解除される
         sel_key = f"{key}__sel{state.exclude_select_nonce}"
+        kwargs["key"] = sel_key
         event = st.plotly_chart(
             fig,
             on_select="rerun",
             selection_mode=("points", "box", "lasso"),
-            key=sel_key,
-            width=width_kw,
+            **kwargs,
         )
         handle_exclude_selection(state, selection_sec_times(event), key=sel_key)
-    elif state is not None and state.view_pick_mode and selectable_for_view:
-        from src.ui.view_pick import handle_view_pick_selection, selection_latlon
-
-        fig.update_traces(unselected=dict(marker=dict(opacity=1.0)))
-        sel_key = f"{key}__vsel{state.view_pick_nonce}"
-        event = st.plotly_chart(
-            fig,
-            on_select="rerun",
-            selection_mode=("points", "box", "lasso"),
-            key=sel_key,
-            width=width_kw,
-        )
-        handle_view_pick_selection(state, selection_latlon(event), key=sel_key)
     else:
-        st.plotly_chart(fig, key=key, width=width_kw)
+        st.plotly_chart(fig, **kwargs)
 
 
 def _persist_selector(widget_key: str, state_key: str, options: list[str]) -> str:
@@ -184,18 +168,6 @@ def _visible_series(
 ) -> list[tuple[str, pd.DataFrame]]:
     """凡例（期間）で表示 ON の系列だけに絞る。グラフと画像の両方に同じ絞り込みを効かせる。"""
     return [(label, df) for label, df in series if label in visible]
-
-
-def _locked_center(sb: SidebarValues) -> tuple[float, float] | None:
-    """地図の視点固定が ON なら中心（緯度, 経度）を返す。OFF なら None（自動）。"""
-    if sb.map_lock_view and sb.map_center_lat is not None and sb.map_center_lon is not None:
-        return (float(sb.map_center_lat), float(sb.map_center_lon))
-    return None
-
-
-def _locked_zoom(sb: SidebarValues) -> float | None:
-    """地図の視点固定が ON ならズームを返す。OFF なら None（自動）。"""
-    return float(sb.map_zoom) if (sb.map_lock_view and sb.map_zoom is not None) else None
 
 
 def render_metric_views(
@@ -251,12 +223,9 @@ def render_metric_views(
                     value_range=map_value_range,
                     truck_df=truck_df,
                     truck_mode=truck_mode,
-                    center=_locked_center(sb),
-                    zoom=_locked_zoom(sb),
                 )
                 _show_fig_or_empty(
-                    fig, key=f"plot_{key}_map_{i}", width=sb.map_width, state=state,
-                    selectable_for_view=True,
+                    fig, key=f"plot_{key}_map_{i}", width=sb.map_width, state=state
                 )
             return
         fig = metric_map_fig(
@@ -269,13 +238,8 @@ def render_metric_views(
             value_range=map_value_range,
             truck_df=truck_df,
             truck_mode=truck_mode,
-            center=_locked_center(sb),
-            zoom=_locked_zoom(sb),
         )
-        _show_fig_or_empty(
-            fig, key=f"plot_{key}_map", width=sb.map_width, state=state,
-            selectable_for_view=True,
-        )
+        _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width, state=state)
         return
 
     if mode == "画像":
@@ -650,13 +614,7 @@ def render_zero_plotter_tab(
                     "（車両ID/期間/TZ 解釈を確認してください）。"
                 )
 
-    fig = zp_track_fig(
-        zp_df, height=sb.map_height, truck_df=truck_df, truck_mode=sb.truck_mode,
-        center=_locked_center(sb), zoom=_locked_zoom(sb),
-    )
-    _show_fig_or_empty(
-        fig, key=f"plot_{key_prefix}_zp", width=sb.map_width, state=state,
-        selectable_for_view=True,
-    )
+    fig = zp_track_fig(zp_df, height=sb.map_height, truck_df=truck_df, truck_mode=sb.truck_mode)
+    _show_fig_or_empty(fig, key=f"plot_{key_prefix}_zp", width=sb.map_width, state=state)
     if sb.truck_enable and truck_df is not None and not truck_df.empty:
         st.caption(f"Truck 点数: {len(truck_df)}")

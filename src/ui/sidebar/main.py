@@ -15,8 +15,6 @@ from src.ui.sidebar.settings_panel import render_settings_export, render_setting
 from src.ui.sidebar.table_config import render_table_config
 from src.ui.sidebar.values import SidebarValues, range_or_none
 from src.ui.state import AppState
-from src.ui.view_pick import APPLY_VIEW_STATE_KEY
-from src.ui.views.map import LAST_MAP_VIEW_STATE_KEY
 
 
 def _on_ranges_text_change() -> None:
@@ -92,80 +90,6 @@ def _render_map_value_ranges(custom_fields):
         cmv[cf.key] = range_or_none(lo, hi)
 
     return mv, cmv
-
-
-def _render_map_view_lock(state: AppState) -> tuple[bool, float | None, float | None, float | None]:
-    """地図の視点固定 UI。ON にすると中心・ズームを固定し、条件を変えても同じ見え方にする。
-
-    視点の決め方は 2 通り:
-      - 地図で範囲を選んで決める（視点選択モード）: 地図上でポイント/範囲を選び、
-        表示された「全地図に適用」ボタンを押すと、その範囲の中心・ズームが下の欄へ入る。
-      - 直近に自動表示した地図の視点を取り込む / 手動で数値入力。
-    戻り値: (lock, center_lat, center_lon, zoom)。lock=False のとき緯度経度/ズームは None。
-    """
-    st.markdown("#### 視点の固定（任意）")
-    st.caption(
-        "ONにすると、条件（期間・除外・閾値など）を変えて再描画しても地図の中心・ズームを"
-        "固定します。条件間で見え方を揃えて比較したいときに使います。"
-    )
-
-    # メイン地図の「全地図に適用」ボタンからの視点適用リクエストを取り込む
-    # （ウィジェットキーはこの後で確定するため、素のキー経由で受け渡す）。
-    applied = st.session_state.pop(APPLY_VIEW_STATE_KEY, None)
-    if isinstance(applied, dict):
-        st.session_state["map_lock_view"] = True
-        st.session_state["map_lock_lat"] = round(float(applied.get("lat", 35.681236)), 6)
-        st.session_state["map_lock_lon"] = round(float(applied.get("lon", 139.767125)), 6)
-        st.session_state["map_lock_zoom"] = round(float(applied.get("zoom", 12.0)), 1)
-
-    st.session_state.setdefault("map_lock_view", False)
-    lock = st.checkbox("視点を固定する", key="map_lock_view")
-
-    # 視点選択モード（描画側が state.view_pick_mode を見て地図を選択可能にする）。
-    # 除外編集モードと選択が競合するため、除外編集中は無効化して案内する。
-    if state.exclude_edit_mode:
-        state.view_pick_mode = False
-        st.caption("※ 視点選択は除外編集モード中は使えません（除外編集を OFF にしてください）。")
-    else:
-        state.view_pick_mode = st.checkbox(
-            "地図で範囲を選んで視点を決める",
-            key="map_view_pick_mode",
-            help="ONにして地図上でポイント/範囲を選ぶと、その範囲の中心・ズームを取得し、"
-            "地図の下に出る『この視点を全地図に適用』で全地図の視点を揃えます。",
-        )
-
-    if not lock:
-        return False, None, None, None
-
-    last = st.session_state.get(LAST_MAP_VIEW_STATE_KEY) or {}
-    # 初回のみ、直近に自動表示した地図の視点を初期値として流し込む。
-    st.session_state.setdefault("map_lock_lat", round(float(last.get("lat", 35.681236)), 6))
-    st.session_state.setdefault("map_lock_lon", round(float(last.get("lon", 139.767125)), 6))
-    st.session_state.setdefault("map_lock_zoom", round(float(last.get("zoom", 12.0)), 1))
-
-    def _capture_current_view() -> None:
-        cur = st.session_state.get(LAST_MAP_VIEW_STATE_KEY) or {}
-        if cur:
-            st.session_state["map_lock_lat"] = round(float(cur.get("lat", 35.681236)), 6)
-            st.session_state["map_lock_lon"] = round(float(cur.get("lon", 139.767125)), 6)
-            st.session_state["map_lock_zoom"] = round(float(cur.get("zoom", 12.0)), 1)
-
-    st.button(
-        "直近に表示した地図の視点に合わせる",
-        on_click=_capture_current_view,
-        width="stretch",
-        help="最後に自動表示された地図の中心・ズームを下の欄へ取り込みます。",
-    )
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        lat = float(st.number_input("中心緯度", step=0.0001, format="%.6f", key="map_lock_lat"))
-    with c2:
-        lon = float(st.number_input("中心経度", step=0.0001, format="%.6f", key="map_lock_lon"))
-    with c3:
-        zoom = float(
-            st.number_input("ズーム", min_value=1.0, max_value=20.0, step=0.5, key="map_lock_zoom")
-        )
-    return True, lat, lon, zoom
 
 
 def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple, str]:
@@ -408,8 +332,6 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                     st.slider("地図の幅(px)", 400, 1600, value=800, step=20, key="map_width")
                 )
 
-            map_lock_view, map_center_lat, map_center_lon, map_zoom = _render_map_view_lock(state)
-
             map_value_ranges, custom_map_value_ranges = _render_map_value_ranges(custom_fields)
 
         with st.expander("Truck Tracker 参照（任意）"):
@@ -469,10 +391,6 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         map_color_by=str(map_color_by),
         map_height=int(map_height),
         map_width=map_width,
-        map_lock_view=bool(map_lock_view),
-        map_center_lat=map_center_lat,
-        map_center_lon=map_center_lon,
-        map_zoom=map_zoom,
         fig_size_single=fig_size_single,
         fig_size_compare=fig_size_compare,
         custom_scatter_xlims=custom_scatter_xlims,

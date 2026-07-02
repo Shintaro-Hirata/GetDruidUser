@@ -16,7 +16,7 @@ import streamlit as st
 from src.domain.models import RunConfig, TableConfig
 from src.queries.builder import Dialect, QueryParams, build_zp_track_query
 from src.ui.views.common import jst_display_series
-from src.ui.views.map import _record_auto_view, _zoom_for_bbox
+from src.ui.views.map import _zoom_for_bbox
 
 JST = timezone(timedelta(hours=9))
 
@@ -117,14 +117,11 @@ def zp_track_fig(
     height: int = 560,
     truck_df: pd.DataFrame | None = None,
     truck_mode: str = "overlay",
-    center: tuple[float, float] | None = None,
-    zoom: float | None = None,
 ) -> go.Figure | None:
     """点群DF（sec_time / system_state / latitude / longitude）を状態別色分けで描画。
 
     truck_df を渡すと Truck Tracker（GNSS/INS）位置を重畳する。
     truck_mode="replace" かつ Truck 点がある場合は Zero-Plotter 点を描かず Truck のみ表示する。
-    center / zoom を渡すと視点を固定する（None ならデータから自動決定）。
     """
     truck_present = (
         truck_df is not None and not truck_df.empty and {"lat", "lon"}.issubset(truck_df.columns)
@@ -198,19 +195,13 @@ def zp_track_fig(
 
     all_lat = pd.concat(bbox_lat)
     all_lon = pd.concat(bbox_lon)
-    auto_center_lat = float(all_lat.mean())
-    auto_center_lon = float(all_lon.mean())
-    auto_zoom = _zoom_for_bbox(
+    center_lat = float(all_lat.mean())
+    center_lon = float(all_lon.mean())
+    zoom = _zoom_for_bbox(
         float(all_lat.max() - all_lat.min()),
         float(all_lon.max() - all_lon.min()),
-        auto_center_lat,
+        center_lat,
     )
-    _record_auto_view(auto_center_lat, auto_center_lon, auto_zoom)
-
-    # 視点固定の指定があればそれを、無ければデータからの自動値を使う。
-    center_lat = float(center[0]) if center is not None else auto_center_lat
-    center_lon = float(center[1]) if center is not None else auto_center_lon
-    zoom = float(zoom) if zoom is not None else auto_zoom
 
     fig.update_layout(
         map=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
