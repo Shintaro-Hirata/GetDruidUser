@@ -16,6 +16,9 @@ from src.ui.views.common import jst_display_series, split_by_excludes
 ColorBy = str  # "period"（期間色） | "value"（値グラデーション）
 EXCLUDE_PREVIEW_COLOR = "#9e9e9e"
 TRUCK_REF_COLOR = "#6c757d"  # Truck Tracker の参照軌跡（重畳時）の色
+# 直近に自動計算した地図視点（中心緯度経度・ズーム）を控える session_state キー。
+# サイドバーの「視点を固定」の初期値・取り込みボタンに使う。
+LAST_MAP_VIEW_STATE_KEY = "_last_map_auto_view"
 # イベント点を Truck 位置へ移設する際の時刻マッチ許容差。Truck は約 0.33Hz（3秒間隔）なので
 # 最近傍は通常 1.5 秒以内に収まる。欠測時の誤マッチを抑えるため数秒に制限する。
 TRUCK_MATCH_TOLERANCE_S = 5
@@ -114,6 +117,23 @@ def _clean_df(df: pd.DataFrame, spec: MetricSpec) -> pd.DataFrame:
     return d.dropna(subset=["latitude", "longitude", spec.name])
 
 
+def _record_auto_view(lat: float, lon: float, zoom: float) -> None:
+    """自動計算した地図視点を控える（サイドバーの『視点を固定』の初期値・取り込みに使う）。
+
+    Streamlit のスクリプト実行外（単体テスト等）では session_state に触れないよう握りつぶす。
+    """
+    try:
+        import streamlit as st
+
+        st.session_state[LAST_MAP_VIEW_STATE_KEY] = {
+            "lat": float(lat),
+            "lon": float(lon),
+            "zoom": float(zoom),
+        }
+    except Exception:
+        pass
+
+
 def _zoom_for_bbox(lat_span: float, lon_span: float, center_lat: float) -> float:
     """表示範囲（度）からおおよそのズームレベルを決める。"""
     lon_span_eff = max(lon_span * math.cos(math.radians(center_lat)), 1e-6)
@@ -169,6 +189,8 @@ def metric_map_fig(
     value_range: tuple[float, float] | None = None,
     truck_df: pd.DataFrame | None = None,
     truck_mode: str = "overlay",
+    center: tuple[float, float] | None = None,
+    zoom: float | None = None,
 ) -> go.Figure | None:
     """
     series: [(期間ラベル, df), ...]
@@ -181,6 +203,8 @@ def metric_map_fig(
     truck_df / truck_mode: Truck Tracker（GNSS/INS）位置を使う場合に指定する。
       - "replace": 各イベント点を時刻最近傍の Truck 位置へ移設する（値・色は保持）。
       - "overlay": イベント点は元位置のまま、Truck 軌跡を参照レイヤとして重畳する。
+    center / zoom: 視点を固定する場合の中心（緯度, 経度）・ズーム。None ならデータから自動決定。
+                   条件を変えて再描画しても同じ見え方で比較できるようにするために使う。
     """
     truck_present = _truck_xy_valid(truck_df)
     fig = go.Figure()
@@ -245,13 +269,19 @@ def metric_map_fig(
 
     lats = pd.concat(all_lats)
     lons = pd.concat(all_lons)
-    center_lat = float(lats.mean())
-    center_lon = float(lons.mean())
-    zoom = _zoom_for_bbox(
+    auto_center_lat = float(lats.mean())
+    auto_center_lon = float(lons.mean())
+    auto_zoom = _zoom_for_bbox(
         float(lats.max() - lats.min()),
         float(lons.max() - lons.min()),
-        center_lat,
+        auto_center_lat,
     )
+    _record_auto_view(auto_center_lat, auto_center_lon, auto_zoom)
+
+    # 視点固定の指定があればそれを、無ければデータからの自動値を使う。
+    center_lat = float(center[0]) if center is not None else auto_center_lat
+    center_lon = float(center[1]) if center is not None else auto_center_lon
+    zoom = float(zoom) if zoom is not None else auto_zoom
 
     fig.update_layout(
         map=dict(

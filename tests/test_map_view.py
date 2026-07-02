@@ -72,6 +72,20 @@ def test_metric_map_fig_value_range_ignored_in_period_mode():
     assert fig.data[0].marker.cmin is None
 
 
+def test_metric_map_fig_view_lock_overrides_center_and_zoom():
+    # 視点固定：中心・ズームを指定すると、データの重心/自動ズームでなく指定値を使う
+    fig = metric_map_fig(
+        LATERAL_ERROR,
+        [("A", _df())],
+        colors={"A": "#ff0000"},
+        center=(35.0, 139.0),
+        zoom=14.0,
+    )
+    assert fig.layout.map.center.lat == 35.0
+    assert fig.layout.map.center.lon == 139.0
+    assert fig.layout.map.zoom == 14.0
+
+
 def test_metric_map_fig_empty_returns_none():
     assert metric_map_fig(LATERAL_ERROR, [("A", pd.DataFrame())], colors={}) is None
 

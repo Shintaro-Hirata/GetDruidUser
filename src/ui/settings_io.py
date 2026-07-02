@@ -246,6 +246,20 @@ def extract_session_values(d: dict) -> dict[str, Any]:
             out["map_full_width"] = False
             out["map_width"] = mw
 
+    # 地図の視点固定（中心緯度経度・ズーム）
+    lock = map_cfg.get("視点固定") if isinstance(map_cfg.get("視点固定"), dict) else {}
+    if isinstance(lock.get("有効"), bool):
+        out["map_lock_view"] = lock["有効"]
+    lat = _as_float(lock.get("中心緯度"))
+    if lat is not None:
+        out["map_lock_lat"] = lat
+    lon = _as_float(lock.get("中心経度"))
+    if lon is not None:
+        out["map_lock_lon"] = lon
+    z = _as_float(lock.get("ズーム"))
+    if z is not None:
+        out["map_lock_zoom"] = z
+
     colors = disp.get("プロット色")
     if isinstance(colors, dict):
         cmap = {str(k): str(v) for k, v in colors.items() if isinstance(v, str)}

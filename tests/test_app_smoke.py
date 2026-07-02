@@ -123,12 +123,12 @@ def test_app_view_switch_map_and_table():
         next(b for b in at.button if b.label == "実行").click().run()
         assert not at.exception
 
-        # 散布図 → 地図
-        at.session_state["view_t1_c1_q1"] = "地図"
+        # 散布図 → 地図（表示モードは素のキー viewmode_* が描画内容を決める）
+        at.session_state["viewmode_t1_c1_q1"] = "地図"
         at.run()
         assert not at.exception
         # 散布図 → 表
-        at.session_state["view_t1_c1_q1"] = "表"
+        at.session_state["viewmode_t1_c1_q1"] = "表"
         at.run()
         assert not at.exception
 
@@ -152,12 +152,12 @@ def test_app_image_view_and_hist_image_view():
         next(b for b in at.button if b.label == "実行").click().run()
         assert not at.exception
 
-        # 散布図 → 画像（matplotlib静止画）
-        at.session_state["view_t1_c1_q1"] = "画像"
+        # 散布図 → 画像（matplotlib静止画。描画内容は素のキー viewmode_* が決める）
+        at.session_state["viewmode_t1_c1_q1"] = "画像"
         at.run()
         assert not at.exception
         # 横G: グラフ → 画像
-        at.session_state["histview_t1_c1_hist"] = "画像"
+        at.session_state["histmode_t1_c1_hist"] = "画像"
         at.run()
         assert not at.exception
 

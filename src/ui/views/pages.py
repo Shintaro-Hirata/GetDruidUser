@@ -127,15 +127,59 @@ def _show_fig_or_empty(
         st.plotly_chart(fig, **kwargs)
 
 
+def _persist_selector(widget_key: str, state_key: str, options: list[str]) -> str:
+    """セグメントコントロールの選択を、ウィジェットとは別の素の session_state キーへ退避する。
+
+    「実行」は結果を保存後に st.rerun() するため、その回では本体側のセグメントコントロールが
+    描画されず、Streamlit がウィジェット状態を破棄することがある。すると次の描画でチップは
+    選択済み（画像/地図）でも中身が既定（散布図/グラフ）に戻り、両者が食い違う。選択値を
+    素のキー（実行の二重 rerun でも破棄されない）に持たせ、チップの初期値と描画内容の両方を
+    そこから決めることで、常にチップと中身を一致させる。
+    """
+    st.session_state.setdefault(state_key, options[0])
+    if st.session_state[state_key] not in options:
+        st.session_state[state_key] = options[0]
+
+    def _sync() -> None:
+        chosen = st.session_state.get(widget_key)
+        if chosen in options:
+            st.session_state[state_key] = chosen
+
+    kwargs: dict = {
+        "options": options,
+        "key": widget_key,
+        "on_change": _sync,
+        "label_visibility": "collapsed",
+    }
+    # ウィジェット状態が破棄された回だけ素のキーの値で作り直す
+    # （既存キーがある間に default を渡すと Streamlit が警告を出すため避ける）。
+    if widget_key not in st.session_state:
+        kwargs["default"] = st.session_state[state_key]
+    st.segmented_control("表示", **kwargs)
+    return st.session_state[state_key]
+
+
 def _view_selector(key: str, options: list[str]) -> str:
-    mode = st.segmented_control(
-        "表示",
-        options,
-        default=options[0],
-        key=f"view_{key}",
-        label_visibility="collapsed",
-    )
-    return mode or options[0]
+    return _persist_selector(f"view_{key}", f"viewmode_{key}", options)
+
+
+def _visible_series(
+    series: list[tuple[str, pd.DataFrame]], visible: set[str]
+) -> list[tuple[str, pd.DataFrame]]:
+    """凡例（期間）で表示 ON の系列だけに絞る。グラフと画像の両方に同じ絞り込みを効かせる。"""
+    return [(label, df) for label, df in series if label in visible]
+
+
+def _locked_center(sb: SidebarValues) -> tuple[float, float] | None:
+    """地図の視点固定が ON なら中心（緯度, 経度）を返す。OFF なら None（自動）。"""
+    if sb.map_lock_view and sb.map_center_lat is not None and sb.map_center_lon is not None:
+        return (float(sb.map_center_lat), float(sb.map_center_lon))
+    return None
+
+
+def _locked_zoom(sb: SidebarValues) -> float | None:
+    """地図の視点固定が ON ならズームを返す。OFF なら None（自動）。"""
+    return float(sb.map_zoom) if (sb.map_lock_view and sb.map_zoom is not None) else None
 
 
 def render_metric_views(
@@ -191,6 +235,8 @@ def render_metric_views(
                     value_range=map_value_range,
                     truck_df=truck_df,
                     truck_mode=truck_mode,
+                    center=_locked_center(sb),
+                    zoom=_locked_zoom(sb),
                 )
                 _show_fig_or_empty(
                     fig, key=f"plot_{key}_map_{i}", width=sb.map_width, state=state
@@ -206,6 +252,8 @@ def render_metric_views(
             value_range=map_value_range,
             truck_df=truck_df,
             truck_mode=truck_mode,
+            center=_locked_center(sb),
+            zoom=_locked_zoom(sb),
         )
         _show_fig_or_empty(fig, key=f"plot_{key}_map", width=sb.map_width, state=state)
         return
@@ -271,13 +319,7 @@ def _render_hist_block(
     # 取得時の微細ビンを表示ビン幅へ再集計する（再実行不要）。
     if display_bin and display_bin > 0:
         series = [(label, rebin_hist(df, display_bin)) for label, df in series]
-    hist_mode = st.segmented_control(
-        "表示",
-        HIST_VIEW_MODES,
-        default=HIST_VIEW_MODES[0],
-        key=f"histview_{key}",
-        label_visibility="collapsed",
-    ) or HIST_VIEW_MODES[0]
+    hist_mode = _persist_selector(f"histview_{key}", f"histmode_{key}", HIST_VIEW_MODES)
 
     _warn_out_of_range(
         hist_range_warnings(
@@ -452,12 +494,25 @@ def render_compare_tab(
     # 経過時間Xでは各期間が自分の開始からの分になり、全期間が0分起点で揃う。
     starts = {p.label: p.range.start for p in results.periods}
 
+    # 「表示する期間」: Plotly の凡例クリックによる非表示は Streamlit から取得できず、
+    # 画像（matplotlib）へ反映できない。ここで明示的に選ばせ、グラフ・画像の双方を
+    # 同じ期間集合で描くことで「グラフで消した期間は画像でも消える」ようにする。
+    period_labels = [p.label for p in results.periods]
+    selected = st.multiselect(
+        "表示する期間",
+        period_labels,
+        default=period_labels,
+        key="cmp_visible_periods",
+        help="ここで外した期間はグラフからも画像からも消えます（凡例クリックと違い画像にも反映されます）。",
+    )
+    visible = set(selected) if selected else set(period_labels)
+
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
         with col:
             render_metric_views(
                 spec,
-                results.compare_metric_series(spec.key),
+                _visible_series(results.compare_metric_series(spec.key), visible),
                 sb,
                 colors,
                 state,
@@ -472,7 +527,7 @@ def render_compare_tab(
             )
 
     _render_hist_block(
-        results.compare_hist_series(),
+        _visible_series(results.compare_hist_series(), visible),
         sb,
         key="cmp_hist",
         title_suffix="（比較）",
@@ -485,7 +540,7 @@ def render_compare_tab(
         st.markdown("---")
         render_metric_views(
             cf,
-            results.compare_custom_series(cf.key),
+            _visible_series(results.compare_custom_series(cf.key), visible),
             sb,
             colors,
             state,
@@ -499,7 +554,7 @@ def render_compare_tab(
             period_starts=starts,
         )
         _render_hist_block(
-            results.compare_custom_hist_series(cf.key),
+            _visible_series(results.compare_custom_hist_series(cf.key), visible),
             sb,
             key=f"cmp_{cf.key}_hist",
             title_suffix="（比較）",
@@ -575,7 +630,10 @@ def render_zero_plotter_tab(
                     "（車両ID/期間/TZ 解釈を確認してください）。"
                 )
 
-    fig = zp_track_fig(zp_df, height=sb.map_height, truck_df=truck_df, truck_mode=sb.truck_mode)
+    fig = zp_track_fig(
+        zp_df, height=sb.map_height, truck_df=truck_df, truck_mode=sb.truck_mode,
+        center=_locked_center(sb), zoom=_locked_zoom(sb),
+    )
     _show_fig_or_empty(fig, key=f"plot_{key_prefix}_zp", width=sb.map_width, state=state)
     if sb.truck_enable and truck_df is not None and not truck_df.empty:
         st.caption(f"Truck 点数: {len(truck_df)}")

@@ -325,3 +325,23 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 - **バグ修正（BQ 配列カラム）**: `Dialect.col` は BQ で `.`→`:` しか行わず `[0]` を残していたが、BQ 実カラムは `clean_column_name` で `[0]→_0_` 済み（`:can_message_0_:str_angle_sv_mabx`）。不一致で**配列インデックス列が BigQuery で常に column-not-found**だった（Druid は正常）。`src/queries/builder.py` `Dialect.col` の BQ 変換を `clean_column_name` と一致（`[ ] ( ) 空白 → _`）させて修正。これで `t2_debug_monitor_summary .can_message[0].*` も BQ で取得可能に。非配列列は無影響。
 - 取得手順（自由フィールド）: テーブル=データソース名、フィールド=列名（ドット形式、例 `.can_message[0].str_angle_sv_mabx`／`.steering_angle_rad`）、集計=「汎用時系列」（連続トレース・1秒平均）or「既存指標と同じ」（自動運転中・1分窓 max|値|）。横軸（移動距離/経過時間/時刻）・係数(×)（rad→deg は 57.2958）も使える。
 - テスト: `tests/test_dialect_col.py`（BQ サニタイズ＝DDL一致・Druid 逐語・# 列不変）。全 **191 件 PASS**。
+
+### 11-8. 表示ビューの一貫性（実行後のチップ/中身）・凡例非表示の画像反映・地図の視点固定
+3 件の追加要望に対応（すべて表示側・再実行不要、`settings.json` は #3 のみ round-trip 追加）。
+
+- **① 実行後にチップ（画像/地図）と中身（散布図/グラフ）が食い違う問題を解消**:
+  - 原因: 「実行」は結果保存後に `st.rerun()` するため、その回では本体側のセグメントコントロールが描画されず、Streamlit がウィジェット状態を破棄する。次の描画でチップは選択済みでも中身が既定に戻り不整合になっていた。
+  - 修正（`src/ui/views/pages.py` `_persist_selector`）: 選択値を**ウィジェットキーとは別の素の session_state キー**（`viewmode_*` / `histmode_*`、二重 rerun でも破棄されない）へ `on_change` で退避し、**チップの初期値と描画内容の両方をそのキーから決める**。ウィジェット状態が破棄された回だけ素のキーの値で `default` を渡して作り直す（既存キーがある間に `default` を渡すと Streamlit 警告が出るため回避）。`_view_selector`（メトリクス地図/画像/表）と `_render_hist_block`（グラフ/画像）の両方に適用。
+  - スモークテスト（`tests/test_app_smoke.py`）は描画内容を決める素のキー（`viewmode_*` / `histmode_*`）を設定するよう更新。
+- **② グラフで非表示にした期間を画像にも反映**:
+  - 背景: Plotly の凡例クリックによる非表示は `st.plotly_chart` から取得できず、matplotlib 画像（画像ビュー）へ反映できない。
+  - 実装（`src/ui/views/pages.py` `render_compare_tab`）: 比較タブ先頭に **「表示する期間」multiselect**（既定=全期間、`key=cmp_visible_periods`）を追加し、選択に基づき `_visible_series(series, visible)` で**全メトリクス・ヒスト・自由フィールドの系列を絞ってから** `render_metric_views` / `_render_hist_block` に渡す。同じ絞り込みが**グラフと画像（画像ビュー）の両方**に効く（描画内容は共有 `series`）。空選択は全期間表示に丸める。
+  - テスト: `tests/test_compare_visibility.py`（`_visible_series` の絞り込み・順序保持）。
+- **③ 地図の視点固定（中心・ズーム）**:
+  - 目的: 条件（期間・除外・閾値など）を変えて再描画しても地図の中心・ズームを固定し、条件間で見え方を揃えて比較する。
+  - view 側（`src/ui/views/map.py` `metric_map_fig` / `src/ui/views/zero_plotter.py` `zp_track_fig`）に `center=(lat, lon)` / `zoom` の任意引数を追加。指定があればデータの自動フィットでなくその値を使う。また**自動計算した視点を毎回 session_state（`LAST_MAP_VIEW_STATE_KEY`）へ控える**（`_record_auto_view`。テスト等スクリプト実行外は握りつぶし）。
+  - サイドバー「地図設定」に **「視点を固定する」チェック**＋中心緯度/中心経度/ズームの入力＋**「直近に表示した地図の視点に合わせる」ボタン**（`src/ui/sidebar/main.py` `_render_map_view_lock`）。初回 ON 時は直近に自動表示した地図の視点を初期値に流し込むため、「今の見え方を固定」がワンタッチでできる。
+  - `SidebarValues` に `map_lock_view` / `map_center_lat` / `map_center_lon` / `map_zoom` を追加。`pages.py` は `_locked_center(sb)` / `_locked_zoom(sb)` で各地図（メトリクス・値グラデーション分割・Zero-Plotter）へ受け渡す。
+  - `settings.json` の「地図設定」に **「視点固定」**（有効/中心緯度/中心経度/ズーム）を追加し round-trip（`src/export/settings_file.py` / `src/ui/settings_io.py`）。
+  - テスト: `tests/test_map_view.py`（center/zoom 上書き）＋ `tests/test_custom_transform.py`（視点固定の設定 round-trip）。
+- 全 **197 件 PASS**（新規 6 件: 地図 override 1・視点固定 round-trip 2・`_visible_series` 3）。

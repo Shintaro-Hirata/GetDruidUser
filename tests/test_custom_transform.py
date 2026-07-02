@@ -144,3 +144,31 @@ def test_settings_roundtrip_truck_overlay_default_path_empty():
     assert out["tt_assume_tz"] == "UTC"
     assert out["tt_filter_vehicle"] is True
     assert out["tt_log_path"] == ""
+
+
+def test_settings_roundtrip_map_view_lock():
+    from src.export.settings_file import build_input_settings_dict
+    from src.ui.state import AppState
+
+    sb = _sidebar(
+        map_lock_view=True, map_center_lat=35.5, map_center_lon=139.6, map_zoom=13.5
+    )
+    d = build_input_settings_dict(sb, AppState(), "", bq_project="t2-integration")
+    out = extract_session_values(d)
+    assert out["map_lock_view"] is True
+    assert out["map_lock_lat"] == 35.5
+    assert out["map_lock_lon"] == 139.6
+    assert out["map_lock_zoom"] == 13.5
+
+
+def test_settings_roundtrip_map_view_lock_default_off():
+    from src.export.settings_file import build_input_settings_dict
+    from src.ui.state import AppState
+
+    sb = _sidebar()  # 既定: 固定OFF・中心/ズームなし
+    d = build_input_settings_dict(sb, AppState(), "", bq_project="t2-integration")
+    out = extract_session_values(d)
+    assert out["map_lock_view"] is False
+    # 中心・ズームは None のため復元値には含めない（既存値を維持）
+    assert "map_lock_lat" not in out
+    assert "map_lock_zoom" not in out

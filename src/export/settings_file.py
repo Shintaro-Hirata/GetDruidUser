@@ -109,6 +109,12 @@ def _display_dict(sb: "SidebarValues", state: "AppState") -> dict:
             "高さ(px)": sb.map_height,
             "幅(px)": sb.map_width if sb.map_width is not None else "画面に合わせる",
             "値グラデーション範囲": _map_value_ranges_dict(sb),
+            "視点固定": {
+                "有効": bool(sb.map_lock_view),
+                "中心緯度": sb.map_center_lat,
+                "中心経度": sb.map_center_lon,
+                "ズーム": sb.map_zoom,
+            },
         },
         "プロット色": dict(state.color_map),
         "画像サイズ（インチ）": {

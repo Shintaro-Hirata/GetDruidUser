@@ -63,6 +63,12 @@ class SidebarValues:
     truck_sources: tuple = ()            # アップロードファイル/サーバパス等のソース列
     truck_log_path: str = ""             # サーバ上のパス（設定JSONに保存・復元可能な唯一のソース）
 
+    # 地図の視点固定（再実行不要）。ON のとき中心・ズームを固定し、条件を変えても同じ見え方にする。
+    map_lock_view: bool = False           # 視点（中心・ズーム）を固定するか
+    map_center_lat: float | None = None   # 固定時の中心緯度
+    map_center_lon: float | None = None   # 固定時の中心経度
+    map_zoom: float | None = None         # 固定時のズーム
+
 
 def range_or_none(min_v: float, max_v: float) -> tuple[float, float] | None:
     """min >= max のときは「レンジ指定なし」として None を返す。"""
