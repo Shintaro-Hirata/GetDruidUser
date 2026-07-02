@@ -345,3 +345,13 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
   - `settings.json` の「地図設定」に **「視点固定」**（有効/中心緯度/中心経度/ズーム）を追加し round-trip（`src/export/settings_file.py` / `src/ui/settings_io.py`）。
   - テスト: `tests/test_map_view.py`（center/zoom 上書き）＋ `tests/test_custom_transform.py`（視点固定の設定 round-trip）。
 - 全 **197 件 PASS**（新規 6 件: 地図 override 1・視点固定 round-trip 2・`_visible_series` 3）。
+
+### 11-9. ③の作り替え: 地図で範囲を選んで「全地図に視点適用」（選択方式）
+- 背景/制約: 当初 §11-8③ は中心・ズームの数値入力＋「直近の自動視点を取り込む」ボタンだった。ユーザー要望は「地図を動かす/ズームするたびに値が変わり、ボタンで全地図がその視点に合う」。ただし **`st.plotly_chart` はパン/ズーム（relayout）を Python へ返さない**ため、逐次追従はカスタム JS コンポーネント無しには不可。相談の結果、**選択（クリック/box/lasso）で視点を決めて全地図へ適用**する方式を採用（依存追加なし）。
+- 仕組み:
+  - `src/ui/view_pick.py`（新規）: `selection_latlon(event)`（選択点の lat/lon 抽出）／`view_from_latlon(latlons)`（外接範囲→中心＋`_zoom_for_bbox` でズーム）／`handle_view_pick_selection(state, latlons, key)`（「この視点を全地図に適用」ボタン。素のキー `_apply_map_view` に視点を積んで `st.rerun(scope="app")`）。
+  - `AppState` に `view_pick_mode` / `view_pick_consumed_sig` / `view_pick_nonce` を追加（除外編集と同型の選択処理・残存選択の再処理防止・ハイライト解除）。
+  - `src/ui/views/pages.py` `_show_fig_or_empty(..., selectable_for_view=False)`: 除外編集モード → 従来どおり除外選択、**視点選択モード（かつ地図）→ 視点選択**、それ以外 → 通常表示。地図の描画呼び出し（メトリクス地図・値グラデーション分割・Zero-Plotter）にだけ `selectable_for_view=True` を付与（散布図/ヒストは対象外）。両モード同時 ON は除外編集を優先。
+  - サイドバー `_render_map_view_lock(state)`: 冒頭で `_apply_map_view` を取り込み **`map_lock_view=True` ＋ 中心/ズームを反映**（ウィジェットキーはサイドバー描画後に確定するため素のキー経由で受け渡す）。「地図で範囲を選んで視点を決める」チェック（`map_view_pick_mode` → `state.view_pick_mode`）を追加。除外編集モード中は競合するため無効化して案内。数値入力・「直近の自動視点を取り込む」ボタン・設定 round-trip は §11-8 のまま併存（手動微調整・再現用）。
+- 使い方: 「視点を固定する」または「地図で範囲を選んで視点を決める」を ON → 地図上でドラッグ（box）等で見せたい範囲を選択 → 地図下の「この視点を全地図に適用」→ 全地図（全メトリクス・全期間・Zero-Plotter）が同じ中心・ズームで揃う。
+- テスト: `tests/test_view_pick.py`（lat/lon 抽出・視点算出・単点=最大ズーム・`_apply_map_view` の取り込みで全地図が固定される end-to-end）。全 **204 件 PASS**（今回 +6）。

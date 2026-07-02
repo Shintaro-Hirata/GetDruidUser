@@ -15,6 +15,7 @@ from src.ui.sidebar.settings_panel import render_settings_export, render_setting
 from src.ui.sidebar.table_config import render_table_config
 from src.ui.sidebar.values import SidebarValues, range_or_none
 from src.ui.state import AppState
+from src.ui.view_pick import APPLY_VIEW_STATE_KEY
 from src.ui.views.map import LAST_MAP_VIEW_STATE_KEY
 
 
@@ -93,11 +94,13 @@ def _render_map_value_ranges(custom_fields):
     return mv, cmv
 
 
-def _render_map_view_lock() -> tuple[bool, float | None, float | None, float | None]:
+def _render_map_view_lock(state: AppState) -> tuple[bool, float | None, float | None, float | None]:
     """地図の視点固定 UI。ON にすると中心・ズームを固定し、条件を変えても同じ見え方にする。
 
-    初回 ON 時は直近に自動表示した地図の視点（session_state）を初期値に流し込む。
-    「直近に表示した地図の視点に合わせる」ボタンでいつでも取り込み直せる。
+    視点の決め方は 2 通り:
+      - 地図で範囲を選んで決める（視点選択モード）: 地図上でポイント/範囲を選び、
+        表示された「全地図に適用」ボタンを押すと、その範囲の中心・ズームが下の欄へ入る。
+      - 直近に自動表示した地図の視点を取り込む / 手動で数値入力。
     戻り値: (lock, center_lat, center_lon, zoom)。lock=False のとき緯度経度/ズームは None。
     """
     st.markdown("#### 視点の固定（任意）")
@@ -105,12 +108,37 @@ def _render_map_view_lock() -> tuple[bool, float | None, float | None, float | N
         "ONにすると、条件（期間・除外・閾値など）を変えて再描画しても地図の中心・ズームを"
         "固定します。条件間で見え方を揃えて比較したいときに使います。"
     )
-    lock = st.checkbox("視点を固定する", value=False, key="map_lock_view")
+
+    # メイン地図の「全地図に適用」ボタンからの視点適用リクエストを取り込む
+    # （ウィジェットキーはこの後で確定するため、素のキー経由で受け渡す）。
+    applied = st.session_state.pop(APPLY_VIEW_STATE_KEY, None)
+    if isinstance(applied, dict):
+        st.session_state["map_lock_view"] = True
+        st.session_state["map_lock_lat"] = round(float(applied.get("lat", 35.681236)), 6)
+        st.session_state["map_lock_lon"] = round(float(applied.get("lon", 139.767125)), 6)
+        st.session_state["map_lock_zoom"] = round(float(applied.get("zoom", 12.0)), 1)
+
+    st.session_state.setdefault("map_lock_view", False)
+    lock = st.checkbox("視点を固定する", key="map_lock_view")
+
+    # 視点選択モード（描画側が state.view_pick_mode を見て地図を選択可能にする）。
+    # 除外編集モードと選択が競合するため、除外編集中は無効化して案内する。
+    if state.exclude_edit_mode:
+        state.view_pick_mode = False
+        st.caption("※ 視点選択は除外編集モード中は使えません（除外編集を OFF にしてください）。")
+    else:
+        state.view_pick_mode = st.checkbox(
+            "地図で範囲を選んで視点を決める",
+            key="map_view_pick_mode",
+            help="ONにして地図上でポイント/範囲を選ぶと、その範囲の中心・ズームを取得し、"
+            "地図の下に出る『この視点を全地図に適用』で全地図の視点を揃えます。",
+        )
+
     if not lock:
         return False, None, None, None
 
     last = st.session_state.get(LAST_MAP_VIEW_STATE_KEY) or {}
-    # 初回 ON 時のみ、直近に自動表示した地図の視点を初期値として流し込む。
+    # 初回のみ、直近に自動表示した地図の視点を初期値として流し込む。
     st.session_state.setdefault("map_lock_lat", round(float(last.get("lat", 35.681236)), 6))
     st.session_state.setdefault("map_lock_lon", round(float(last.get("lon", 139.767125)), 6))
     st.session_state.setdefault("map_lock_zoom", round(float(last.get("zoom", 12.0)), 1))
@@ -380,7 +408,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
                     st.slider("地図の幅(px)", 400, 1600, value=800, step=20, key="map_width")
                 )
 
-            map_lock_view, map_center_lat, map_center_lon, map_zoom = _render_map_view_lock()
+            map_lock_view, map_center_lat, map_center_lon, map_zoom = _render_map_view_lock(state)
 
             map_value_ranges, custom_map_value_ranges = _render_map_value_ranges(custom_fields)
 
