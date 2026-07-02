@@ -25,7 +25,21 @@ def _truck_xy_valid(truck_df) -> bool:
     return truck_df is not None and not truck_df.empty and {"lat", "lon"}.issubset(truck_df.columns)
 
 
-def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
+def _prep_truck_positions(truck_df: pd.DataFrame) -> pd.DataFrame:
+    """merge_asof の右側（時刻順の Truck 位置 _tt/lat/lon）を整形する。
+
+    複数系列の置換で使い回せるよう、系列ごとではなく truck_df ごとに 1 回だけ呼ぶ。
+    """
+    right = truck_df.copy()
+    right["_tt"] = pd.to_datetime(right["ts"], utc=True, errors="coerce").dt.as_unit("ns")
+    right["lat"] = pd.to_numeric(right["lat"], errors="coerce")
+    right["lon"] = pd.to_numeric(right["lon"], errors="coerce")
+    return right.dropna(subset=["_tt", "lat", "lon"]).sort_values("_tt")[["_tt", "lat", "lon"]]
+
+
+def _remap_to_truck(
+    d: pd.DataFrame, truck_df: pd.DataFrame, prepared: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """各点の緯度経度を、時刻が最も近い Truck GNSS 位置へ置き換える。
 
     値（spec.name）・時刻・累積距離など他の列は保持する。
@@ -34,6 +48,7 @@ def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
     比較タブのようにアップロードしたログが一部期間しか含まない場合でも、未取得の
     期間が地図から消えず Zero-Plotter のまま表示される。1 件でも合致すれば、合致点は
     Truck 位置へ移し、許容差内に Truck 点が無い点だけを落とす。
+    prepared には _prep_truck_positions の結果を渡せる（系列ループでの再整形を省く）。
     """
     if "sec_time" not in d.columns:
         return d  # 時刻列が無く対応付け不可 → 元の位置のまま
@@ -45,17 +60,13 @@ def _remap_to_truck(d: pd.DataFrame, truck_df: pd.DataFrame) -> pd.DataFrame:
     if left.empty:
         return d  # 有効な時刻が無い → 元の位置のまま
 
-    right = truck_df.copy()
-    right["_tt"] = pd.to_datetime(right["ts"], utc=True, errors="coerce").dt.as_unit("ns")
-    right["lat"] = pd.to_numeric(right["lat"], errors="coerce")
-    right["lon"] = pd.to_numeric(right["lon"], errors="coerce")
-    right = right.dropna(subset=["_tt", "lat", "lon"]).sort_values("_tt")
+    right = prepared if prepared is not None else _prep_truck_positions(truck_df)
     if right.empty:
         return d  # Truck 点が無い → 元の位置のまま
 
     merged = pd.merge_asof(
         left,
-        right[["_tt", "lat", "lon"]],
+        right,
         left_on="_t",
         right_on="_tt",
         direction="nearest",
@@ -82,7 +93,9 @@ def _truck_ref_trace(truck_df: pd.DataFrame) -> tuple[go.Scattermap | None, pd.D
     if d.empty:
         return None, d
     ts = d.get("ts", pd.Series([""] * len(d), index=d.index))
-    custom = pd.DataFrame({"jst": jst_display_series(ts)}).values
+    # customdata[0] は除外編集の選択イベントが読む生の時刻（UTC）。他トレースと
+    # 同じ配置にしないと、選択時に naive な表示文字列が UTC として解釈されてしまう。
+    custom = pd.DataFrame({"raw": ts.astype(str), "jst": jst_display_series(ts)}).values
     trace = go.Scattermap(
         lat=d["lat"],
         lon=d["lon"],
@@ -93,7 +106,7 @@ def _truck_ref_trace(truck_df: pd.DataFrame) -> tuple[go.Scattermap | None, pd.D
         customdata=custom,
         hovertemplate=(
             "<b>Truck Tracker</b><br>"
-            "時刻(JST): %{customdata[0]}<br>"
+            "時刻(JST): %{customdata[1]}<br>"
             "緯度: %{lat:.6f} / 経度: %{lon:.6f}"
             "<extra></extra>"
         ),
@@ -183,6 +196,10 @@ def metric_map_fig(
       - "overlay": イベント点は元位置のまま、Truck 軌跡を参照レイヤとして重畳する。
     """
     truck_present = _truck_xy_valid(truck_df)
+    # merge_asof の右側は系列に依らないため、系列ループの外で 1 回だけ整形する。
+    truck_right = (
+        _prep_truck_positions(truck_df) if (truck_present and truck_mode == "replace") else None
+    )
     fig = go.Figure()
     any_plotted = False
     all_lats: list[pd.Series] = []
@@ -194,7 +211,7 @@ def metric_map_fig(
             continue
         if truck_present and truck_mode == "replace":
             # 各イベント点を Truck の正しい位置へ移設する（合致しない点は落とす）。
-            d = _remap_to_truck(d, truck_df)
+            d = _remap_to_truck(d, truck_df, prepared=truck_right)
             if d.empty:
                 continue
 

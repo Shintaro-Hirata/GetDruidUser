@@ -32,7 +32,12 @@ class ChunkData:
 
 
 def _concat_cum_dist_continuous(dfs: list[pd.DataFrame], cum_col: str = "cum_dist_km") -> pd.DataFrame:
-    """複数DFを結合し、cum_dist_km を通し距離に補正する。"""
+    """複数DFを結合し、cum_dist_km を通し距離に補正する。
+
+    距離が取れなかった行（NULL。例: 距離ソースの制御テーブルに合致しない汎用時系列）
+    は NaN のまま残す。0 に潰すと距離X の描画で誤った位置（原点）に載ってしまうため、
+    NaN は描画側で行単位に除外（全行 NaN なら時刻軸へフォールバック）させる。
+    """
     out: list[pd.DataFrame] = []
     offset = 0.0
 
@@ -44,8 +49,10 @@ def _concat_cum_dist_continuous(dfs: list[pd.DataFrame], cum_col: str = "cum_dis
             continue
 
         d = df.copy()
-        d[cum_col] = pd.to_numeric(d[cum_col], errors="coerce").fillna(0.0) + offset
-        offset = float(d[cum_col].max()) if len(d) > 0 else offset
+        d[cum_col] = pd.to_numeric(d[cum_col], errors="coerce") + offset
+        max_v = d[cum_col].max()
+        if pd.notna(max_v):
+            offset = float(max_v)
         out.append(d)
 
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()

@@ -50,6 +50,8 @@ class AppState:
 
     # Excelバイト列のキャッシュ（結果ごとに1回だけ生成。新しい実行で無効化）
     excel_bytes: bytes | None = None
+    # excel_bytes を生成したときの Q3 表示ビン幅（変わったら再生成する）
+    excel_hist_bin: float | None = None
 
 
 def get_state() -> AppState:

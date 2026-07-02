@@ -19,6 +19,7 @@ import glob
 import os
 import re
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Iterable, Optional, Union
 
 import pandas as pd
@@ -158,6 +159,49 @@ def _iter_text(source: Source) -> Iterable[tuple[str, str]]:
     yield ("<text>", text)
 
 
+@lru_cache(maxsize=4)
+def _parse_positions(text: str) -> pd.DataFrame:
+    """ログ全文を位置レコード DataFrame（naive ts）へ変換する。
+
+    ast.literal_eval が行数ぶんかかり 1 日分のログで数百 ms 級になるため、
+    テキスト内容をキーに直近数ファイルぶんをプロセス内キャッシュする
+    （Streamlit は表示操作のたびにスクリプト全体を再実行するので、キャッシュが
+    無いと同じログを rerun ごとに再パースしてしまう）。TZ 解釈・車両・時刻の
+    フィルタはパース後に行うため、キャッシュはそれらの引数に依存しない。
+    返り値は共有されるので呼び出し側は変更前に copy すること。
+    """
+    records: list[dict] = []
+    for line in text.splitlines():
+        data = parse_line(line)
+        if data is None:
+            continue
+        ts = _parse_ts(data.get("datetime"))
+        try:
+            lat = float(data["lat"])
+            lon = float(data["lon"])
+        except (TypeError, ValueError):
+            continue
+        speed = data.get("speed")
+        try:
+            speed = float(speed) if speed is not None else float("nan")
+        except (TypeError, ValueError):
+            speed = float("nan")
+        truck_id = data.get("truck-id")
+        records.append(
+            {
+                "ts": ts,
+                "lat": lat,
+                "lon": lon,
+                "speed": speed,
+                "truck_id": truck_id,
+                "vehicle_num": vehicle_number(truck_id),
+            }
+        )
+    if not records:
+        return pd.DataFrame(columns=COLUMNS)
+    return pd.DataFrame.from_records(records, columns=COLUMNS)
+
+
 def load_truck_log(
     source: Source,
     *,
@@ -181,39 +225,13 @@ def load_truck_log(
       - start, end:  [start, end) で時刻フィルタ（tz-aware/naive どちらでも可。naive は UTC とみなす）。
       - assume_tz:   ログ時刻の TZ 解釈。既定 "UTC"。受信機が JST 設定なら "Asia/Tokyo"。
     """
-    records: list[dict] = []
-    for _origin, text in _iter_text(source):
-        for line in text.splitlines():
-            data = parse_line(line)
-            if data is None:
-                continue
-            ts = _parse_ts(data.get("datetime"))
-            try:
-                lat = float(data["lat"])
-                lon = float(data["lon"])
-            except (TypeError, ValueError):
-                continue
-            speed = data.get("speed")
-            try:
-                speed = float(speed) if speed is not None else float("nan")
-            except (TypeError, ValueError):
-                speed = float("nan")
-            truck_id = data.get("truck-id")
-            records.append(
-                {
-                    "ts": ts,
-                    "lat": lat,
-                    "lon": lon,
-                    "speed": speed,
-                    "truck_id": truck_id,
-                    "vehicle_num": vehicle_number(truck_id),
-                }
-            )
-
-    if not records:
+    frames = [_parse_positions(text) for _origin, text in _iter_text(source)]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
         return pd.DataFrame(columns=COLUMNS)
 
-    df = pd.DataFrame.from_records(records, columns=COLUMNS)
+    # キャッシュ済み DataFrame を変更しないよう、必ずコピー/新規結合にする。
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0].copy()
 
     # naive ローカル時刻 -> assume_tz で解釈 -> UTC へ変換し、Druid(__time=UTC) と比較できるようにする。
     naive = pd.to_datetime(df["ts"], errors="coerce")

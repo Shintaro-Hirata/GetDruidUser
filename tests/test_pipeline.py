@@ -309,3 +309,83 @@ def test_custom_field_skips_latlon_when_absent():
     # 緯度経度クエリを発行していない（select に latitude を含めない）
     cf_queries = [q for q in backend.queries if "AS value" in q]
     assert cf_queries and all("AS latitude" not in q for q in cf_queries)
+
+
+def test_concat_cum_dist_preserves_nan_and_offsets():
+    # 距離が取れなかった行（NULL）は 0 に潰さず NaN のまま残す（距離Xで原点に
+    # 誤配置しない）。offset は NaN を除いた最大値で進む。
+    from src.domain.results import _concat_cum_dist_continuous
+
+    a = pd.DataFrame({"cum_dist_km": [0.5, 1.0], "v": [1, 2]})
+    b = pd.DataFrame({"cum_dist_km": [float("nan"), 0.4], "v": [3, 4]})
+    out = _concat_cum_dist_continuous([a, b])
+    assert out["cum_dist_km"].iloc[0] == 0.5 and out["cum_dist_km"].iloc[1] == 1.0
+    assert pd.isna(out["cum_dist_km"].iloc[2])
+    assert out["cum_dist_km"].iloc[3] == 1.4  # 1.0 + 0.4
+
+    # 全行 NaN のフレームは offset を進めない
+    all_nan = pd.DataFrame({"cum_dist_km": [float("nan")], "v": [5]})
+    out2 = _concat_cum_dist_continuous([a, all_nan, b])
+    assert out2["cum_dist_km"].iloc[-1] == 1.4
+
+
+def test_custom_timeseries_chunks_concat_with_continuous_distance():
+    # timeseries 自由フィールドも adaptive split のサブ結果を通し距離で結合する
+    # （metric と同じ経路。修正前は plain concat で距離が 0 から再スタートしていた）。
+    from datetime import datetime as _dt
+
+    from src.services.pipeline import fetch_chunk
+
+    class SplitOnceBackend(StubBackend):
+        """timeseries クエリの初回だけ ResourceLimit を投げ、二分割させる"""
+
+        def __init__(self):
+            super().__init__()
+            self._failed_once = False
+
+        def sql(self, query: str, context=None) -> pd.DataFrame:
+            if "AS value" in query and "cum_dist_km" in query and not self._failed_once:
+                self._failed_once = True
+                raise RuntimeError("ResourceLimitExceededException: too big")
+            return super().sql(query, context)
+
+    cf = _custom_metric(agg_mode="timeseries")
+    s = _dt(2025, 12, 9, 1, 0, tzinfo=JST)
+    chunk = fetch_chunk(
+        backend=SplitOnceBackend(),
+        config=_config(custom_fields=(cf,)),
+        cs=s,
+        ce=s + timedelta(hours=1),
+        latlon_by_table={cf.table: True},
+    )
+    df = chunk.custom_dfs["cf1"]
+    # 二分割の各サブ結果が cum_dist_km=1.2 を返す → 通し距離は 1.2, 2.4
+    assert list(df["cum_dist_km"]) == [1.2, 2.4]
+
+
+def test_results_to_sheets_q3_rebinned_to_display_bin():
+    # Excel の Q3 シートは取得時の微細ビン（0.05）を表示ビン幅（既定 0.2）へ
+    # 再集計して出力する（画面・PNG と同じ見た目のデータ）。
+    import numpy as np
+
+    from src.domain.results import ChunkData, PeriodResult, RunResults
+    from src.export.excel import results_to_sheets
+
+    starts = np.round(np.arange(0.0, 0.4, 0.05), 9)
+    fine = pd.DataFrame({
+        "bin_start": starts,
+        "bin_end": np.round(starts + 0.05, 9),
+        "cnt_auto": [1.0] * 8,
+        "cnt_manual": [0.0] * 8,
+        "ratio_auto": [0.125] * 8,
+        "ratio_manual": [0.0] * 8,
+    })
+    r = _range()
+    chunk = ChunkData(start=r.start, end=r.end, hist_df=fine)
+    results = RunResults(
+        config=_config(), periods=[PeriodResult(label="期間A", range=r, chunks=[chunk])]
+    )
+    q3 = results_to_sheets(results)["T1_C1_Q3"]
+    assert list(q3["bin_start"]) == [0.0, 0.2]
+    assert list(q3["cnt_auto"]) == [4.0, 4.0]
+    assert q3["ratio_auto"].sum() == 1.0

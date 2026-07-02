@@ -156,7 +156,7 @@ def extract_session_values(d: dict) -> dict[str, Any]:
     for label, key in label_to_key.items():
         if label in qcond:
             v = _as_float(qcond.get(label))
-            if v is not None:
+            if v is not None and v >= 0:  # number_input(min_value=0.0) の範囲外はスキップ
                 out[f"thr_{key}"] = v
     if qcond.get("dist_mode") in ("latlon", "speed"):
         out["dist_mode"] = qcond["dist_mode"]
@@ -193,15 +193,18 @@ def extract_session_values(d: dict) -> dict[str, Any]:
             # 明示的に None（レンジ指定なし）→ 0,0（= レンジ無効）に戻す
             out[lo_key], out[hi_key] = 0.0, 0.0
 
+    # ウィジェットの min/max 外の値を session_state に入れると st.number_input /
+    # st.slider が例外を送出しサイドバー全体が描画不能になるため、範囲外はスキップする
+    # （本モジュールの「不正な項目は飛ばして他は適用」方針）。範囲は sidebar/main.py と一致させる。
     sw = _as_int(disp.get("Q3平滑度（移動平均ウィンドウ幅）"))
-    if sw is not None:
+    if sw is not None and 1 <= sw <= 101:
         out["smooth_window_q3"] = sw
 
     hb = _as_float(disp.get("Q3ヒストグラムビン幅（表示）"))
-    if hb is not None and hb > 0:
+    if hb is not None and 0.05 <= hb <= 5.0:
         out["hist_bin_q3"] = hb
     hm = _as_int(disp.get("自由フィールドヒストグラムビン幅倍率（表示）"))
-    if hm is not None and hm >= 1:
+    if hm is not None and 1 <= hm <= 50:
         out["hist_bin_custom_mult"] = hm
 
     xam = disp.get("x_axis_mode")
@@ -222,7 +225,7 @@ def extract_session_values(d: dict) -> dict[str, Any]:
         elif "期間" in cby or cby == "period":
             out["map_color_by"] = "period"
     mh = _as_int(map_cfg.get("高さ(px)"))
-    if mh is not None:
+    if mh is not None and 300 <= mh <= 1000:  # slider の範囲外は例外になるためスキップ
         out["map_height"] = mh
 
     # 既存指標の地図グラデーション色レンジ（spec.name -> [lo, hi]）
@@ -242,7 +245,7 @@ def extract_session_values(d: dict) -> dict[str, Any]:
         out["map_full_width"] = True
     else:
         mw = _as_int(width)
-        if mw is not None:
+        if mw is not None and 400 <= mw <= 1600:  # slider の範囲外は例外になるためスキップ
             out["map_full_width"] = False
             out["map_width"] = mw
 

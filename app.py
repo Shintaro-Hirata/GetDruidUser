@@ -15,6 +15,7 @@ from src.ui.run_progress import create_run_ui, finalize_run_log, make_progress_c
 from src.ui.sidebar import render_sidebar
 from src.ui.state import get_state
 from src.ui.views.pages import (
+    VISIBLE_PERIODS_STATE_KEY,
     render_compare_tab,
     render_period_tab,
     render_zero_plotter_tab,
@@ -174,9 +175,11 @@ for i, period in enumerate(results.periods):
 # Excel一括ダウンロード（結果モデルから導出）
 # =========================
 st.markdown("## Excel一括ダウンロード")
-# Excel生成は重い（数百ms）ため結果ごとに1回だけ生成してキャッシュする
-if state.excel_bytes is None:
-    state.excel_bytes = results_to_excel_bytes(results)
+# Excel生成は重い（数百ms）ため結果ごとに1回だけ生成してキャッシュする。
+# Q3 シートは表示ビン幅で再集計するため、ビン幅が変わったら作り直す。
+if state.excel_bytes is None or state.excel_hist_bin != sb.hist_bin_q3:
+    state.excel_bytes = results_to_excel_bytes(results, hist_bin_q3=sb.hist_bin_q3)
+    state.excel_hist_bin = sb.hist_bin_q3
 st.download_button(
     label="Excelをダウンロード",
     data=state.excel_bytes,
@@ -215,6 +218,8 @@ if st.button("画像を生成", key="gen_images"):
                 hist_bin_q3=sb.hist_bin_q3,
                 hist_bin_custom_mult=sb.hist_bin_custom_mult,
                 x_axis_mode=sb.x_axis_mode,
+                # 比較タブ「表示する期間」の選択を比較図にも反映する（未選択なら全期間）
+                visible_periods=st.session_state.get(VISIBLE_PERIODS_STATE_KEY),
                 extra_files={"settings.json": settings_json},
             )
     except Exception as ex:

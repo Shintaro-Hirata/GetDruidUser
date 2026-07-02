@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.domain.results import rebin_hist  # 表示ビン幅への再集計（表示と同じ判定にする）
 from src.queries.specs import HIST_X_LABEL, METRICS, MetricSpec
 
 Series = list[tuple[str, pd.DataFrame]]
@@ -143,6 +144,8 @@ def results_range_warnings(results, sb) -> list[str]:
     out: list[str] = []
     periods = results.periods
 
+    # ヒストグラムは表示と同じビン幅へ再集計してから判定する。取得時の微細ビンの
+    # ままだと ratio が表示より小さく、表示上は Y レンジ外でも警告が出ない。
     for spec in METRICS:
         s = [(p.label, p.combined_metric_df(spec.key)) for p in periods]
         out += scatter_range_warnings(
@@ -150,7 +153,7 @@ def results_range_warnings(results, sb) -> list[str]:
             x_is_dist=_has_distance(s),
         )
     out += hist_range_warnings(
-        [(p.label, p.combined_hist_df()) for p in periods],
+        [(p.label, rebin_hist(p.combined_hist_df(), sb.hist_bin_q3)) for p in periods],
         xlim=sb.hist_xlim, ylim=sb.hist_ylim, x_label=HIST_X_LABEL,
         smooth_window=sb.smooth_window,
     )
@@ -161,8 +164,9 @@ def results_range_warnings(results, sb) -> list[str]:
             s, cf, xlim=sb.custom_scatter_xlims.get(cf.key),
             ylim=sb.custom_scatter_ylims.get(cf.key), x_is_dist=_has_distance(s),
         )
+        display_bin = float(cf.hist_bin) * sb.hist_bin_custom_mult
         out += hist_range_warnings(
-            [(p.label, p.combined_custom_hist_df(cf.key)) for p in periods],
+            [(p.label, rebin_hist(p.combined_custom_hist_df(cf.key), display_bin)) for p in periods],
             xlim=sb.custom_hist_xlims.get(cf.key), ylim=sb.custom_hist_ylims.get(cf.key),
             x_label=cf.label, smooth_window=sb.smooth_window,
         )

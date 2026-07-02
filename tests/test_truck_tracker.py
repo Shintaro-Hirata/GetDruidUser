@@ -247,3 +247,28 @@ def test_remap_handles_mixed_datetime_resolutions():
     out = _remap_to_truck(metric, truck)  # 修正前は MergeError
     assert len(out) == 2
     assert all(34.0 < v < 36.0 for v in out["latitude"])
+
+
+def test_metric_map_truck_ref_customdata_raw_is_parseable_utc():
+    # 重畳トレースの customdata[0] は除外選択が isoparse する生UTC（表示用JSTは[1]）。
+    # JST表示文字列を[0]に置くと、除外選択で naive/aware 混在の比較エラーや+9hズレが起きる。
+    from dateutil import parser as dtparser
+
+    from src.ui.views.map import _truck_ref_trace
+
+    trace, _ = _truck_ref_trace(_truck_for_metric())
+    raw0 = trace.customdata[0][0]
+    parsed = dtparser.isoparse(str(raw0))
+    assert parsed.tzinfo is not None  # tz-aware（UTC）としてパースできる
+    assert "%{customdata[1]}" in trace.hovertemplate  # 表示はJST列
+
+
+def test_remap_prepared_right_matches_unprepared():
+    # 系列ループ外で1回だけ整形した右側（prepared）を渡しても結果は同じ。
+    from src.ui.views.map import _prep_truck_positions
+
+    truck = _truck_for_metric()
+    prepared = _prep_truck_positions(truck)
+    out_a = _remap_to_truck(_metric_df(), truck)
+    out_b = _remap_to_truck(_metric_df(), truck, prepared=prepared)
+    pd.testing.assert_frame_equal(out_a.reset_index(drop=True), out_b.reset_index(drop=True))

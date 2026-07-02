@@ -105,11 +105,15 @@ def _render_truck_tracker() -> tuple[bool, str, str, bool, tuple, str]:
         key="tt_enable",
         help="OFF のときは従来どおり Zero-Plotter（localization 由来）の自己位置のみを表示します。",
     )
-    mode = "overlay"
-    tz = "UTC"
-    filter_vehicle = True
+    # OFF の間も設定済みの値（session_state。設定JSONから復元された値を含む）を保持して
+    # 返す。固定の既定値を返すと、OFF のまま設定を書き出したときに保存済みの
+    # パス/TZ/表示方法が既定値で上書きされてしまう。sources だけは OFF なら常に空
+    #（読み込みは enable でゲートされる）。
+    mode = str(st.session_state.get("tt_mode") or "overlay")
+    tz = str(st.session_state.get("tt_assume_tz") or "UTC")
+    filter_vehicle = bool(st.session_state.get("tt_filter_vehicle", True))
+    path = str(st.session_state.get("tt_log_path") or "").strip()
     sources: list = []
-    path = ""
     if enable:
         mode = str(
             st.radio(

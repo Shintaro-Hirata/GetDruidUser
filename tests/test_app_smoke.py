@@ -371,3 +371,37 @@ def test_image_zip_includes_custom_field():
     names = zipfile.ZipFile(io.BytesIO(results_to_image_zip(results))).namelist()
     assert any("ヨーレート" in n for n in names)
     assert any("ヨーレート_ヒスト" in n for n in names)
+
+
+def test_visible_periods_survive_run_rerun():
+    """比較タブ「表示する期間」の選択が実行の二重 rerun 後も保持される（回帰）。
+
+    選択は素のキー（cmp_visible_periods_sel）へ退避され、実行でウィジェット状態が
+    破棄されても、次の描画でそのキーから multiselect が復元される。
+    """
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        at.session_state["ranges_text"] = (
+            "2025-12-09 01:00:00+09:00, 2025-12-09 02:00:00+09:00, 期間A\n"
+            "2025-12-10 01:00:00+09:00, 2025-12-10 02:00:00+09:00, 期間B"
+        )
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 期間Bを外した状態を再現（クリック時は on_change が素のキーへ同期する）
+        at.session_state["cmp_visible_periods_sel"] = ["期間A"]
+        at.session_state["cmp_visible_periods"] = ["期間A"]
+        at.run()
+        assert not at.exception
+
+        # 条件を変えて再実行（結果保存後 st.rerun() → ウィジェット状態は破棄される）
+        at.session_state["split_minutes"] = 30
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 素のキーが保持され、multiselect はそこから復元される（全期間に戻らない）
+        assert at.session_state["cmp_visible_periods_sel"] == ["期間A"]
+        ms = next(m for m in at.multiselect if m.label == "表示する期間")
+        assert ms.value == ["期間A"]

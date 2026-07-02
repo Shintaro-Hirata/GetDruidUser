@@ -369,3 +369,33 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
   - テスト: `test_map_view.py` の center/zoom 上書きテスト、`test_custom_transform.py` の視点固定 round-trip 2件を撤去。
 - 代替（マウス位置の緯度経度）: 地図の**各データ点ホバーで 緯度/経度 を表示済み**（`_map_trace`・Zero-Plotter 点・Truck 点の hovertemplate 末尾）。走行軌跡は点が密なので、軌跡上ならホバーで座標が読める。地図の空白部を含む「任意カーソル位置」の逐次表示は Plotly＋Streamlit では JS 無しには不可。
 - 全 **195 件 PASS**（①②のテストは維持）。
+
+### 11-11. 最終レビュー（バグ修正 10 件＋リファクタリング）
+機能完了に伴い、セッション全体の差分（sharp-hypatia 比）を多角レビュー。**確認済みバグ 10 件を修正**し、重複・無駄な処理を整理した。
+
+**修正したバグ**
+1. **地図の Truck 重畳トレースの customdata[0] が JST 表示文字列**だった（他トレースは生UTC）。除外編集モードで Truck 点を含む選択をすると naive/aware 混在で TypeError、Truck 点のみの選択では +9 時間ズレた除外時間帯が登録された。→ (raw, jst) の 2 列にし表示は [1] を使う（`map.py _truck_ref_trace`）。
+2. **画面内「画像」ビューが横軸モードを無視**（常に移動距離X）。散布図・ZIP出力とは食い違っていた。→ `scatter_png` に `x_mode`/`period_starts` を追加し、`pages.py` の 画像 ビュー（キャッシュキー含む）へ配線。
+3. **比較タブ「表示する期間」が実行のたびに全期間へリセット**（①と同じウィジェット状態破棄）。→ 素のキー `cmp_visible_periods_sel` へ退避し、そこから multiselect を復元。
+4. **画像一括ZIPの比較図が「表示する期間」を無視**。→ `results_to_image_zip(visible_periods=...)` を追加し app.py から選択を渡す（期間フォルダは全期間のまま）。
+5. **Excel の Q3 シートが取得時の微細ビン（0.05）のまま**で従来形式（0.2）と不一致。→ `results_to_sheets(hist_bin_q3=表示ビン幅)` で再集計（既定 0.2）。ビン幅変更時は Excel キャッシュを再生成（`AppState.excel_hist_bin`）。
+6. **timeseries 自由フィールドの adaptive split 結合が通し距離補正なし**（cum_dist_km が 0 から再スタート）。→ metric と同じ `_concat_cum_dist_continuous` へ統一（`pipeline.py`）。
+7. **cum_dist_km が全NULLの系列が「結果0件」になる**（列存在のみで距離軸を選び全行 dropna）。→ `uses_distance_x` を「非NULLが1つ以上」に変更し時刻軸へフォールバック。あわせて `_concat_cum_dist_continuous` が NULL を 0 に潰していたのを **NaN 保持**に修正（0に潰すと距離Xで原点に誤配置）。
+8. **設定JSONの範囲外値でサイドバーがクラッシュ**（number_input/slider の min/max 外を session_state に入れると Streamlit が例外）。→ 復元時にウィジェット範囲でバリデーション（範囲外はスキップ。ビン幅/倍率/平滑度/地図高さ・幅/しきい値）。
+9. **チップの選択解除（選択中チップ再クリック）で表示と中身が不一致**。→ `_persist_selector` が解除を無効化し直前の選択へ戻す。
+10. **Truck 参照 OFF のまま設定を書き出すと保存済みのパス/TZ/表示方法が既定値で上書き**。→ OFF でも session_state の設定値を保持して書き出す（`_render_truck_tracker`）。
+
+**リファクタリング（無駄・重複の整理）**
+- **横軸モードのロジックを一本化**: `src/domain/x_axis.py`（新設）に `effective_x_mode`/`uses_distance_x`/`clean_xy_df`/`X_LABELS`/`aware_utc` を集約。`scatter.py`（Plotly）と `export/images.py`（matplotlib）は同実装を参照（従来は各自コピーで、片側だけ直すと画面とPNGが食い違う構造だった）。`pages.py _aware_ts` も共通 `aware_utc` に置換。
+- **Truck ログのパースをプロセス内キャッシュ**（`truck_tracker.py _parse_positions`, lru_cache(4)）: Streamlit は操作のたびに全スクリプトを再実行するため、従来は 1 日分ログ（数万行の ast.literal_eval、数百ms級）を **rerun ごと・タブごと（2N+1回）** に再パースしていた。TZ・車両・時刻のフィルタはパース後に適用されるのでキャッシュはテキスト内容のみをキーにする。
+- **Zero-Plotter タブの Truck 読み込みを `_load_truck_window` に統一**（従来は引数リストを重複させた別実装＋モジュール import の局所シャドーイング）。`_load_truck_window` は `(df, エラー)` を返し、期間/比較タブのキャプションも**読み込み失敗と0件を区別して案内**する（従来は例外を握りつぶし「合致なし」と誤案内）。
+- **地図の Truck 置換の右側整形を系列ループ外へ**（`_prep_truck_positions`）: 比較タブでは期間数ぶん同じ truck DF を copy/変換/sort していた。
+- **`_truck_xy_valid` を zero_plotter.py から再利用**（同一式のインライン再実装を削除）、比較タブの冗長な二重ガード・`_truck_caption` の到達不能分岐を整理。
+- **レンジ外トースト（app.py 経由）もヒストを表示ビン幅へ再集計してから判定**（従来は微細ビンの ratio で判定し、表示上レンジ外でも通知されなかった）。
+
+**見送り（意図的スキップ）**
+- 設定JSONの「表示ラベル＋機械キー」二重持ち（例: 横軸/x_axis_mode）: 人間可読と復元堅牢性の両立という意図的設計のため維持。
+- map.py/zero_plotter.py の Truck トレース生成の完全統合: マーカー形状・速度列・ホバー内容が異なり、パラメータ化はかえって複雑化するため見送り（危険だった customdata 配置ズレは上記1で解消済み）。
+- `_remap_to_truck` の domain 層への移動、自由フィールド表示ビン幅式（×4箇所）のヘルパー化: 現時点で第二の利用者がなく、移動コストに見合わないため見送り。
+
+**テスト**: 回帰テスト 10 件を追加（customdata 生UTC・prepared remap 同値・画像の x_mode・全NULL距離フォールバック・NaN保持 concat・timeseries 分割の通し距離・Excel 再集計・設定範囲外スキップ・比較multiselect 永続化・ZIP期間フィルタ）。全 **205 件 PASS**。

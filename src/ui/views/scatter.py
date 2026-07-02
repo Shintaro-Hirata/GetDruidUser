@@ -4,47 +4,24 @@
 # （カスタムフィールドの timeseries / 緯度経度なしにも対応）。
 from __future__ import annotations
 
-from datetime import timedelta, timezone
 from typing import Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
 
 from src.domain.models import ExcludeRange
+from src.domain.x_axis import (  # X軸モード解決・_x列生成（画像出力と共通）
+    X_LABEL_DIST,
+    X_LABEL_ELAPSED,
+    X_LABELS,
+    clean_xy_df,
+    effective_x_mode as _effective_x_mode,
+    uses_distance_x as _uses_distance_x,
+)
 from src.queries.specs import MetricSpec
 from src.ui.views.common import jst_display_series, split_by_excludes
 
-JST = timezone(timedelta(hours=9))
-X_LABEL_DIST = "移動距離[km]"
-X_LABEL_TIME = "時刻(JST)"
-X_LABEL_ELAPSED = "経過時間[分]"
 EXCLUDE_PREVIEW_COLOR = "#9e9e9e"
-
-
-def _aware_utc(dt) -> pd.Timestamp:
-    """datetime を tz-aware（UTC）な Timestamp に揃える（naive は UTC とみなす）。"""
-    ts = pd.Timestamp(dt)
-    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
-
-
-def _effective_x_mode(series: list[tuple[str, pd.DataFrame]], x_mode: str) -> str:
-    """要求された横軸モードを、実データで描けるモードへ解決する。
-
-    - distance: どれかに cum_dist_km があれば distance、無ければ time
-    - elapsed:  どれかに sec_time があれば elapsed、無ければ time
-    - time:     time
-    """
-    if x_mode == "distance":
-        return "distance" if _uses_distance_x(series) else "time"
-    if x_mode == "elapsed":
-        has_time = any(
-            df is not None and not df.empty and "sec_time" in df.columns for _, df in series
-        )
-        return "elapsed" if has_time else "time"
-    return "time"
-
-
-X_LABELS = {"distance": X_LABEL_DIST, "elapsed": X_LABEL_ELAPSED, "time": X_LABEL_TIME}
 
 # この点数以下なら SVG（go.Scatter）で描く。
 # WebGL（Scattergl）はチャート1枚ごとにWebGLコンテキストを初期化するため、
@@ -53,34 +30,8 @@ X_LABELS = {"distance": X_LABEL_DIST, "elapsed": X_LABEL_ELAPSED, "time": X_LABE
 WEBGL_THRESHOLD_POINTS = 5000
 
 
-def _uses_distance_x(series: list[tuple[str, pd.DataFrame]]) -> bool:
-    """系列のどれかに cum_dist_km があれば移動距離をX軸にする。"""
-    return any(
-        df is not None and not df.empty and "cum_dist_km" in df.columns
-        for _, df in series
-    )
-
-
 def _clean_df(df: pd.DataFrame, spec: MetricSpec, *, mode: str, period_start=None) -> pd.DataFrame:
-    """数値化と NaN 除去。X軸用の列 _x を作る（mode は解決済み: distance/elapsed/time）。"""
-    if df is None or df.empty or spec.name not in df.columns:
-        return pd.DataFrame()
-    d = df.copy()
-    d[spec.name] = pd.to_numeric(d[spec.name], errors="coerce")
-    if mode == "distance":
-        if "cum_dist_km" not in d.columns:
-            return pd.DataFrame()
-        d["_x"] = pd.to_numeric(d["cum_dist_km"], errors="coerce")
-    elif mode == "elapsed":
-        if "sec_time" not in d.columns or period_start is None:
-            return pd.DataFrame()
-        t = pd.to_datetime(d["sec_time"], utc=True, errors="coerce")
-        d["_x"] = (t - _aware_utc(period_start)).dt.total_seconds() / 60.0
-    else:  # time
-        if "sec_time" not in d.columns:
-            return pd.DataFrame()
-        d["_x"] = pd.to_datetime(d["sec_time"], utc=True, errors="coerce").dt.tz_convert(JST)
-    return d.dropna(subset=["_x", spec.name])
+    return clean_xy_df(df, spec.name, mode=mode, period_start=period_start)
 
 
 def _add_trace(

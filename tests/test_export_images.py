@@ -159,3 +159,25 @@ def test_compare_png_legend_margin_is_tight():
     w, h = _png_size(png)
     # 9インチ×150dpi=1350px。tight なら凡例込みでもこれを大きく超えない
     assert w <= 9.0 * 150 * 1.05
+
+
+def test_image_zip_visible_periods_filters_compare_only():
+    # 比較タブ「表示する期間」の選択は比較図だけに効き、期間フォルダは全期間出力する。
+    results = run_pipeline(
+        backend=StubBackend(),
+        config=_config(),
+        ranges=[_range(), _range(label="期間B")],
+        progress_callback=None,
+    )
+    data_all = results_to_image_zip(results)
+    data_filtered = results_to_image_zip(results, visible_periods=["期間A"])
+
+    with zipfile.ZipFile(BytesIO(data_filtered)) as zf:
+        names = zf.namelist()
+        assert "期間B/Q1_lateral_error.png" in names       # 期間フォルダは残る
+        assert "比較/Q1_lateral_error_比較.png" in names   # 比較図は生成される
+        filtered_png = zf.read("比較/Q1_lateral_error_比較.png")
+    with zipfile.ZipFile(BytesIO(data_all)) as zf:
+        all_png = zf.read("比較/Q1_lateral_error_比較.png")
+    # 期間Bを外した比較図は全期間版と中身が異なる（1系列のみ描画）
+    assert filtered_png != all_png

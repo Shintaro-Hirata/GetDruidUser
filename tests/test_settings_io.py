@@ -115,3 +115,30 @@ def test_custom_fields_roundtrip():
 
 def test_extract_custom_fields_missing_is_safe():
     assert "__custom_field_rows__" not in extract_session_values({"取得条件": {}})
+
+
+def test_extract_skips_values_outside_widget_bounds():
+    # ウィジェットの min/max 外の値を session_state に入れると Streamlit が
+    # 例外を送出しサイドバーが描画不能になるため、範囲外の復元値はスキップする。
+    from src.ui.settings_io import extract_session_values
+
+    d = {
+        "取得条件": {"クエリ条件": {"Q1 閾値 |lateral_error| >=": -1.0}},  # min 0.0 未満
+        "表示設定": {
+            "Q3ヒストグラムビン幅（表示）": 0.01,           # min 0.05 未満
+            "自由フィールドヒストグラムビン幅倍率（表示）": 100,  # max 50 超
+            "Q3平滑度（移動平均ウィンドウ幅）": 999,          # max 101 超
+            "地図設定": {"高さ(px)": 5000, "幅(px)": 10},     # slider 範囲外
+        },
+    }
+    out = extract_session_values(d)
+    assert "thr_q1" not in out
+    assert "hist_bin_q3" not in out
+    assert "hist_bin_custom_mult" not in out
+    assert "smooth_window_q3" not in out
+    assert "map_height" not in out
+    assert "map_width" not in out
+
+    # 範囲内の値は従来どおり適用される
+    ok = extract_session_values({"表示設定": {"Q3ヒストグラムビン幅（表示）": 0.5}})
+    assert ok["hist_bin_q3"] == 0.5

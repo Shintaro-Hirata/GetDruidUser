@@ -218,13 +218,9 @@ def fetch_chunk(
         dfs = _run_sql_adaptive_split(
             backend=backend, query_builder=cf_builder, start=cs, end=ce, context=_QUERY_CONTEXT
         )
-        if cf.agg_mode == "metric":
-            chunk.custom_dfs[cf.key] = _concat_cum_dist_continuous(dfs)
-        else:
-            non_empty = [d for d in dfs if d is not None and not d.empty]
-            chunk.custom_dfs[cf.key] = (
-                pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
-            )
+        # timeseries も cum_dist_km を持つ（距離CTE結合）ため、adaptive split で
+        # 二分割されたサブ結果は metric と同様に通し距離へ補正して結合する。
+        chunk.custom_dfs[cf.key] = _concat_cum_dist_continuous(dfs)
 
         def cf_hist_factory(cond: str, _cf=cf) -> Callable[[datetime, datetime], str]:
             def builder(s: datetime, e: datetime) -> str:

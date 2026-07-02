@@ -16,7 +16,7 @@ import streamlit as st
 from src.domain.models import RunConfig, TableConfig
 from src.queries.builder import Dialect, QueryParams, build_zp_track_query
 from src.ui.views.common import jst_display_series
-from src.ui.views.map import _zoom_for_bbox
+from src.ui.views.map import _truck_xy_valid, _zoom_for_bbox
 
 JST = timezone(timedelta(hours=9))
 
@@ -123,9 +123,7 @@ def zp_track_fig(
     truck_df を渡すと Truck Tracker（GNSS/INS）位置を重畳する。
     truck_mode="replace" かつ Truck 点がある場合は Zero-Plotter 点を描かず Truck のみ表示する。
     """
-    truck_present = (
-        truck_df is not None and not truck_df.empty and {"lat", "lon"}.issubset(truck_df.columns)
-    )
+    truck_present = _truck_xy_valid(truck_df)
     draw_zp = not (truck_mode == "replace" and truck_present)
 
     fig = go.Figure()

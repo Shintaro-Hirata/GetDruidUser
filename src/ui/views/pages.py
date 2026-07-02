@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from src.domain.results import ChunkData, PeriodResult, RunResults, rebin_hist
+from src.domain.x_axis import aware_utc  # 比較タブの Truck 読込ウィンドウ（期間 min/max）用
 from src.export.images import hist_png, scatter_png
 from src.queries.specs import HIST_TITLE, HIST_X_LABEL, METRICS, MetricSpec
 from src.services.truck_tracker import load_truck_log
@@ -24,6 +25,11 @@ from src.ui.views.scatter import _uses_distance_x, metric_scatter_fig
 VIEW_MODES = ["散布図", "画像", "地図", "表"]
 HIST_VIEW_MODES = ["グラフ", "画像"]
 
+# 比較タブ「表示する期間」の選択を退避する素の session_state キー。
+# 実行の二重 rerun でウィジェット状態が破棄されても選択を保持し、
+# 画像一括ZIP（比較図）のフィルタにも同じ選択を使う。
+VISIBLE_PERIODS_STATE_KEY = "cmp_visible_periods_sel"
+
 
 def _warn_out_of_range(msgs: list[str]) -> None:
     """表示レンジ外のデータがある（隠れている）場合に警告を出す。"""
@@ -35,12 +41,13 @@ def _warn_out_of_range(msgs: list[str]) -> None:
 
 
 def _load_truck_window(sb: SidebarValues, config, start, end):
-    """指定ウィンドウの Truck 位置を読み込む。OFF/未指定/失敗/0件は None。
+    """指定ウィンドウの Truck 位置を読み込む。戻り値は (df, エラーメッセージ)。
 
-    地図ビューが多数あるため例外はここで握りつぶし（呼び出し側で 1 回だけ案内する）。
+    OFF/ソース未指定は (None, None)。読み込み失敗は (None, メッセージ)。
+    読めたが 0 件のときは (空DF, None)（呼び出し側で案内を出し分ける）。
     """
     if not sb.truck_enable or not sb.truck_sources:
-        return None
+        return None, None
     try:
         df = load_truck_log(
             list(sb.truck_sources),
@@ -50,22 +57,18 @@ def _load_truck_window(sb: SidebarValues, config, start, end):
             assume_tz=sb.truck_tz,
             match_vehicle=sb.truck_filter_vehicle,
         )
-    except Exception:
-        return None
-    return df if (df is not None and not df.empty) else None
+    except Exception as ex:
+        return None, str(ex)
+    return df, None
 
 
-def _aware_ts(dt):
-    """datetime を tz-aware な Timestamp に揃える（naive は UTC とみなす）。min/max 用。"""
-    ts = pd.Timestamp(dt)
-    return ts.tz_localize("UTC") if ts.tzinfo is None else ts
-
-
-def _truck_caption(sb: SidebarValues, truck_df) -> None:
+def _truck_caption(sb: SidebarValues, truck_df, error: str | None = None) -> None:
     """Truck 参照 ON 時に、取り込み状況を 1 行で案内する。"""
     if not sb.truck_enable:
         return
-    if truck_df is None or truck_df.empty:
+    if error:
+        st.caption(f"⚠️ Truck Tracker: ログの読み込みに失敗しました: {error}")
+    elif truck_df is None or truck_df.empty:
         st.caption("⚠️ Truck Tracker: この期間・車両に合致する位置がありません（ログ/期間/TZ/車両ID を確認）。")
     else:
         verb = "重畳" if sb.truck_mode == "overlay" else "置換（イベント点を Truck 位置へ移設）"
@@ -76,10 +79,12 @@ def _truck_caption(sb: SidebarValues, truck_df) -> None:
 # 先頭が _ の引数（_spec）は st.cache_data のキー計算から除外される。
 # spec はキー文字列（spec.key）でキャッシュを区別する。
 @st.cache_data(show_spinner=False, max_entries=64)
-def _scatter_png_cached(_spec, spec_key: str, series, xlim, ylim, fs_single, fs_compare):
+def _scatter_png_cached(_spec, spec_key: str, series, xlim, ylim, fs_single, fs_compare,
+                        x_mode, period_starts):
     return scatter_png(
         series, _spec, xlim=xlim, ylim=ylim,
         figsize_single=fs_single, figsize_compare=fs_compare,
+        x_mode=x_mode, period_starts=period_starts,
     )
 
 
@@ -136,14 +141,17 @@ def _persist_selector(widget_key: str, state_key: str, options: list[str]) -> st
     素のキー（実行の二重 rerun でも破棄されない）に持たせ、チップの初期値と描画内容の両方を
     そこから決めることで、常にチップと中身を一致させる。
     """
-    st.session_state.setdefault(state_key, options[0])
-    if st.session_state[state_key] not in options:
+    if st.session_state.get(state_key) not in options:
         st.session_state[state_key] = options[0]
 
     def _sync() -> None:
         chosen = st.session_state.get(widget_key)
         if chosen in options:
             st.session_state[state_key] = chosen
+        else:
+            # 選択中チップの再クリック（選択解除で None になる）は無効化し、
+            # 直前の選択に戻す。チップ表示と描画内容の不一致を防ぐ。
+            st.session_state[widget_key] = st.session_state.get(state_key, options[0])
 
     kwargs: dict = {
         "options": options,
@@ -244,7 +252,8 @@ def render_metric_views(
 
     if mode == "画像":
         _warn_out_of_range(scatter_msgs)
-        # ダウンロードと同じ matplotlib 形式の静止画（レポート互換の見た目）
+        # ダウンロードと同じ matplotlib 形式の静止画（レポート互換の見た目）。
+        # 横軸モードも画面の散布図・ZIP出力と同じ指定で描く。
         png = _scatter_png_cached(
             spec,
             spec.key,
@@ -253,6 +262,8 @@ def render_metric_views(
             ylim,
             sb.fig_size_single,
             sb.fig_size_compare,
+            sb.x_axis_mode,
+            period_starts,
         )
         if png is None:
             st.info("結果0件")
@@ -434,12 +445,12 @@ def render_period_tab(
         return
 
     # Truck Tracker（オプトイン）: この期間の位置を一度だけ読み込み、各メトリクス地図へ渡す。
-    truck_df = (
+    truck_df, truck_err = (
         _load_truck_window(sb, state.results.config, period.range.start, period.range.end)
         if state.results
-        else None
+        else (None, None)
     )
-    _truck_caption(sb, truck_df)
+    _truck_caption(sb, truck_df, truck_err)
 
     if len(period.chunks) == 1:
         _render_chunk_content(
@@ -468,12 +479,12 @@ def render_compare_tab(
     st.caption("各テスト期間の結果を同じグラフ・同じ地図上に重ねて表示します。")
 
     # Truck Tracker（オプトイン）: 全期間の和集合ウィンドウで一度だけ読み込む。
-    truck_df = None
-    if sb.truck_enable and sb.truck_sources and results.periods:
-        win_start = min(_aware_ts(p.range.start) for p in results.periods)
-        win_end = max(_aware_ts(p.range.end) for p in results.periods)
-        truck_df = _load_truck_window(sb, results.config, win_start, win_end)
-    _truck_caption(sb, truck_df)
+    truck_df, truck_err = None, None
+    if results.periods:
+        win_start = min(aware_utc(p.range.start) for p in results.periods)
+        win_end = max(aware_utc(p.range.end) for p in results.periods)
+        truck_df, truck_err = _load_truck_window(sb, results.config, win_start, win_end)
+    _truck_caption(sb, truck_df, truck_err)
 
     # 経過時間Xでは各期間が自分の開始からの分になり、全期間が0分起点で揃う。
     starts = {p.label: p.range.start for p in results.periods}
@@ -481,13 +492,29 @@ def render_compare_tab(
     # 「表示する期間」: Plotly の凡例クリックによる非表示は Streamlit から取得できず、
     # 画像（matplotlib）へ反映できない。ここで明示的に選ばせ、グラフ・画像の双方を
     # 同じ期間集合で描くことで「グラフで消した期間は画像でも消える」ようにする。
+    # 選択は素のキー（VISIBLE_PERIODS_STATE_KEY）へ退避する：「実行」の二重 rerun で
+    # ウィジェット状態が破棄されても選択が全期間へ戻らないようにする（_persist_selector と同じ理由）。
     period_labels = [p.label for p in results.periods]
+    stored = [
+        lb for lb in st.session_state.get(VISIBLE_PERIODS_STATE_KEY, period_labels)
+        if lb in period_labels
+    ] or period_labels
+
+    def _sync_visible() -> None:
+        st.session_state[VISIBLE_PERIODS_STATE_KEY] = [
+            lb for lb in st.session_state.get("cmp_visible_periods", []) if lb in period_labels
+        ]
+
+    ms_kwargs: dict = {}
+    if "cmp_visible_periods" not in st.session_state:
+        ms_kwargs["default"] = stored
     selected = st.multiselect(
         "表示する期間",
         period_labels,
-        default=period_labels,
         key="cmp_visible_periods",
+        on_change=_sync_visible,
         help="ここで外した期間はグラフからも画像からも消えます（凡例クリックと違い画像にも反映されます）。",
+        **ms_kwargs,
     )
     visible = set(selected) if selected else set(period_labels)
 
@@ -564,7 +591,6 @@ def render_zero_plotter_tab(
     zero-plotter と同じ仕様（5秒間隔・system_state 色分け）で描画し、
     除外編集モード中は点群のクリック/box選択から除外時間帯を登録できる。
     """
-    from src.services.truck_tracker import load_truck_log
     from src.ui.views.zero_plotter import fetch_zp_track, zp_track_fig
 
     results = state.results
@@ -596,19 +622,12 @@ def render_zero_plotter_tab(
         if not sb.truck_sources:
             st.info("Truck Tracker 参照は ON ですが、ログ（アップロード or サーバパス）が未指定です。")
         else:
-            try:
-                truck_df = load_truck_log(
-                    list(sb.truck_sources),
-                    vehicle_id=results.config.vehicle_id,
-                    start=period.range.start,
-                    end=period.range.end,
-                    assume_tz=sb.truck_tz,
-                    match_vehicle=sb.truck_filter_vehicle,
-                )
-            except Exception as ex:
-                st.error(f"Truck ログの読み込みに失敗しました: {ex}")
-                truck_df = None
-            if truck_df is not None and truck_df.empty:
+            truck_df, truck_err = _load_truck_window(
+                sb, results.config, period.range.start, period.range.end
+            )
+            if truck_err:
+                st.error(f"Truck ログの読み込みに失敗しました: {truck_err}")
+            elif truck_df is not None and truck_df.empty:
                 st.warning(
                     "この期間・車両に合致する Truck 位置が見つかりませんでした"
                     "（車両ID/期間/TZ 解釈を確認してください）。"

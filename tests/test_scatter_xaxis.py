@@ -78,3 +78,27 @@ def test_settings_roundtrip_x_axis_mode():
     sb = _sidebar(x_axis_mode="elapsed")
     d = build_input_settings_dict(sb, AppState(), "", bq_project="t2-integration")
     assert extract_session_values(d)["x_axis_mode"] == "elapsed"
+
+
+def test_all_null_distance_falls_back_to_time():
+    # 距離CTEに合致せず cum_dist_km が全NULLの系列（列は存在する）は、距離軸を
+    # 選ばず時刻軸へフォールバックして全点を描く（修正前は「結果0件」になった）。
+    df = _df().assign(cum_dist_km=[float("nan"), float("nan")])
+    assert _effective_x_mode([("A", df)], "distance") == "time"
+    fig = metric_scatter_fig(LATERAL_ERROR, [("A", df)], colors={}, x_mode="distance")
+    assert fig is not None
+    assert fig.layout.xaxis.title.text == "時刻(JST)"
+    assert len(fig.data[0].x) == 2  # 全点が時刻軸で描かれる
+
+
+def test_scatter_png_honors_x_mode_elapsed():
+    # 画像（matplotlib PNG）も画面と同じ横軸モードで描ける（修正前は distance 固定）。
+    from src.export.images import scatter_png
+
+    png = scatter_png(
+        [("A", _df())], LATERAL_ERROR, x_mode="elapsed", period_starts={"A": START},
+    )
+    assert png is not None and png[:8] == b"\x89PNG\r\n\x1a\n"
+    # distance 版とは中身が異なる（軸ラベル・X値が違う）
+    png_dist = scatter_png([("A", _df())], LATERAL_ERROR, x_mode="distance")
+    assert png != png_dist

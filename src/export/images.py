@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import re
 import zipfile
-from datetime import timedelta, timezone
 from io import BytesIO
 
 import matplotlib
@@ -17,20 +16,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src.domain.results import RunResults, rebin_hist
+from src.domain.x_axis import (  # X軸モード解決・_x列生成（画面表示と共通）
+    X_LABELS,
+    clean_xy_df,
+    effective_x_mode as _effective_x_mode,
+)
 from src.queries.specs import METRICS, MetricSpec
 
-X_LABEL = "移動距離[km]"
-X_LABEL_TIME = "時刻(JST)"
-X_LABEL_ELAPSED = "経過時間[分]"
 HIST_X_LABEL = "横G [m/s^2]"
 HIST_Y_LABEL = "発生頻度"
-JST = timezone(timedelta(hours=9))
-X_LABELS = {"distance": X_LABEL, "elapsed": X_LABEL_ELAPSED, "time": X_LABEL_TIME}
-
-
-def _aware_utc(dt) -> pd.Timestamp:
-    ts = pd.Timestamp(dt)
-    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 # 旧実装（show_query3_compare）と同じ期間別の線種・マーカー
 _LINE_STYLES = ["-", "--", ":", "-."]
@@ -83,44 +77,8 @@ def _legend_outside(ax) -> None:
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0, frameon=True)
 
 
-def _uses_distance_x(series: list[tuple[str, pd.DataFrame]]) -> bool:
-    return any(
-        df is not None and not df.empty and "cum_dist_km" in df.columns
-        for _, df in series
-    )
-
-
-def _effective_x_mode(series: list[tuple[str, pd.DataFrame]], x_mode: str) -> str:
-    if x_mode == "distance":
-        return "distance" if _uses_distance_x(series) else "time"
-    if x_mode == "elapsed":
-        has_time = any(
-            df is not None and not df.empty and "sec_time" in df.columns for _, df in series
-        )
-        return "elapsed" if has_time else "time"
-    return "time"
-
-
 def _clean_metric_df(df: pd.DataFrame, spec: MetricSpec, *, mode: str, period_start=None) -> pd.DataFrame:
-    """X軸用の列 _x（移動距離 / 経過時間[分] / 時刻JST）と値列を整形して返す。"""
-    if df is None or df.empty or spec.name not in df.columns:
-        return pd.DataFrame()
-    d = df.copy()
-    d[spec.name] = pd.to_numeric(d[spec.name], errors="coerce")
-    if mode == "distance":
-        if "cum_dist_km" not in d.columns:
-            return pd.DataFrame()
-        d["_x"] = pd.to_numeric(d["cum_dist_km"], errors="coerce")
-    elif mode == "elapsed":
-        if "sec_time" not in d.columns or period_start is None:
-            return pd.DataFrame()
-        t = pd.to_datetime(d["sec_time"], utc=True, errors="coerce")
-        d["_x"] = (t - _aware_utc(period_start)).dt.total_seconds() / 60.0
-    else:
-        if "sec_time" not in d.columns:
-            return pd.DataFrame()
-        d["_x"] = pd.to_datetime(d["sec_time"], utc=True, errors="coerce").dt.tz_convert(JST)
-    return d.dropna(subset=["_x", spec.name])
+    return clean_xy_df(df, spec.name, mode=mode, period_start=period_start)
 
 
 def _scatter_single_png(
@@ -227,13 +185,26 @@ def scatter_png(
     ylim=None,
     figsize_single: tuple[float, float] = DEFAULT_FIGSIZE_SINGLE,
     figsize_compare: tuple[float, float] = DEFAULT_FIGSIZE_COMPARE,
+    x_mode: str = "distance",
+    period_starts: dict | None = None,
 ) -> bytes | None:
-    """散布図PNG。系列数で単体（凡例なし）/比較（凡例右外）を自動選択する。"""
+    """散布図PNG。系列数で単体（凡例なし）/比較（凡例右外）を自動選択する。
+
+    x_mode / period_starts は画面の散布図と同じ横軸（距離/経過時間/時刻）指定。
+    """
     _setup_style()
+    starts = period_starts or {}
     if len(series) <= 1:
+        label = series[0][0] if series else ""
         df = series[0][1] if series else None
-        return _scatter_single_png(df, spec, xlim=xlim, ylim=ylim, figsize=figsize_single)
-    return _scatter_compare_png(series, spec, xlim=xlim, ylim=ylim, figsize=figsize_compare)
+        return _scatter_single_png(
+            df, spec, xlim=xlim, ylim=ylim, figsize=figsize_single,
+            x_mode=x_mode, period_start=starts.get(label),
+        )
+    return _scatter_compare_png(
+        series, spec, xlim=xlim, ylim=ylim, figsize=figsize_compare,
+        x_mode=x_mode, period_starts=starts,
+    )
 
 
 def hist_png(
@@ -277,12 +248,15 @@ def results_to_image_zip(
     hist_bin_q3: float = 0.0,
     hist_bin_custom_mult: int = 1,
     x_axis_mode: str = "distance",
+    visible_periods: list[str] | None = None,
     extra_files: dict[str, bytes] | None = None,
 ) -> bytes:
     """
     期間ごと＋比較（2期間以上のとき）の図を従来の matplotlib 形式で PNG 化し、
     ZIP バイト列を返す。軸レンジ・平滑化・画像サイズは表示中の設定をそのまま反映する。
     自由フィールドの軸レンジはフィールドごと（CustomField.key）に指定できる。
+    visible_periods: 比較タブ「表示する期間」の選択。比較図をこの期間だけで描く
+                     （None/空 = 全期間。期間ごとのフォルダは常に全期間を出力する）。
     extra_files: ZIP直下に追加するファイル（例: settings.json）
     """
     _setup_style()
@@ -302,6 +276,14 @@ def results_to_image_zip(
         if not target or target <= 0:
             return series
         return [(label, rebin_hist(df, target)) for label, df in series]
+
+    visible = set(visible_periods or ())
+
+    def filter_visible(series):
+        """比較図を画面（表示する期間）と同じ期間集合で描く。未指定は全期間。"""
+        if not visible:
+            return series
+        return [(label, df) for label, df in series if label in visible]
 
     # ---- 期間ごと（チャンクは結合して1枚に）----
     for period in results.periods:
@@ -358,7 +340,7 @@ def results_to_image_zip(
         compare_starts = {p.label: p.range.start for p in results.periods}
         for q_idx, spec in enumerate(METRICS, start=1):
             png = _scatter_compare_png(
-                results.compare_metric_series(spec.key),
+                filter_visible(results.compare_metric_series(spec.key)),
                 spec,
                 xlim=scatter_xlim,
                 ylim=scatter_ylims.get(spec.key),
@@ -369,7 +351,7 @@ def results_to_image_zip(
             add(png, f"比較/Q{q_idx}_{spec.name}_比較.png")
 
         png = _hist_png(
-            rebin(results.compare_hist_series(), hist_bin_q3),
+            rebin(filter_visible(results.compare_hist_series()), hist_bin_q3),
             smooth_window=smooth_window,
             xlim=hist_xlim,
             ylim=hist_ylim,
@@ -381,7 +363,7 @@ def results_to_image_zip(
         for cf in results.config.custom_fields:
             add(
                 _scatter_compare_png(
-                    results.compare_custom_series(cf.key), cf,
+                    filter_visible(results.compare_custom_series(cf.key)), cf,
                     xlim=custom_scatter_xlims.get(cf.key),
                     ylim=custom_scatter_ylims.get(cf.key), figsize=figsize_compare,
                     x_mode=x_axis_mode, period_starts=compare_starts,
@@ -391,7 +373,7 @@ def results_to_image_zip(
             add(
                 _hist_png(
                     rebin(
-                        results.compare_custom_hist_series(cf.key),
+                        filter_visible(results.compare_custom_hist_series(cf.key)),
                         float(cf.hist_bin) * hist_bin_custom_mult,
                     ),
                     smooth_window=smooth_window,
