@@ -133,6 +133,34 @@ def test_app_view_switch_map_and_table():
         assert not at.exception
 
 
+def test_view_mode_survives_run_rerun():
+    """実行の二重 rerun 後もビュー選択が保持され、中身（＝チップ）が既定へ戻らない（回帰）。
+
+    「実行」は結果保存後に st.rerun() するため、その回では本体のセグメントコントロールが
+    描画されず Streamlit がウィジェット状態を破棄しうる。素のキー（viewmode_*）が中身を
+    決めるようにしたので、再実行後も選択が保持される（チップと中身が一致する）。
+    """
+    with patch("src.backends.factory.create_backend", return_value=StubBackend()):
+        at = AppTest.from_file("app.py", default_timeout=60)
+        at.run()
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 画像を選んだ状態（クリック相当：ウィジェットと素のキーが揃う）
+        at.session_state["viewmode_t1_c1_q1"] = "画像"
+        at.session_state["view_t1_c1_q1"] = "画像"
+        at.run()
+        assert not at.exception
+
+        # 条件を変えて再実行（app.py が結果保存後に st.rerun() する二重 rerun 経路）
+        at.session_state["split_minutes"] = 30
+        next(b for b in at.button if b.label == "実行").click().run()
+        assert not at.exception
+
+        # 破棄されない素のキーが中身を決めるので、画像のまま（散布図に戻らない）
+        assert at.session_state["viewmode_t1_c1_q1"] == "画像"
+
+
 def test_app_exclude_edit_mode_renders():
     with patch("src.backends.factory.create_backend", return_value=StubBackend()):
         at = AppTest.from_file("app.py", default_timeout=60)
