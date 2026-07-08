@@ -55,6 +55,11 @@ class SidebarValues:
     # "distance"=移動距離(km) / "elapsed"=期間開始からの経過時間(分) / "time"=時刻(JST)
     x_axis_mode: str = "distance"
 
+    # mcap CSV 期間（BQ 欠損の穴埋め。反映には実行が必要）
+    csv_entries: tuple = ()                      # CsvPeriodEntry の列
+    csv_files: dict = field(default_factory=dict)  # ファイル名 -> bytes
+    csv_state_filter: bool = True                # system_state=4 に絞るか
+
     # Truck Tracker 参照（オプトイン。既定は Zero-Plotter のみ表示。再実行不要）
     truck_enable: bool = False
     truck_mode: str = "overlay"          # "overlay"（重畳） | "replace"（Truck で置換）

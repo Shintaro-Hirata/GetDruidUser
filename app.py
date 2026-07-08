@@ -8,6 +8,8 @@ from src.domain.time_ranges import parse_ranges, suggested_split_minutes_from_ra
 from src.export.excel import results_to_excel_bytes
 from src.export.images import results_to_image_zip
 from src.export.settings_file import build_settings_json_bytes
+from src.domain.results import RunResults
+from src.services.csv_periods import build_csv_periods
 from src.services.pipeline import run_pipeline
 from src.ui.colors import render_color_pickers
 from src.ui.figure_settings import render_figure_size_settings
@@ -50,8 +52,11 @@ if sb.run:
     try:
         ranges = parse_ranges(st.session_state["ranges_text"])
     except ValueError as ex:
-        st.error(f"時間帯入力エラー: {ex}")
-        st.stop()
+        if sb.csv_entries:
+            ranges = []  # mcap CSV 期間のみで実行（BQ には問い合わせない）
+        else:
+            st.error(f"時間帯入力エラー: {ex}")
+            st.stop()
 
     config = RunConfig(
         vehicle_id=sb.vehicle_id,
@@ -67,16 +72,35 @@ if sb.run:
         max_workers=2,
     )
 
-    backend = create_backend(settings, kind=sb.backend)
-    run_ui = create_run_ui()
+    if ranges:
+        backend = create_backend(settings, kind=sb.backend)
+        run_ui = create_run_ui()
 
-    results = run_pipeline(
-        backend=backend,
-        config=config,
-        ranges=ranges,
-        progress_callback=make_progress_callback(run_ui),
-    )
-    finalize_run_log(run_ui)
+        results = run_pipeline(
+            backend=backend,
+            config=config,
+            ranges=ranges,
+            progress_callback=make_progress_callback(run_ui),
+        )
+        finalize_run_log(run_ui)
+    else:
+        results = RunResults(config=config)
+
+    # mcap CSV 期間を末尾に追加（BQ 由来の期間と同列に比較できる）
+    csv_warnings: list[str] = []
+    if sb.csv_entries:
+        csv_periods, csv_warnings = build_csv_periods(
+            sb.csv_entries, sb.csv_files, config,
+            state_filter=sb.csv_state_filter,
+        )
+        results.periods.extend(csv_periods)
+    st.session_state["csv_period_warnings"] = csv_warnings
+
+    if not results.periods:
+        for w in csv_warnings:
+            st.warning(w)
+        st.error("取得できた期間がありません。時間帯入力または mcap CSV 設定を確認してください。")
+        st.stop()
 
     # 運行（legs）由来のメタデータを期間に引き継ぐ（バージョン比較等に使う）
     for period in results.periods:
@@ -103,7 +127,11 @@ if results is None:
 # =========================
 cached = results.config
 s_backend = "BigQuery" if cached.backend == "bq" else "Druid"
-st.caption(f"表示中の結果：vehicle_id={cached.vehicle_id} / split={cached.split_minutes}分 / 取得先={s_backend}")
+n_csv = sum(1 for p in results.periods if p.meta.get("source") == "mcap_csv")
+csv_note = f" / mcap CSV 期間 {n_csv} 件" if n_csv else ""
+st.caption(f"表示中の結果：vehicle_id={cached.vehicle_id} / split={cached.split_minutes}分 / 取得先={s_backend}{csv_note}")
+for w in st.session_state.get("csv_period_warnings", []):
+    st.warning(f"mcap CSV: {w}")
 
 # 取得条件が変わっていたら再実行を促す。
 # 警告は常に同じ位置（プレースホルダ）に出す：条件付きで要素を増減させると

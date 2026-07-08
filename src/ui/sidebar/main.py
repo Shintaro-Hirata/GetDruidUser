@@ -8,6 +8,7 @@ from src.config import Settings
 from src.domain.time_ranges import suggested_split_minutes_from_ranges_text
 from src.queries.specs import METRICS
 from src.ui.figure_settings import get_figure_sizes
+from src.ui.sidebar.csv_periods import render_csv_periods
 from src.ui.sidebar.custom_fields import render_custom_fields
 from src.ui.sidebar.exclude_panel import render_exclude_editor
 from src.ui.sidebar.legs_picker import render_legs_picker
@@ -244,6 +245,8 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
 
         custom_fields = render_custom_fields(state)
 
+        csv_entries, csv_files, csv_state_filter = render_csv_periods(custom_fields)
+
         run = st.button("実行", type="primary", width="stretch")
 
         st.markdown("---")
@@ -403,6 +406,9 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         custom_hist_ylims=custom_hist_ylims,
         map_value_ranges=map_value_ranges,
         custom_map_value_ranges=custom_map_value_ranges,
+        csv_entries=csv_entries,
+        csv_files=csv_files,
+        csv_state_filter=csv_state_filter,
         truck_enable=truck_enable,
         truck_mode=truck_mode,
         truck_tz=truck_tz,
