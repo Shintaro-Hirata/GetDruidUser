@@ -103,13 +103,32 @@ def test_apply_override_metric_replaces_all_tabs_df():
     assert period.combined_metric_df("q1").empty
 
 
-def test_apply_override_respects_threshold_and_scale():
+def test_apply_override_all_filtered_is_not_stored():
     period = _period()
     config = _config(thresholds={"q1": 100.0})  # 全部落ちるしきい値
     df = read_value_csv(_mcap_csv())
     entry = OverrideEntry(file_name="a.csv", target="q1", scale=1.0)
-    apply_override(period, entry, df, config, state_df=None, positions=None)
-    assert period.combined_metric_df("q1").empty
+    warns = apply_override(period, entry, df, config, state_df=None, positions=None)
+    # 0 件の置き換えは適用されず、内訳付きの警告が出る
+    assert not period.overrides
+    assert any("0 件のため適用しませんでした" in w and "内訳" in w for w in warns)
+
+
+def test_state_df_from_sql_result_microsecond_unit():
+    # BigQuery が datetime64[us] で返しても ns の t_ns になること
+    # (µs のままだと時刻突き合わせが全て外れ、置き換えが 0 件になる回帰の防止)
+    from src.services.metric_override import state_df_from_sql_result
+    from src.services.csv_periods import attach_auto_mask
+
+    sec = pd.date_range(T0, periods=60, freq="1s", tz="UTC").as_unit("us")
+    raw = pd.DataFrame({"sec_time": sec, "system_state": [4] * 60})
+    state = state_df_from_sql_result(raw)
+    assert state is not None
+    assert state["t_ns"].iloc[0] == pd.Timestamp(T0).value  # ns スケール
+
+    df = read_value_csv(_mcap_csv())
+    mask = attach_auto_mask(df, state)
+    assert mask.all()  # 全行 state=4 なので全て自動扱いになる
 
 
 def test_apply_override_q3_hist():

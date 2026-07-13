@@ -99,7 +99,7 @@ def read_value_csv(data: bytes) -> pd.DataFrame:
     df = pd.read_csv(io.BytesIO(data), encoding="utf-8-sig")
     if df.shape[1] < 2:
         raise ValueError("2列形式 (時間, 値) には最低2列必要です")
-    ts = _parse_time_column(df.iloc[:, 0])
+    ts = _parse_time_column(df.iloc[:, 0]).dt.as_unit("ns")  # int64 化を ns に固定
     keep = ts.notna()
     if not keep.any():
         raise ValueError("時間列 (1列目) を解釈できません")
@@ -140,6 +140,24 @@ def choose_period(df: pd.DataFrame, periods: Iterable[PeriodResult],
 # ------------------------------------------------------------------
 # 自動運転マスク (BQ/Druid state 流用 → state CSV → 全て自動扱い)
 # ------------------------------------------------------------------
+def state_df_from_sql_result(df: pd.DataFrame) -> pd.DataFrame | None:
+    """state クエリ結果 (sec_time, system_state) を attach_auto_mask 用の形に整える。
+
+    BigQuery はマイクロ秒単位 (datetime64[us]) で返すことがある。ns に揃えないと
+    astype(int64) がマイクロ秒値になり、CSV 側 (ns) との時刻突き合わせが全て外れて
+    「全行手動扱い」→ 置き換え結果 0 件になってしまう。
+    """
+    if df is None or df.empty:
+        return None
+    sec = pd.to_datetime(df["sec_time"], utc=True, errors="coerce").dt.as_unit("ns")
+    out = pd.DataFrame({
+        "t_ns": sec.astype("int64"),
+        "system_state": pd.to_numeric(df["system_state"], errors="coerce"),
+    })
+    out = out.dropna().sort_values("t_ns").reset_index(drop=True)
+    return out if not out.empty else None
+
+
 def fetch_state_series(backend, config: RunConfig, period: PeriodResult) -> pd.DataFrame | None:
     """取得元 (BQ/Druid) から期間の system_state 系列を取り直す。失敗時 None。"""
     try:
@@ -151,15 +169,7 @@ def fetch_state_series(backend, config: RunConfig, period: PeriodResult) -> pd.D
             tables=config.tables,
             dialect=Dialect(kind=config.backend, bq_prefix=config.bq_table_prefix),
         )
-        df = backend.sql(build_state_series_query(p))
-        if df is None or df.empty:
-            return None
-        sec = pd.to_datetime(df["sec_time"], utc=True, errors="coerce")
-        out = pd.DataFrame({
-            "t_ns": sec.astype("int64"),
-            "system_state": pd.to_numeric(df["system_state"], errors="coerce"),
-        })
-        return out.dropna().sort_values("t_ns").reset_index(drop=True)
+        return state_df_from_sql_result(backend.sql(build_state_series_query(p)))
     except Exception:
         return None
 
@@ -190,7 +200,7 @@ def prepare_positions(truck_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if truck_df is None or truck_df.empty or not {"ts", "lat", "lon"}.issubset(truck_df.columns):
         return None
     d = truck_df.copy()
-    d["_tt"] = pd.to_datetime(d["ts"], utc=True, errors="coerce")
+    d["_tt"] = pd.to_datetime(d["ts"], utc=True, errors="coerce").dt.as_unit("ns")
     d["lat"] = pd.to_numeric(d["lat"], errors="coerce")
     d["lon"] = pd.to_numeric(d["lon"], errors="coerce")
     d = d.dropna(subset=["_tt", "lat", "lon"]).sort_values("_tt").reset_index(drop=True)
@@ -207,7 +217,7 @@ def attach_positions(out: pd.DataFrame, positions: pd.DataFrame | None,
     if positions is None or positions.empty or out.empty or "sec_time" not in out.columns:
         return out
     d = out.copy().sort_values("sec_time")
-    left = pd.DataFrame({"_tt": pd.to_datetime(d["sec_time"], utc=True)})
+    left = pd.DataFrame({"_tt": pd.to_datetime(d["sec_time"], utc=True).dt.as_unit("ns")})
     merged = pd.merge_asof(
         left, positions, on="_tt", direction="nearest",
         tolerance=pd.Timedelta(seconds=tolerance_s),
@@ -258,21 +268,39 @@ def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
                         "で集計しました (state CSV を併せてアップロードすると絞れます)。")
 
     note = f"{entry.file_name} → {col}"
+    n_period = len(df)
+    n_auto = int(auto_mask.sum())
+
+    def _empty_reason(threshold: float) -> str:
+        n_th = int((values[auto_mask].abs() >= float(threshold)).sum())
+        return (f"{entry.file_name}: 置き換え結果が 0 件のため適用しませんでした。"
+                f"内訳: 期間内 {n_period} 行 → 自動運転(state=4) {n_auto} 行 → "
+                f"|値|≥{threshold:g} {n_th} 行。自動運転が 0 行の場合は state の"
+                "取得/内容を、しきい値で 0 行の場合はしきい値・scale を確認してください。")
+
     if entry.target == TARGET_Q3:
         hist = build_hist_df(values[auto_mask], values[~auto_mask], Q3_HIST_BASE_BIN)
+        if hist.empty:
+            return warnings + [_empty_reason(0.0)]
         period.set_override("hist", hist, note)
     elif spec is not None:  # q1 / q2
         threshold = config.threshold(spec.key, spec.default_threshold)
         out = build_metric_df(df[auto_mask], values[auto_mask], spec.name, threshold)
+        if out.empty:
+            return warnings + [_empty_reason(threshold)]
         out = attach_positions(out, positions)
         period.set_override(f"metric:{spec.key}", out, note)
     else:  # 自由フィールド
         if cf.agg_mode == "timeseries":
             out = build_timeseries_df(df, values)  # 1秒平均・フィルタなし (現行仕様)
+            if out.empty:
+                return warnings + [f"{entry.file_name}: 有効な値がなく 0 件のため適用しませんでした。"]
             out = attach_positions(out, positions)
             period.set_override(f"custom:{cf.key}", out, note)
         else:
             out = build_metric_df(df[auto_mask], values[auto_mask], cf.name, cf.threshold)
+            if out.empty:
+                return warnings + [_empty_reason(cf.threshold)]
             out = attach_positions(out, positions)
             period.set_override(f"custom:{cf.key}", out, note)
             hist = build_hist_df(values[auto_mask], values[~auto_mask], cf.hist_bin)

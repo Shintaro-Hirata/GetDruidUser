@@ -132,6 +132,12 @@ def render_override_panel(
                 period_label=pd_label,
             ), state_files[0] if state_files else ""))
 
+        use_mask = st.checkbox(
+            "自動運転区間 (system_state=4) に絞って集計する（推奨・現行仕様と同じ）",
+            value=True, key=f"{key_prefix}_ovr_mask",
+            help="オフにすると全行を集計対象にします。state の取得がうまくいかず"
+                 "0 件になる場合の回避用。") if rows else True
+
         if rows and st.button("✅ 置き換えを適用", type="primary",
                               key=f"{key_prefix}_ovr_apply"):
             warnings: list[str] = []
@@ -152,15 +158,17 @@ def render_override_panel(
                     continue
                 # 自動運転マスク: BQ/Druid の state 流用 → state CSV → なし
                 if target_p.label not in state_cache:
-                    if backend is None:
-                        try:
-                            backend = create_backend(load_settings(), kind=config.backend)
-                        except Exception:
-                            backend = False  # 作れない環境 (認証なし等)
-                    st_df = (fetch_state_series(backend, config, target_p)
-                             if backend not in (None, False) else None)
-                    if st_df is None:
-                        st_df = state_from_csv(files, state_file)
+                    st_df = None
+                    if use_mask:
+                        if backend is None:
+                            try:
+                                backend = create_backend(load_settings(), kind=config.backend)
+                            except Exception:
+                                backend = False  # 作れない環境 (認証なし等)
+                        st_df = (fetch_state_series(backend, config, target_p)
+                                 if backend not in (None, False) else None)
+                        if st_df is None:
+                            st_df = state_from_csv(files, state_file)
                     state_cache[target_p.label] = st_df
                 if target_p.label not in pos_cache:
                     pos_cache[target_p.label] = _load_positions(sb, config, target_p)
