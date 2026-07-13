@@ -16,6 +16,7 @@ from src.services.truck_tracker import load_truck_log
 from src.ui.exclude_editor import handle_exclude_selection, selection_sec_times
 from src.ui.sidebar import SidebarValues
 from src.ui.state import AppState
+from src.ui.views.override_panel import render_override_panel
 from src.ui.views.common import df_times_to_jst
 from src.ui.views.histogram import hist_fig
 from src.ui.views.map import metric_map_fig
@@ -372,12 +373,22 @@ def _render_chunk_content(
     # 経過時間Xのための期間開始（この期間ラベル→開始時刻）
     starts = {period.label: period.range.start}
 
+    # CSV 置き換えが適用されている指標は、チャンクの生DFではなく置き換えDF
+    # （期間全体の結合）を表示する。チャンク分割中でも置き換えは期間単位。
+    ov = period.overrides
+    if ov:
+        notes = " / ".join(sorted(set(period.override_notes.values())))
+        st.info(f"📥 CSV 置き換え適用中: {notes}")
+
     cols = st.columns(len(METRICS))
     for col, spec in zip(cols, METRICS):
         with col:
+            m_df = ov.get(f"metric:{spec.key}")
+            if m_df is None:
+                m_df = chunk.metric_dfs.get(spec.key, pd.DataFrame())
             render_metric_views(
                 spec,
-                [(period.label, chunk.metric_dfs.get(spec.key, pd.DataFrame()))],
+                [(period.label, m_df)],
                 sb,
                 colors,
                 state,
@@ -390,8 +401,11 @@ def _render_chunk_content(
                 period_starts=starts,
             )
 
+    hist_df = ov.get("hist")
+    if hist_df is None:
+        hist_df = chunk.hist_df
     _render_hist_block(
-        [(period.label, chunk.hist_df)], sb, key=f"{key_prefix}_hist",
+        [(period.label, hist_df)], sb, key=f"{key_prefix}_hist",
         xlim=sb.hist_xlim, ylim=sb.hist_ylim, display_bin=sb.hist_bin_q3,
     )
 
@@ -399,9 +413,12 @@ def _render_chunk_content(
     custom_fields = state.results.config.custom_fields if state.results else ()
     for cf in custom_fields:
         st.markdown("---")
+        c_df = ov.get(f"custom:{cf.key}")
+        if c_df is None:
+            c_df = chunk.custom_dfs.get(cf.key, pd.DataFrame())
         render_metric_views(
             cf,
-            [(period.label, chunk.custom_dfs.get(cf.key, pd.DataFrame()))],
+            [(period.label, c_df)],
             sb,
             colors,
             state,
@@ -413,8 +430,11 @@ def _render_chunk_content(
             truck_mode=truck_mode,
             period_starts=starts,
         )
+        ch_df = ov.get(f"customhist:{cf.key}")
+        if ch_df is None:
+            ch_df = chunk.custom_hist_dfs.get(cf.key, pd.DataFrame())
         _render_hist_block(
-            [(period.label, chunk.custom_hist_dfs.get(cf.key, pd.DataFrame()))],
+            [(period.label, ch_df)],
             sb,
             key=f"{key_prefix}_{cf.key}_hist",
             head=cf.label,
@@ -457,15 +477,18 @@ def render_period_tab(
             period, period.chunks[0], sb, colors, state,
             key_prefix=f"{key_prefix}_c1", truck_df=truck_df, truck_mode=sb.truck_mode,
         )
-        return
+    else:
+        chunk_tabs = st.tabs([f"区間{i + 1}/{len(period.chunks)}" for i in range(len(period.chunks))])
+        for i, (tab, chunk) in enumerate(zip(chunk_tabs, period.chunks)):
+            with tab:
+                _render_chunk_content(
+                    period, chunk, sb, colors, state,
+                    key_prefix=f"{key_prefix}_c{i + 1}", truck_df=truck_df, truck_mode=sb.truck_mode,
+                )
 
-    chunk_tabs = st.tabs([f"区間{i + 1}/{len(period.chunks)}" for i in range(len(period.chunks))])
-    for i, (tab, chunk) in enumerate(zip(chunk_tabs, period.chunks)):
-        with tab:
-            _render_chunk_content(
-                period, chunk, sb, colors, state,
-                key_prefix=f"{key_prefix}_c{i + 1}", truck_df=truck_df, truck_mode=sb.truck_mode,
-            )
+    if state.results is not None:
+        st.markdown("---")
+        render_override_panel(state.results, sb, period=period, key_prefix=f"{key_prefix}_ovr")
 
 
 @st.fragment
@@ -575,6 +598,9 @@ def render_compare_tab(
             x_label=cf.label,
             display_bin=float(cf.hist_bin) * sb.hist_bin_custom_mult,
         )
+
+    st.markdown("---")
+    render_override_panel(results, sb, key_prefix="cmp")
 
 
 @st.fragment

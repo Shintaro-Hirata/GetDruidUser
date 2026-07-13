@@ -242,6 +242,14 @@ def _state_per_sec_cte(p: QueryParams) -> str:
   GROUP BY {d.floor_sec(d.time_col)}"""
 
 
+def build_state_series_query(p: QueryParams) -> str:
+    """1秒ごとの system_state 系列を単体で取得するクエリ（列: sec_time, system_state）。
+
+    CSV 置き換え時に、取得元 (BQ/Druid) の state を自動/手動マスクとして流用するために使う。
+    """
+    return _state_per_sec_cte(p)
+
+
 # ============================================================
 # メトリクス散布図クエリ（旧 Query1 / Query2 を統合）
 #   1秒ごとに |値| 最大の行を採り、自動運転（system_state=4）の秒に絞り、

@@ -168,9 +168,25 @@ class PeriodResult:
     meta: dict[str, Any] = field(default_factory=dict)  # legs 由来のメタ（version 等）将来比較用
     # 結合結果のメモ（chunks は実行後に不変。rerun ごとの再結合を避ける）
     _memo: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False, compare=False)
+    # mcap CSV による指標の置き換え。combined_* が最優先で返すため、
+    # 散布図/地図/表/ヒストグラム/比較の全タブへ自動的に反映される。
+    # キー: "metric:q1" / "hist" / "custom:cf1" / "customhist:cf1"
+    overrides: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False, compare=False)
+    override_notes: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
+
+    def set_override(self, kind_key: str, df: pd.DataFrame, note: str) -> None:
+        self.overrides[kind_key] = df
+        self.override_notes[kind_key] = note
+
+    def clear_overrides(self) -> None:
+        self.overrides.clear()
+        self.override_notes.clear()
 
     def combined_metric_df(self, key: str) -> pd.DataFrame:
         """全チャンクの metric DF を結合（cum_dist_km は通し距離に補正）"""
+        ov = self.overrides.get(f"metric:{key}")
+        if ov is not None:
+            return ov
         if key not in self._memo:
             dfs = [c.metric_dfs.get(key, pd.DataFrame()) for c in self.chunks]
             self._memo[key] = _concat_cum_dist_continuous(dfs)
@@ -178,6 +194,9 @@ class PeriodResult:
 
     def combined_hist_df(self) -> pd.DataFrame:
         """全チャンクのヒストグラムを bin 合算し、ratio を再計算して返す。"""
+        ov = self.overrides.get("hist")
+        if ov is not None:
+            return ov
         if "__hist__" in self._memo:
             return self._memo["__hist__"]
         result = self._combine_hist()
@@ -201,6 +220,9 @@ class PeriodResult:
 
     def combined_custom_df(self, key: str) -> pd.DataFrame:
         """カスタムフィールドの全チャンク結合。cum_dist_km があれば通し距離補正、無ければ単純連結。"""
+        ov = self.overrides.get(f"custom:{key}")
+        if ov is not None:
+            return ov
         memo_key = f"__custom__{key}"
         if memo_key in self._memo:
             return self._memo[memo_key]
@@ -215,6 +237,9 @@ class PeriodResult:
 
     def combined_custom_hist_df(self, key: str) -> pd.DataFrame:
         """カスタムフィールドの分布ヒストグラムの全チャンク結合（bin合算・ratio再計算）。"""
+        ov = self.overrides.get(f"customhist:{key}")
+        if ov is not None:
+            return ov
         memo_key = f"__customhist__{key}"
         if memo_key in self._memo:
             return self._memo[memo_key]
