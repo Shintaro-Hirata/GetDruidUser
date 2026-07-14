@@ -45,6 +45,11 @@ class AppState:
     # 実行時に PeriodResult.meta へ引き継がれ、バージョン比較等に使う。
     leg_meta: dict[str, dict] = field(default_factory=dict)
 
+    # CSV 置き換えのレシピ（settings.json への保存・復元用）。
+    # 各要素: {source, file_name, target, column, scale, offset, period_label, use_mask}
+    # source がサーバ上のパスなら、復元後に「一括再適用」でファイル再アップロード不要。
+    ovr_recipes: list[dict] = field(default_factory=list)
+
     # 「画像を生成」で作った画像ZIP（新しい実行で無効化される）
     image_zip: bytes | None = None
 

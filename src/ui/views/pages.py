@@ -488,7 +488,7 @@ def render_period_tab(
 
     if state.results is not None:
         st.markdown("---")
-        render_override_panel(state.results, sb, period=period, key_prefix=f"{key_prefix}_ovr")
+        render_override_panel(state.results, sb, state, period=period, key_prefix=f"{key_prefix}_ovr")
 
 
 @st.fragment
@@ -600,7 +600,7 @@ def render_compare_tab(
         )
 
     st.markdown("---")
-    render_override_panel(results, sb, key_prefix="cmp")
+    render_override_panel(results, sb, state, key_prefix="cmp")
 
 
 @st.fragment

@@ -297,6 +297,10 @@ def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
                 return warnings + [f"{entry.file_name}: 有効な値がなく 0 件のため適用しませんでした。"]
             out = attach_positions(out, positions)
             period.set_override(f"custom:{cf.key}", out, note)
+            # BQ パイプラインは timeseries モードでも自動/手動別ヒストを作るので合わせる
+            hist = build_hist_df(values[auto_mask], values[~auto_mask], cf.hist_bin)
+            if not hist.empty:
+                period.set_override(f"customhist:{cf.key}", hist, note)
         else:
             out = build_metric_df(df[auto_mask], values[auto_mask], cf.name, cf.threshold)
             if out.empty:

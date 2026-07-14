@@ -160,6 +160,29 @@ def test_apply_override_custom_timeseries_mean_per_second():
     raw = read_value_csv(_mcap_csv(col="x.y"))
     expect = raw.groupby("sec_time")["x.y"].mean().iloc[0]
     assert out["value"].iloc[0] == pytest.approx(expect)
+    # BQ の timeseries と同形: 地図用の緯度経度列を持つ (CSV 由来なので NaN)
+    assert {"latitude", "longitude"}.issubset(out.columns)
+    # timeseries でも自動/手動ヒストが作られる (BQ パイプラインと同じ)
+    hist = period.combined_custom_hist_df("cf1")
+    assert not hist.empty
+    assert hist["cnt_auto"].sum() > 0
+
+
+def test_timeseries_positions_fill_latlon_for_map():
+    cf = CustomField(key="cf1", label="てすと", table="t", column=".x.y",
+                     agg_mode="timeseries")
+    period = _period()
+    config = _config(custom_fields=(cf,))
+    df = read_value_csv(_mcap_csv(col="x.y"))
+    ts = [pd.Timestamp(T0) + pd.Timedelta(seconds=i) for i in range(60)]
+    truck = pd.DataFrame({"ts": ts, "lat": [35.0 + i * 1e-4 for i in range(60)],
+                          "lon": [139.0] * 60})
+    pos = prepare_positions(truck)
+    entry = OverrideEntry(file_name="a.csv", target="cf1", column="x.y")
+    apply_override(period, entry, df, config, state_df=None, positions=pos)
+    out = period.combined_custom_df("cf1")
+    assert out["latitude"].notna().all()   # 地図に載る
+    assert out["cum_dist_km"].notna().all()  # 距離X軸も使える
 
 
 def test_apply_override_state_mask_splits_hist():

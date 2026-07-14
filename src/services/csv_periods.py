@@ -143,12 +143,18 @@ def build_metric_df(df: pd.DataFrame, values: pd.Series, name: str,
 
 
 def build_timeseries_df(df: pd.DataFrame, values: pd.Series) -> pd.DataFrame:
-    """BQ の timeseries クエリと同形の DF（1秒平均）を作る。"""
+    """BQ の timeseries クエリと同形の DF（1秒平均）を作る。
+
+    緯度経度列も BQ 版と同様に持つ（CSV には無いので NaN。Truck Tracker の位置を
+    後から結合すれば地図にも載る）。
+    """
     d = pd.DataFrame({"sec_time": df["sec_time"], "value": pd.to_numeric(values, errors="coerce")})
     d = d.dropna(subset=["value"])
     if d.empty:
-        return pd.DataFrame(columns=["sec_time", "value", "cum_dist_km"])
+        return pd.DataFrame(columns=["sec_time", "value", "latitude", "longitude", "cum_dist_km"])
     out = d.groupby("sec_time", as_index=False)["value"].mean()
+    out["latitude"] = np.nan
+    out["longitude"] = np.nan
     out["cum_dist_km"] = np.nan
     return out
 

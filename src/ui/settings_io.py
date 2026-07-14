@@ -333,6 +333,13 @@ def apply_settings(d: dict, state) -> int:
             st.session_state[f"color_{label}"] = hexv
         applied += 1
 
+    # CSV 置き換えレシピ（実行後に置き換えパネルの「一括再適用」で使う）
+    recipes = d.get("CSV置き換え")
+    if isinstance(recipes, list):
+        state.ovr_recipes = [r for r in recipes if isinstance(r, dict) and r.get("target")]
+        if state.ovr_recipes:
+            applied += 1
+
     for key, value in values.items():
         st.session_state[key] = value
         applied += 1

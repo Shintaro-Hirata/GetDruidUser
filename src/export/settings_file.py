@@ -170,6 +170,9 @@ def build_settings_dict(
         },
         "表示設定": _display_dict(sb, state),
         "運行メタ（zero-plotter）": leg_meta,
+        # CSV 置き換えのレシピ（ファイル本体は含まない。source がサーバパスなら
+        # 復元後に「一括再適用」できる。アップロード由来は同名 CSV の再アップロードが必要）
+        "CSV置き換え": list(getattr(state, "ovr_recipes", []) or []),
     }
 
 
