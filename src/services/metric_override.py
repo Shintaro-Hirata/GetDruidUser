@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import io
-import math
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -199,16 +198,7 @@ def prepare_positions(truck_df: pd.DataFrame | None) -> pd.DataFrame | None:
     """Truck Tracker の位置 (ts/lat/lon) から、時刻順の位置+累積距離 DF を作る。"""
     if truck_df is None or truck_df.empty or not {"ts", "lat", "lon"}.issubset(truck_df.columns):
         return None
-    d = truck_df.copy()
-    d["_tt"] = pd.to_datetime(d["ts"], utc=True, errors="coerce").dt.as_unit("ns")
-    d["lat"] = pd.to_numeric(d["lat"], errors="coerce")
-    d["lon"] = pd.to_numeric(d["lon"], errors="coerce")
-    d = d.dropna(subset=["_tt", "lat", "lon"]).sort_values("_tt").reset_index(drop=True)
-    if d.empty:
-        return None
-    step = _haversine_km(d["lat"].shift(), d["lon"].shift(), d["lat"], d["lon"])
-    d["cum_dist_km"] = pd.Series(step).fillna(0.0).cumsum()
-    return d[["_tt", "lat", "lon", "cum_dist_km"]]
+    return _positions_from_latlon_rows(truck_df["ts"], truck_df["lat"], truck_df["lon"])
 
 
 def _positions_from_latlon_rows(sec: pd.Series, lat: pd.Series, lon: pd.Series

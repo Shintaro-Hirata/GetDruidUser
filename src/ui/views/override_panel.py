@@ -79,6 +79,14 @@ def _load_positions(sb, config, period: PeriodResult):
     return prepare_positions(df)
 
 
+@st.cache_data(show_spinner=False, max_entries=32)
+def _read_path_bytes(path: str, mtime_ns: int, size: int) -> bytes:
+    """パス指定 CSV の読み込み。パネルは rerun ごとに再描画されるため、
+    (パス, 更新時刻, サイズ) をキーにキャッシュしてディスク読みを繰り返さない。"""
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def _resolve_path_files(paths_text: str) -> tuple[dict[str, bytes], dict[str, str], list[str]]:
     """サーバ上のパス指定 (1行1つ・glob 可) から {表示名: bytes} を作る。"""
     files: dict[str, bytes] = {}
@@ -91,8 +99,8 @@ def _resolve_path_files(paths_text: str) -> tuple[dict[str, bytes], dict[str, st
         hits = sorted(_glob.glob(line)) or [line]
         for path in hits:
             try:
-                with open(path, "rb") as f:
-                    data = f.read()
+                st_info = os.stat(path)
+                data = _read_path_bytes(path, st_info.st_mtime_ns, st_info.st_size)
             except OSError as ex:
                 warns.append(f"パスを読めません: {path} ({ex})")
                 continue
@@ -147,8 +155,11 @@ def _apply_rows(rows: list[tuple[OverrideEntry, str, str]], files: dict[str, byt
             warnings.append(f"{entry.file_name}: 適用先の期間を判定できません"
                             "（CSV の時刻と期間が重なっていません）。")
             continue
-        # 自動運転判定 (drive_mode="state" のときだけ state を用意): BQ/Druid → state CSV
-        if target_p.label not in state_cache:
+        # 自動運転判定に state が要るのは drive_mode="state" のときだけ。
+        # auto/manual 指定では BQ への state クエリ自体を省く (課金と待ち時間の節約)。
+        if drive_mode != "state":
+            state_cache.setdefault(target_p.label, None)
+        elif target_p.label not in state_cache or state_cache[target_p.label] is None:
             if backend is None:
                 try:
                     backend = create_backend(load_settings(), kind=config.backend)
@@ -166,11 +177,14 @@ def _apply_rows(rows: list[tuple[OverrideEntry, str, str]], files: dict[str, byt
                 pos = positions_from_period(target_p)
             pos_cache[target_p.label] = pos
 
-        before = dict(target_p.overrides)
+        # 変更検知は DataFrame の中身ではなくオブジェクト識別で行う
+        # (dict同士の == は DataFrame の要素比較になり ValueError を起こす)
+        before_ids = {k: id(v) for k, v in target_p.overrides.items()}
         warnings += apply_override(target_p, entry, df, config,
                                    state_cache[target_p.label], pos_cache[target_p.label],
                                    drive_mode=drive_mode)
-        if target_p.overrides != before:
+        after_ids = {k: id(v) for k, v in target_p.overrides.items()}
+        if after_ids != before_ids:
             applied += 1
             _register_recipe(state, entry, file_sources.get(entry.file_name, ""),
                              target_p.label, drive_mode)

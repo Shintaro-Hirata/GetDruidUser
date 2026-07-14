@@ -295,6 +295,25 @@ def test_positions_join_and_cumdist():
     assert joined["cum_dist_km"].notna().all()
 
 
+def test_apply_rows_reapply_does_not_raise():
+    # 2回目の適用 (既に overrides がある状態) で dict比較が DataFrame == にならないこと
+    # (ValueError: The truth value of a DataFrame is ambiguous の回帰防止)
+    from types import SimpleNamespace
+    from src.ui.views.override_panel import _apply_rows
+
+    period = _period()
+    config = _config()
+    files = {"a.csv": _mcap_csv()}
+    sb = SimpleNamespace(truck_sources=(), truck_tz="Asia/Tokyo", truck_filter_vehicle=False)
+    state = SimpleNamespace(ovr_recipes=[])
+    rows = [(OverrideEntry(file_name="a.csv", target="q1"), "", "auto")]
+
+    a1, w1 = _apply_rows(rows, files, {}, [period], sb, config, state)
+    a2, w2 = _apply_rows(rows, files, {}, [period], sb, config, state)  # 再適用
+    assert a1 == 1 and a2 == 1
+    assert len(state.ovr_recipes) == 1  # 同じ期間×対象は上書き (重複しない)
+
+
 def test_out_of_period_rows_are_dropped():
     period = _period(minutes=5)
     config = _config()
