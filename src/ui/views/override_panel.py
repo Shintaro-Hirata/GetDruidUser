@@ -28,10 +28,18 @@ from src.services.metric_override import (
     apply_override,
     choose_period,
     fetch_state_series,
+    positions_from_period,
     prepare_positions,
     read_value_csv,
     state_from_csv,
 )
+
+# 運転モード選択肢（表示ラベル → drive_mode）
+_DRIVE_MODES = {
+    "state で自動/手動を判定（BQ state か state CSV が必要）": "state",
+    "すべて自動運転として集計": "auto",
+    "すべて手動運転として集計": "manual",
+}
 from src.services.truck_tracker import load_truck_log
 
 _AUTO_LABEL = "(自動判定: CSVの時刻から)"
@@ -95,7 +103,7 @@ def _resolve_path_files(paths_text: str) -> tuple[dict[str, bytes], dict[str, st
 
 
 def _register_recipe(state, entry: OverrideEntry, source: str,
-                     period_label: str, use_mask: bool) -> None:
+                     period_label: str, drive_mode: str) -> None:
     """適用したレシピを保存する（同じ期間×対象は上書き）。"""
     state.ovr_recipes = [
         r for r in state.ovr_recipes
@@ -109,21 +117,21 @@ def _register_recipe(state, entry: OverrideEntry, source: str,
         "scale": float(entry.scale),
         "offset": float(entry.offset),
         "period_label": period_label,
-        "use_mask": bool(use_mask),
+        "drive_mode": str(drive_mode),
     })
 
 
-def _apply_rows(rows: list[tuple[OverrideEntry, str, bool]], files: dict[str, bytes],
+def _apply_rows(rows: list[tuple[OverrideEntry, str, str]], files: dict[str, bytes],
                 file_sources: dict[str, str], periods: list[PeriodResult],
                 sb, config, state) -> tuple[int, list[str]]:
-    """(entry, state_csv名, use_mask) のリストを順に適用する。戻り値: (適用数, 警告)。"""
+    """(entry, state_csv名, drive_mode) のリストを順に適用する。戻り値: (適用数, 警告)。"""
     warnings: list[str] = []
     applied = 0
     backend = None
-    state_cache: dict[tuple[str, bool], pd.DataFrame | None] = {}
+    state_cache: dict[str, pd.DataFrame | None] = {}
     pos_cache: dict[str, pd.DataFrame | None] = {}
 
-    for entry, state_file, use_mask in rows:
+    for entry, state_file, drive_mode in rows:
         data = files.get(entry.file_name)
         if data is None:
             warnings.append(f"{entry.file_name}: CSV がありません。パス指定を確認するか、"
@@ -139,31 +147,33 @@ def _apply_rows(rows: list[tuple[OverrideEntry, str, bool]], files: dict[str, by
             warnings.append(f"{entry.file_name}: 適用先の期間を判定できません"
                             "（CSV の時刻と期間が重なっていません）。")
             continue
-        # 自動運転マスク: BQ/Druid の state 流用 → state CSV → なし
-        ck = (target_p.label, bool(use_mask))
-        if ck not in state_cache:
-            st_df = None
-            if use_mask:
-                if backend is None:
-                    try:
-                        backend = create_backend(load_settings(), kind=config.backend)
-                    except Exception:
-                        backend = False  # 作れない環境 (認証なし等)
-                st_df = (fetch_state_series(backend, config, target_p)
-                         if backend not in (None, False) else None)
-                if st_df is None:
-                    st_df = state_from_csv(files, state_file)
-            state_cache[ck] = st_df
+        # 自動運転判定 (drive_mode="state" のときだけ state を用意): BQ/Druid → state CSV
+        if target_p.label not in state_cache:
+            if backend is None:
+                try:
+                    backend = create_backend(load_settings(), kind=config.backend)
+                except Exception:
+                    backend = False  # 作れない環境 (認証なし等)
+            st_df = (fetch_state_series(backend, config, target_p)
+                     if backend not in (None, False) else None)
+            if st_df is None:
+                st_df = state_from_csv(files, state_file)
+            state_cache[target_p.label] = st_df
+        # 位置ソース: Truck Tracker → 無ければ同一期間が既に持つ緯度経度を流用
         if target_p.label not in pos_cache:
-            pos_cache[target_p.label] = _load_positions(sb, config, target_p)
+            pos = _load_positions(sb, config, target_p)
+            if pos is None:
+                pos = positions_from_period(target_p)
+            pos_cache[target_p.label] = pos
 
-        before = set(target_p.overrides)
+        before = dict(target_p.overrides)
         warnings += apply_override(target_p, entry, df, config,
-                                   state_cache[ck], pos_cache[target_p.label])
-        if set(target_p.overrides) - before or target_p.overrides:
+                                   state_cache[target_p.label], pos_cache[target_p.label],
+                                   drive_mode=drive_mode)
+        if target_p.overrides != before:
             applied += 1
             _register_recipe(state, entry, file_sources.get(entry.file_name, ""),
-                             target_p.label, use_mask)
+                             target_p.label, drive_mode)
     return applied, warnings
 
 
@@ -252,16 +262,20 @@ def render_override_panel(
                 period_label=pd_label,
             ), state_files[0] if state_files else ""))
 
-        use_mask = st.checkbox(
-            "自動運転区間 (system_state=4) に絞って集計する（推奨・現行仕様と同じ）",
-            value=True, key=f"{key_prefix}_ovr_mask",
-            help="オフにすると全行を集計対象にします。state の取得がうまくいかず"
-                 "0 件になる場合の回避用。") if rows else True
+        drive_label = st.radio(
+            "運転モード（自動/手動の判定方法）",
+            list(_DRIVE_MODES),
+            key=f"{key_prefix}_ovr_drive",
+            help="現行仕様と同じ判定は「state で判定」。ただし BQ に無い期間を埋める場合は"
+                 "state も取れないため、その走行が全て手動なら「すべて手動運転」を、"
+                 "全て自動なら「すべて自動運転」を選んでください（誤って逆に判定されるのを防ぎます）。",
+        ) if rows else list(_DRIVE_MODES)[0]
+        drive_mode = _DRIVE_MODES[drive_label]
 
         if rows and st.button("✅ 置き換えを適用", type="primary",
                               key=f"{key_prefix}_ovr_apply"):
             applied, warnings = _apply_rows(
-                [(e, s, use_mask) for e, s in rows],
+                [(e, s, drive_mode) for e, s in rows],
                 files, file_sources, periods, sb, config, state)
             st.session_state["ovr_last_warnings"] = warnings
             if applied:
@@ -274,7 +288,8 @@ def render_override_panel(
             st.markdown("**保存済みの置き換え設定**（settings.json に保存されます）")
             for r in recipes:
                 src_note = r.get("source") or f"{r.get('file_name')}（要アップロード）"
-                st.write(f"- {r.get('period_label')} / {r.get('target')}: "
+                dm = r.get("drive_mode") or ("state" if r.get("use_mask", True) else "auto")
+                st.write(f"- {r.get('period_label')} / {r.get('target')} [{dm}]: "
                          f"{src_note} → {r.get('column')}")
             rc1, rc2 = st.columns([1, 1])
             with rc1:
@@ -291,14 +306,17 @@ def render_override_panel(
                                 file_sources[name] = src
                             except OSError:
                                 pass
+                        # 旧レシピ (use_mask 真偽) との後方互換
+                        dm = r.get("drive_mode")
+                        if dm not in ("state", "auto", "manual"):
+                            dm = "state" if r.get("use_mask", True) else "auto"
                         rows2.append((OverrideEntry(
                             file_name=name, target=str(r.get("target")),
                             column=str(r.get("column") or ""),
                             scale=float(r.get("scale", 1.0)),
                             offset=float(r.get("offset", 0.0)),
                             period_label=str(r.get("period_label") or ""),
-                        ), state_files[0] if state_files else "",
-                            bool(r.get("use_mask", True))))
+                        ), state_files[0] if state_files else "", str(dm)))
                     applied, warnings = _apply_rows(
                         rows2, files, file_sources, list(results.periods),
                         sb, config, state)

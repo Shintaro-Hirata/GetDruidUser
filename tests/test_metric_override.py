@@ -90,9 +90,8 @@ def test_apply_override_metric_replaces_all_tabs_df():
     config = _config()
     df = read_value_csv(_mcap_csv())
     entry = OverrideEntry(file_name="a.csv", target="q1")
-    warns = apply_override(period, entry, df, config, state_df=None, positions=None)
-    # state 無し警告 + 位置無し警告
-    assert any("自動運転" in w for w in warns)
+    warns = apply_override(period, entry, df, config, state_df=None,
+                           positions=None, drive_mode="auto")
     out = period.combined_metric_df("q1")
     assert not out.empty
     # 1分窓ごとに1点 (60秒ぶん → 1〜2窓)
@@ -108,7 +107,8 @@ def test_apply_override_all_filtered_is_not_stored():
     config = _config(thresholds={"q1": 100.0})  # 全部落ちるしきい値
     df = read_value_csv(_mcap_csv())
     entry = OverrideEntry(file_name="a.csv", target="q1", scale=1.0)
-    warns = apply_override(period, entry, df, config, state_df=None, positions=None)
+    warns = apply_override(period, entry, df, config, state_df=None,
+                           positions=None, drive_mode="auto")
     # 0 件の置き換えは適用されず、内訳付きの警告が出る
     assert not period.overrides
     assert any("0 件のため適用しませんでした" in w and "内訳" in w for w in warns)
@@ -137,11 +137,12 @@ def test_apply_override_q3_hist():
     df = read_value_csv(_mcap_csv(col="pose.acceleration_vrf.y"))
     entry = OverrideEntry(file_name="a.csv", target=TARGET_Q3,
                           column="pose.acceleration_vrf.y")
-    apply_override(period, entry, df, config, state_df=None, positions=None)
+    apply_override(period, entry, df, config, state_df=None,
+                   positions=None, drive_mode="auto")
     hist = period.combined_hist_df()
     assert {"bin_start", "bin_end", "cnt_auto", "cnt_manual"}.issubset(hist.columns)
     assert hist["cnt_auto"].sum() > 0
-    assert hist["cnt_manual"].sum() == 0  # state 無し → 全て自動扱い
+    assert hist["cnt_manual"].sum() == 0  # drive_mode=auto → 全て自動
 
 
 def test_apply_override_custom_timeseries_mean_per_second():
@@ -151,7 +152,8 @@ def test_apply_override_custom_timeseries_mean_per_second():
     config = _config(custom_fields=(cf,))
     df = read_value_csv(_mcap_csv(col="x.y"))  # 0.5秒周期 → 1秒2点
     entry = OverrideEntry(file_name="a.csv", target="cf1", column="x.y")
-    apply_override(period, entry, df, config, state_df=None, positions=None)
+    apply_override(period, entry, df, config, state_df=None,
+                   positions=None, drive_mode="auto")
     out = period.combined_custom_df("cf1")
     assert not out.empty
     # 1秒1行 (平均) になっている
@@ -179,10 +181,77 @@ def test_timeseries_positions_fill_latlon_for_map():
                           "lon": [139.0] * 60})
     pos = prepare_positions(truck)
     entry = OverrideEntry(file_name="a.csv", target="cf1", column="x.y")
-    apply_override(period, entry, df, config, state_df=None, positions=pos)
+    apply_override(period, entry, df, config, state_df=None,
+                   positions=pos, drive_mode="auto")
     out = period.combined_custom_df("cf1")
     assert out["latitude"].notna().all()   # 地図に載る
     assert out["cum_dist_km"].notna().all()  # 距離X軸も使える
+
+
+def test_drive_mode_state_without_state_is_not_applied():
+    # BQ 欠損期間の穴埋めでは state も無い。勝手に自動と決めつけず、適用を見送る
+    # （手動収集の走行が「自動」に逆転する不具合の防止）。
+    period = _period()
+    config = _config()
+    df = read_value_csv(_mcap_csv(col="pose.acceleration_vrf.y"))
+    entry = OverrideEntry(file_name="a.csv", target=TARGET_Q3,
+                          column="pose.acceleration_vrf.y")
+    warns = apply_override(period, entry, df, config, state_df=None,
+                           positions=None, drive_mode="state")
+    assert not period.overrides
+    assert any("state が取得できません" in w for w in warns)
+
+
+def test_drive_mode_manual_puts_all_in_manual_bucket():
+    # 全て手動運転の走行: manual を選べば手動バケットに入り、自動バケットは空
+    period = _period()
+    config = _config()
+    df = read_value_csv(_mcap_csv(col="pose.acceleration_vrf.y"))
+    entry = OverrideEntry(file_name="a.csv", target=TARGET_Q3,
+                          column="pose.acceleration_vrf.y")
+    apply_override(period, entry, df, config, state_df=None,
+                   positions=None, drive_mode="manual")
+    hist = period.combined_hist_df()
+    assert hist["cnt_manual"].sum() > 0
+    assert hist["cnt_auto"].sum() == 0
+
+
+def test_drive_mode_manual_metric_scatter_is_empty():
+    # 散布図 (q1/q2) は自動運転のみ。全手動なら 0 点 (BQ と同じ挙動)
+    period = _period()
+    config = _config()
+    df = read_value_csv(_mcap_csv())
+    entry = OverrideEntry(file_name="a.csv", target="q1")
+    warns = apply_override(period, entry, df, config, state_df=None,
+                           positions=None, drive_mode="manual")
+    assert not period.overrides  # 自動 0 行 → 空 → 適用されず
+    assert any("0 件" in w for w in warns)
+
+
+def test_positions_from_period_used_as_fallback():
+    # Truck が無くても、同一期間の他 DF が持つ緯度経度を位置ソースに使える
+    from src.services.metric_override import positions_from_period
+    period = _period()
+    # 既存 q1 DF に緯度経度入りの行を持たせる (BQ 由来を模擬)
+    secs = pd.date_range(T0, periods=60, freq="1s", tz="UTC")
+    period.chunks[0].metric_dfs["q1"] = pd.DataFrame({
+        "win_1m": secs.floor("min"), "sec_time": secs,
+        "latitude": [35.0 + i * 1e-4 for i in range(60)],
+        "longitude": [139.0] * 60,
+        "lateral_error": [0.1] * 60, "abs_lateral_error": [0.1] * 60,
+        "cum_dist_km": [float("nan")] * 60,
+    })
+    pos = positions_from_period(period)
+    assert pos is not None and not pos.empty
+    assert pos["cum_dist_km"].iloc[-1] > 0
+
+    cf = CustomField(key="cf1", label="t", table="t", column=".x.y", agg_mode="timeseries")
+    config = _config(custom_fields=(cf,))
+    df = read_value_csv(_mcap_csv(col="x.y"))
+    apply_override(period, OverrideEntry(file_name="a.csv", target="cf1", column="x.y"),
+                   df, config, state_df=None, positions=pos, drive_mode="auto")
+    out = period.combined_custom_df("cf1")
+    assert out["latitude"].notna().any()  # 他指標の位置が結び付いた
 
 
 def test_apply_override_state_mask_splits_hist():

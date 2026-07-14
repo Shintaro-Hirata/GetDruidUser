@@ -211,16 +211,76 @@ def prepare_positions(truck_df: pd.DataFrame | None) -> pd.DataFrame | None:
     return d[["_tt", "lat", "lon", "cum_dist_km"]]
 
 
+def _positions_from_latlon_rows(sec: pd.Series, lat: pd.Series, lon: pd.Series
+                                ) -> pd.DataFrame | None:
+    """(sec_time, lat, lon) 群から、時刻順の位置+累積距離 DF を作る（内部共通）。"""
+    d = pd.DataFrame({
+        "_tt": pd.to_datetime(sec, utc=True, errors="coerce").dt.as_unit("ns"),
+        "lat": pd.to_numeric(lat, errors="coerce"),
+        "lon": pd.to_numeric(lon, errors="coerce"),
+    }).dropna(subset=["_tt", "lat", "lon"])
+    d = d.drop_duplicates(subset=["_tt"]).sort_values("_tt").reset_index(drop=True)
+    if d.empty:
+        return None
+    step = _haversine_km(d["lat"].shift(), d["lon"].shift(), d["lat"], d["lon"])
+    d["cum_dist_km"] = pd.Series(step).fillna(0.0).cumsum()
+    return d[["_tt", "lat", "lon", "cum_dist_km"]]
+
+
+def positions_from_period(period: PeriodResult) -> pd.DataFrame | None:
+    """取得済み期間が既に持つ緯度経度（同一期間の他指標）から位置ソースを作る。
+
+    Truck Tracker が無くても、同じ期間の BQ/Druid 由来 DF（lateral error・
+    自由フィールド等）が lat/lon を持っていれば、それを時刻で流用できる。
+    密なソース（timeseries=1秒）を優先し、metric（1分窓）も併せて集める。
+    """
+    secs, lats, lons = [], [], []
+    for c in period.chunks:
+        dfs = list(c.metric_dfs.values()) + list(c.custom_dfs.values())
+        for d in dfs:
+            if d is None or d.empty:
+                continue
+            if not {"sec_time", "latitude", "longitude"}.issubset(d.columns):
+                continue
+            m = d["latitude"].notna() & d["longitude"].notna()
+            if not m.any():
+                continue
+            secs.append(d.loc[m, "sec_time"])
+            lats.append(d.loc[m, "latitude"])
+            lons.append(d.loc[m, "longitude"])
+    if not secs:
+        return None
+    return _positions_from_latlon_rows(
+        pd.concat(secs, ignore_index=True),
+        pd.concat(lats, ignore_index=True),
+        pd.concat(lons, ignore_index=True),
+    )
+
+
+def _auto_tolerance_s(positions: pd.DataFrame) -> float:
+    """位置ソースの密度から結合許容差（秒）を決める。密なら小さく、疎なら大きく。"""
+    if positions is None or len(positions) < 2:
+        return 65.0
+    gaps = positions["_tt"].sort_values().diff().dropna().dt.total_seconds()
+    med = float(gaps.median()) if not gaps.empty else 2.0
+    return float(min(65.0, max(2.0, med * 1.5)))
+
+
 def attach_positions(out: pd.DataFrame, positions: pd.DataFrame | None,
-                     tolerance_s: float = 2.0) -> pd.DataFrame:
-    """metric/timeseries DF の latitude/longitude/cum_dist_km を Truck 位置で埋める。"""
+                     tolerance_s: float | None = None) -> pd.DataFrame:
+    """metric/timeseries DF の latitude/longitude/cum_dist_km を位置ソースで埋める。
+
+    tolerance_s=None のときは位置ソースの密度から自動決定する（1分窓の疎なソースでも
+    結び付くように、疎なら許容差を広げる）。
+    """
     if positions is None or positions.empty or out.empty or "sec_time" not in out.columns:
         return out
+    tol = _auto_tolerance_s(positions) if tolerance_s is None else tolerance_s
     d = out.copy().sort_values("sec_time")
     left = pd.DataFrame({"_tt": pd.to_datetime(d["sec_time"], utc=True).dt.as_unit("ns")})
     merged = pd.merge_asof(
         left, positions, on="_tt", direction="nearest",
-        tolerance=pd.Timedelta(seconds=tolerance_s),
+        tolerance=pd.Timedelta(seconds=tol),
     )
     if "latitude" in d.columns:
         d["latitude"] = merged["lat"].to_numpy()
@@ -236,10 +296,35 @@ def _spec_by_key(key: str) -> MetricSpec | None:
     return next((s for s in METRICS if s.key == key), None)
 
 
+def resolve_auto_mask(df: pd.DataFrame, drive_mode: str,
+                      state_df: pd.DataFrame | None) -> tuple[pd.Series | None, str]:
+    """運転モードから自動運転マスクを決める。戻り値: (mask, 警告)。
+
+    drive_mode:
+      - "auto"   : 全行を自動運転扱い
+      - "manual" : 全行を手動運転扱い
+      - "state"  : state (BQ/Druid か state CSV) で判定。state が無ければ mask=None
+                   （呼び出し側で「判定不能」として扱い、勝手に自動と決めつけない）
+    """
+    if drive_mode == "auto":
+        return pd.Series(True, index=df.index), ""
+    if drive_mode == "manual":
+        return pd.Series(False, index=df.index), ""
+    if state_df is None or state_df.empty:
+        return None, ("自動運転の判定に使う state が取得できません。"
+                      "state CSV を一緒にアップロードするか、運転モードで"
+                      "「すべて自動」「すべて手動」を明示してください。")
+    return attach_auto_mask(df, state_df), ""
+
+
 def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
                    config: RunConfig, state_df: pd.DataFrame | None,
-                   positions: pd.DataFrame | None) -> list[str]:
-    """1エントリ分の置き換えを period に適用する。戻り値: 警告メッセージ。"""
+                   positions: pd.DataFrame | None,
+                   drive_mode: str = "state") -> list[str]:
+    """1エントリ分の置き換えを period に適用する。戻り値: 警告メッセージ。
+
+    drive_mode: "state"（既定・state で自動/手動を判定）/ "auto" / "manual"。
+    """
     warnings: list[str] = []
     df = apply_excludes(df, config.excludes)
     # 期間の時間範囲内に絞る (期間外の行が統計へ混ざるのを防ぐ)
@@ -262,10 +347,10 @@ def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
                 "値列を選択してください。"]
 
     values = pd.to_numeric(df[col], errors="coerce") * float(entry.scale) + float(entry.offset)
-    auto_mask = attach_auto_mask(df, state_df)
-    if state_df is None:
-        warnings.append(f"{entry.file_name}: 自動運転区間の情報が無いため全行を自動運転扱い"
-                        "で集計しました (state CSV を併せてアップロードすると絞れます)。")
+    auto_mask, mask_warn = resolve_auto_mask(df, drive_mode, state_df)
+    if auto_mask is None:
+        # 勝手に自動/手動を決めず、適用を見送る（逆転誤判定を防ぐ）
+        return [f"{entry.file_name}: {mask_warn}"]
 
     note = f"{entry.file_name} → {col}"
     n_period = len(df)
