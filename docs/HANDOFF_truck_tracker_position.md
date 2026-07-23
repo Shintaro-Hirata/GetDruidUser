@@ -399,3 +399,10 @@ self.sender = {93: make_novatel_status_message, 508: make_pos_message, 1429: mak
 - `_remap_to_truck` の domain 層への移動、自由フィールド表示ビン幅式（×4箇所）のヘルパー化: 現時点で第二の利用者がなく、移動コストに見合わないため見送り。
 
 **テスト**: 回帰テスト 10 件を追加（customdata 生UTC・prepared remap 同値・画像の x_mode・全NULL距離フォールバック・NaN保持 concat・timeseries 分割の通し距離・Excel 再集計・設定範囲外スキップ・比較multiselect 永続化・ZIP期間フィルタ）。全 **205 件 PASS**。
+
+### 11-12. アプリバージョン表示（配布時の版管理）
+- 目的: そこそこの人数へ配布するため、使用中のバージョンを一目で分かるようにする。
+- 単一ソース: `src/version.py` の `__version__`（例 "1.0.0"）。**リリースのたびにここだけ更新**すれば全表示に反映される。`app_version()` は `"v1.0.0"` 形式を返す。git 非依存なので ZIP 配布（.git なし）でも確実に表示できる。
+- 表示箇所（`app.py`）: ①ブラウザタブ名 `運行データ可視化 v1.0.0`（`set_page_config(page_title=...)`）、②タイトル直下のキャプション `バージョン **v1.0.0**`。
+- 版管理補助: 設定JSON（`settings.json`）のヘッダにも `"アプリバージョン"` を記録（`build_settings_dict` / `build_input_settings_dict`）。どのバージョンで作った設定かを後から判別できる。復元 (`extract_session_values`) は未知キーを無視するため既存の読み込みには影響しない。
+- テスト: `tests/test_version.py`（semver 形式・v 接頭辞・タイトル領域に表示される smoke）。全 **208 件 PASS**。
