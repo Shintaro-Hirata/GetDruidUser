@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.domain.results import RunResults
 from src.queries.specs import METRICS
+from src.version import app_version
 
 if TYPE_CHECKING:
     from src.ui.sidebar import SidebarValues
@@ -155,6 +156,7 @@ def build_settings_dict(
 
     return {
         "メモ": _MEMO,
+        "アプリバージョン": app_version(),
         "保存日時": datetime.now(JST).isoformat(timespec="seconds"),
         "取得条件": {
             "データ取得先": "BigQuery" if cfg.backend == "bq" else "Druid",
@@ -191,6 +193,7 @@ def build_input_settings_dict(
 
     return {
         "メモ": _MEMO,
+        "アプリバージョン": app_version(),
         "保存日時": datetime.now(JST).isoformat(timespec="seconds"),
         "取得条件": {
             "データ取得先": "BigQuery" if sb.backend == "bq" else "Druid",

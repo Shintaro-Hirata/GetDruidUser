@@ -23,9 +23,15 @@ from src.ui.views.pages import (
     render_zero_plotter_tab,
 )
 from src.ui.views.range_check import results_range_warnings
+from src.version import app_version
 
-st.set_page_config(page_title="Druid Query Runner", layout="wide")
+APP_VERSION = app_version()
+
+# バージョンはブラウザタブ名にも入れる（配布先で版を判別しやすくする）。
+st.set_page_config(page_title=f"運行データ可視化 {APP_VERSION}", layout="wide")
 st.title("運行データ可視化: 期間（複数ペア）× 散布図/地図/表 × Excel一括DL")
+# バージョンをタイトル直下に明示（配布時の版管理用。src/version.py で更新する）。
+st.caption(f"バージョン **{APP_VERSION}**")
 
 settings = load_settings()
 state = get_state()
