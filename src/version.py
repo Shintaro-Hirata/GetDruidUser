@@ -7,9 +7,9 @@
 #   MAJOR.MINOR.PATCH（互換を壊す変更で MAJOR、機能追加で MINOR、修正で PATCH）。
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 def app_version() -> str:
-    """表示用のバージョン文字列（先頭に v を付けた "v1.0.0" 形式）。"""
+    """表示用のバージョン文字列（先頭に v を付けた "v1.0.1" 形式）。"""
     return f"v{__version__}"
