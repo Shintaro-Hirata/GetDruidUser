@@ -58,7 +58,10 @@ class SidebarValues:
     # mcap CSV 期間（BQ 欠損の穴埋め。反映には実行が必要）
     csv_entries: tuple = ()                      # CsvPeriodEntry の列
     csv_files: dict = field(default_factory=dict)  # ファイル名 -> bytes
-    csv_state_filter: bool = True                # system_state=4 に絞るか
+    csv_state_filter: bool = True                # 自動運転 (kAutonomousDriving) に絞るか
+    # SystemState enum 世代 ("auto"=運行日で自動判定 / "202605a" / "legacy")。
+    # 202605a で kAutonomousDriving の番号が 4→16 に変わった (drive_state.py)
+    system_state_gen: str = "auto"
 
     # Truck Tracker 参照（オプトイン。既定は Zero-Plotter のみ表示。再実行不要）
     truck_enable: bool = False

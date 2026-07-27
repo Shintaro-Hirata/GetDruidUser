@@ -54,8 +54,9 @@ def test_guess_value_column_matches_suffix():
 
 def test_q1_metric_period_with_state_filter():
     # 3分間 1Hz。1分目 |0.5|、2分目 |0.9|、3分目 |1.5| だが 3分目は手動運転。
+    # T0 は 202605a 以降なので自動運転 kAutonomousDriving=16 (4 は kControlOk)。
     values = [0.5] * 60 + [-0.9] * 60 + [1.5] * 60
-    states = [4] * 120 + [2] * 60
+    states = [16] * 120 + [4] * 60
     files = {
         CONTROL_CSV: _csv_bytes("debug_for_mcap.lateral_error", values),
         STATE_CSV: _state_bytes(states),
@@ -92,7 +93,7 @@ def test_custom_field_metric_and_hist():
     cf = CustomField(key="cf1", label="ヨーレート", table="t2_x", column=".foo.yaw_rate",
                      agg_mode="metric", threshold=0.0, hist_bin=0.5, scale=2.0)
     values = [0.4] * 60 + [-0.6] * 60
-    states = [4] * 60 + [2] * 60
+    states = [16] * 60 + [4] * 60
     files = {
         "a_yaw.csv": _csv_bytes("foo.yaw_rate", values),
         STATE_CSV: _state_bytes(states),

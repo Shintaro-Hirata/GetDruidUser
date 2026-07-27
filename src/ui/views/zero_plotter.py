@@ -20,22 +20,11 @@ from src.ui.views.map import _truck_xy_valid, _zoom_for_bbox
 
 JST = timezone(timedelta(hours=9))
 
-# zero-plotter の js/constants.js（SystemState / COLOR_MAP_SYSTEM_STATE）と同一
-SYSTEM_STATE_LABELS = {
-    0: "kStandBy",
-    1: "kPerceptionOk",
-    2: "kControlOk",
-    3: "kReady",
-    4: "kAutonomousDriving",
-}
-SYSTEM_STATE_COLORS = {
-    "kStandBy": "#ea1e3a",
-    "kPerceptionOk": "#eabe1e",
-    "kControlOk": "#28aef9",
-    "kReady": "#28fe06",
-    "kAutonomousDriving": "#3d37f9",
-    "null": "#000000",
-}
+# 状態の 値→名前 は enum 世代で変わる (202605a で 5状態→18状態、drive_state.py 参照)。
+# 色は zero-plotter の js/constants.js (COLOR_MAP_SYSTEM_STATE) と同一のものを
+# drive_state.STATE_COLORS に集約している。
+from src.domain.drive_state import STATE_COLORS as SYSTEM_STATE_COLORS  # noqa: E402
+from src.domain.drive_state import state_labels  # noqa: E402
 
 
 def jst_day_bounds(dt: datetime) -> tuple[datetime, datetime]:
@@ -117,6 +106,7 @@ def zp_track_fig(
     height: int = 560,
     truck_df: pd.DataFrame | None = None,
     truck_mode: str = "overlay",
+    labels: dict[int, str] | None = None,
 ) -> go.Figure | None:
     """点群DF（sec_time / system_state / latitude / longitude）を状態別色分けで描画。
 
@@ -139,7 +129,8 @@ def zp_track_fig(
         if not d.empty:
             if "system_state" in d.columns:
                 state_num = pd.to_numeric(d["system_state"], errors="coerce")
-                d["state_label"] = state_num.map(SYSTEM_STATE_LABELS).fillna("null")
+                lbl = labels if labels is not None else state_labels(None)
+                d["state_label"] = state_num.map(lbl).fillna("null")
             else:
                 d["state_label"] = "null"
 
@@ -155,7 +146,7 @@ def zp_track_fig(
                 d["_t2kp"] = "-"
 
             # zero-plotter と同じ並び（kStandBy → … → kAutonomousDriving → null）
-            order = list(SYSTEM_STATE_LABELS.values()) + ["null"]
+            order = list((labels if labels is not None else state_labels(None)).values()) + ["null"]
             for label in order:
                 part = d[d["state_label"] == label]
                 if part.empty:
@@ -166,7 +157,7 @@ def zp_track_fig(
                         lon=part["longitude"],
                         mode="markers",
                         name=label,
-                        marker=dict(size=7, color=SYSTEM_STATE_COLORS[label]),
+                        marker=dict(size=7, color=SYSTEM_STATE_COLORS.get(label, "#000000")),
                         customdata=part[["_raw", "_jst", "_t2kp"]].values,
                         hovertemplate=(
                             f"<b>{label}</b><br>"

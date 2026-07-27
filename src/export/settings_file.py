@@ -26,7 +26,8 @@ def _range_or_none_to_list(v: tuple[float, float] | None) -> list[float] | None:
 _MEMO = "GetDruidUser の設定スナップショット。時間帯・除外時間帯はアプリの入力欄にそのまま貼り付けて流用できます。"
 
 
-def _query_cond_dict(thresholds_by_key: dict, dist_mode: str) -> dict:
+def _query_cond_dict(thresholds_by_key: dict, dist_mode: str,
+                     system_state_gen: str = "auto") -> dict:
     thresholds = {
         spec.threshold_label.strip(): float(
             thresholds_by_key.get(spec.key, spec.default_threshold)
@@ -37,6 +38,8 @@ def _query_cond_dict(thresholds_by_key: dict, dist_mode: str) -> dict:
         **thresholds,
         "距離算出方式": "緯度・経度（Haversine）" if dist_mode == "latlon" else "速度平均",
         "dist_mode": dist_mode,
+        # 自動運転判定の enum 世代 ("auto"/"202605a"/"legacy"。202605a で 4→16)
+        "system_state_gen": system_state_gen,
     }
 
 
@@ -166,7 +169,7 @@ def build_settings_dict(
             "時間帯（開始,終了,ラベル）": ranges_lines,
             "分割幅（分）": cfg.split_minutes,
             "除外時間帯（開始,終了）": _exclude_lines(cfg.excludes),
-            "クエリ条件": _query_cond_dict(thresholds_by_key, cfg.dist_mode),
+            "クエリ条件": _query_cond_dict(thresholds_by_key, cfg.dist_mode, cfg.system_state_gen),
             "取得テーブル": _tables_dict(cfg.tables),
             "自由フィールド": _custom_fields_list(cfg.custom_fields),
         },
@@ -203,7 +206,7 @@ def build_input_settings_dict(
             "時間帯（開始,終了,ラベル）": ranges_lines,
             "分割幅（分）": sb.split_minutes,
             "除外時間帯（開始,終了）": _exclude_lines(state.excludes),
-            "クエリ条件": _query_cond_dict(sb.thresholds, sb.dist_mode),
+            "クエリ条件": _query_cond_dict(sb.thresholds, sb.dist_mode, sb.system_state_gen),
             "取得テーブル": _tables_dict(sb.tables),
             "自由フィールド": _custom_fields_list(sb.custom_fields),
         },

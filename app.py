@@ -73,6 +73,7 @@ if sb.run:
         tables=sb.tables,
         custom_fields=sb.custom_fields,
         backend=sb.backend,
+        system_state_gen=sb.system_state_gen,
         bq_table_prefix=f"{settings.bq_project}.{sb.bq_dataset}",
         raise_on_error=sb.raise_on_error,
         max_workers=2,
@@ -161,6 +162,8 @@ if tuple(sb.custom_fields) != cached.custom_fields:
     drift_msgs.append("自由フィールド")
 if sb.backend != cached.backend:
     drift_msgs.append("データ取得先")
+if sb.system_state_gen != getattr(cached, "system_state_gen", "auto"):
+    drift_msgs.append("SystemState enum 世代")
 if f"{settings.bq_project}.{sb.bq_dataset}" != cached.bq_table_prefix:
     drift_msgs.append("BigQueryデータセット")
 if drift_msgs:

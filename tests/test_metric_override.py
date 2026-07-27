@@ -258,11 +258,11 @@ def test_apply_override_state_mask_splits_hist():
     period = _period()
     config = _config()
     df = read_value_csv(_mcap_csv(col="pose.acceleration_vrf.y"))
-    # 前半は自動(4)、後半は手動(0) の state 系列
+    # 前半は自動(16=202605a以降の kAutonomousDriving)、後半は手動(0) の state 系列
     half_ns = int(df["t_ns"].iloc[len(df) // 2])
     state = pd.DataFrame({
         "t_ns": df["t_ns"],
-        "system_state": [4 if t <= half_ns else 0 for t in df["t_ns"]],
+        "system_state": [16 if t <= half_ns else 0 for t in df["t_ns"]],
     })
     entry = OverrideEntry(file_name="a.csv", target=TARGET_Q3,
                           column="pose.acceleration_vrf.y")
