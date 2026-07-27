@@ -18,7 +18,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from src.domain.drive_state import auto_note, auto_state_value
+from src.domain.drive_state import auto_note, detect_auto_value
 from src.domain.models import CustomField, RunConfig
 from src.domain.results import PeriodResult
 from src.domain.x_axis import aware_utc
@@ -339,7 +339,9 @@ def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
                 "値列を選択してください。"]
 
     values = pd.to_numeric(df[col], errors="coerce") * float(entry.scale) + float(entry.offset)
-    auto_value = auto_state_value(period.range.start, config.system_state_gen)
+    auto_value, _basis = detect_auto_value(
+        state_df["system_state"] if state_df is not None else None,
+        period.range.start, config.system_state_gen)
     auto_mask, mask_warn = resolve_auto_mask(df, drive_mode, state_df, auto_value)
     if auto_mask is None:
         # 勝手に自動/手動を決めず、適用を見送る（逆転誤判定を防ぐ）

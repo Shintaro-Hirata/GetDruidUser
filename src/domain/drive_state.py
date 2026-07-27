@@ -115,6 +115,31 @@ def auto_note(auto_value: int) -> str:
     return f"{AUTO_LABEL}={auto_value}（{gen}の enum）"
 
 
+def detect_auto_value(state_values: pd.Series | None,
+                      period_start: datetime | None,
+                      generation: str = GEN_AUTO) -> tuple[int, str]:
+    """録画の state 実データも使って kAutonomousDriving の数値を決める。
+
+    優先順位:
+      1. 明示指定 (generation が "202605a"/"legacy")
+      2. state 実データ: 値 5 以上が存在 → 旧 enum (0..4 の5状態) ではあり得ないので
+         202605a と確定 (録画自身が世代を証明する = 実質ラベル基準の判定)
+      3. 全て 0..4 のときは旧/新どちらもあり得るため運行日 (CUTOVER) で判定
+         (新 enum で 0..4 しか出ない録画は自動運転に入っていない録画なので、
+          日付判定を誤っても自動運転秒が誤カウントされることはない)
+    戻り値: (auto_value, 判定根拠の表示用文字列)
+    """
+    if generation == GEN_202605A:
+        return AUTO_VALUE_202605A, "明示指定"
+    if generation == GEN_LEGACY:
+        return AUTO_VALUE_LEGACY, "明示指定"
+    if state_values is not None and len(state_values):
+        nums = pd.to_numeric(state_values, errors="coerce").dropna()
+        if len(nums) and float(nums.max()) >= len(SYSTEM_STATES_LEGACY):
+            return AUTO_VALUE_202605A, "stateデータ（値5以上を含む）"
+    return auto_state_value(period_start, GEN_AUTO), "運行日"
+
+
 def state_labels(period_start: datetime | None, generation: str = GEN_AUTO) -> dict[int, str]:
     """この録画世代の SystemState の 値→名前 対応表 (Zero-Plotter 色分け等に使う)。"""
     names = (SYSTEM_STATES_202605A

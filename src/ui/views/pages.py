@@ -461,8 +461,12 @@ def render_period_tab(
         st.caption(f"運行情報（zero-plotter）: {meta_str}")
 
     # どの enum 世代で自動運転を判定したかを常に明示する
-    # (202605a で kAutonomousDriving が 4→16 に変わったため、誤世代なら一目で分かるように)
-    if state.results is not None:
+    # (202605a で kAutonomousDriving が 4→16 に変わったため、誤世代なら一目で分かるように)。
+    # 取得時に state 実データから確定した内訳 (chunk.state_note) があればそれを出す。
+    notes = [c.state_note for c in period.chunks if getattr(c, "state_note", "")]
+    if notes:
+        st.caption("自動運転判定: " + " / ".join(dict.fromkeys(notes)))
+    elif state.results is not None:
         from src.domain.drive_state import auto_note, auto_state_value
         _av = auto_state_value(period.range.start,
                                getattr(state.results.config, "system_state_gen", "auto"))

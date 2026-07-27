@@ -79,11 +79,19 @@ Yatagarasu 202605a で SystemState enum の番号が変わった
 - ラベル `kAutonomousDriving` を世代の対応表（旧5状態 / 新18状態、Yatagarasu の
   State.idl と zero-plotter constants.js 由来）で値に引き直す。**今後また番号が
   変わったら、このファイルに世代を1つ追加するだけ**。
-- 世代の決定: サイドバー開発用「SystemState enum 世代」の明示指定 → 無ければ期間の
-  運行日（カットオーバー 2026-05-01 JST）で自動判定。SQL（metric/hist）・CSV 期間追加・
-  CSV 置き換え・Zero-Plotter 色分けの全てが同じ解決を使う。
-- 各期間タブに「自動運転判定: kAutonomousDriving=16（202605a以降の enum）」を常時表示
-  （誤世代なら一目で分かる）。settings.json にも世代設定を保存/復元。
+- 世代の決定（優先順）: ①サイドバー開発用「SystemState enum 世代」の明示指定
+  → ②**録画自身の state 実データ**（チャンクごとに state 系列を1回取得。値 5 以上が
+  あれば旧5状態 enum ではあり得ないので 202605a と確定 = 実質ラベル基準）
+  → ③全て 0..4 で判別不能なら運行日（カットオーバー 2026-05-01 JST）。
+  SQL（metric/hist）・CSV 期間追加・CSV 置き換え・Zero-Plotter 色分けの全てが同じ解決を使う。
+  追加コストは state 2列の小クエリ×チャンク（BQ 最小課金 ~10MB ≈ ¥0.01）のみ。
+- 各期間タブに「自動運転判定: kAutonomousDriving=16（…）・根拠: stateデータ /
+  state秒数: 自動 X・その他 Y」を常時表示（誤世代や手動0件の切り分けが一目でできる）。
+  settings.json にも世代設定を保存/復元。
+- 注意: 横G 等のヒストの手動側は「pose テーブルに行がある秒」しか集計できない。
+  起動中（kStandBy 等）に pose が配信されていない録画では、非自動秒があっても
+  手動ヒストは 0 になりうる（Zero-Plotter タブは state テーブル自身の緯度経度を
+  描くので点は出る。両者は矛盾ではない）。
 - state 値が文字列（enum名）の場合は値によらずラベルで直接判定する
   （`auto_mask_for_values`。CSV 経路を将来ラベル出力に寄せれば完全に版非依存になる）。
 
