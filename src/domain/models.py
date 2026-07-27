@@ -97,6 +97,9 @@ class RunConfig:
     tables: TableConfig = DEFAULT_TABLES
     custom_fields: tuple[CustomField, ...] = ()
     backend: str = "bq"           # "bq" | "druid"（SQL方言と接続先の両方を決める）
+    # SystemState enum の世代 ("auto"=運行日で自動判定 / "202605a" / "legacy")。
+    # 202605a で kAutonomousDriving の番号が 4→16 に変わったため (drive_state.py 参照)
+    system_state_gen: str = "auto"
     bq_table_prefix: str = ""     # BigQuery の "project.dataset"
     raise_on_error: bool = False
     max_workers: int = 2

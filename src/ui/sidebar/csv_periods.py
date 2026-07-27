@@ -43,7 +43,7 @@ def render_csv_periods(
 
         state_names = [n for n in files if STATE_FILE_HINT in n]
         state_filter = st.checkbox(
-            "自動運転区間 (system_state=4) に絞る",
+            "自動運転区間 (kAutonomousDriving) に絞る",
             value=True,
             key="csvp_state_filter",
             help="BQ 取得時と同じ条件。state CSV が無い場合は絞り込みなしで取り込まれます。",

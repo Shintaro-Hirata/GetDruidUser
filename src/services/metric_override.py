@@ -18,6 +18,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from src.domain.drive_state import auto_note, auto_state_value
 from src.domain.models import CustomField, RunConfig
 from src.domain.results import PeriodResult
 from src.domain.x_axis import aware_utc
@@ -287,7 +288,8 @@ def _spec_by_key(key: str) -> MetricSpec | None:
 
 
 def resolve_auto_mask(df: pd.DataFrame, drive_mode: str,
-                      state_df: pd.DataFrame | None) -> tuple[pd.Series | None, str]:
+                      state_df: pd.DataFrame | None,
+                      auto_value: int) -> tuple[pd.Series | None, str]:
     """運転モードから自動運転マスクを決める。戻り値: (mask, 警告)。
 
     drive_mode:
@@ -304,7 +306,7 @@ def resolve_auto_mask(df: pd.DataFrame, drive_mode: str,
         return None, ("自動運転の判定に使う state が取得できません。"
                       "state CSV を一緒にアップロードするか、運転モードで"
                       "「すべて自動」「すべて手動」を明示してください。")
-    return attach_auto_mask(df, state_df), ""
+    return attach_auto_mask(df, state_df, auto_value), ""
 
 
 def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
@@ -337,7 +339,8 @@ def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
                 "値列を選択してください。"]
 
     values = pd.to_numeric(df[col], errors="coerce") * float(entry.scale) + float(entry.offset)
-    auto_mask, mask_warn = resolve_auto_mask(df, drive_mode, state_df)
+    auto_value = auto_state_value(period.range.start, config.system_state_gen)
+    auto_mask, mask_warn = resolve_auto_mask(df, drive_mode, state_df, auto_value)
     if auto_mask is None:
         # 勝手に自動/手動を決めず、適用を見送る（逆転誤判定を防ぐ）
         return [f"{entry.file_name}: {mask_warn}"]
@@ -349,7 +352,7 @@ def apply_override(period: PeriodResult, entry: OverrideEntry, df: pd.DataFrame,
     def _empty_reason(threshold: float) -> str:
         n_th = int((values[auto_mask].abs() >= float(threshold)).sum())
         return (f"{entry.file_name}: 置き換え結果が 0 件のため適用しませんでした。"
-                f"内訳: 期間内 {n_period} 行 → 自動運転(state=4) {n_auto} 行 → "
+                f"内訳: 期間内 {n_period} 行 → 自動運転({auto_note(auto_value)}) {n_auto} 行 → "
                 f"|値|≥{threshold:g} {n_th} 行。自動運転が 0 行の場合は state の"
                 "取得/内容を、しきい値で 0 行の場合はしきい値・scale を確認してください。")
 

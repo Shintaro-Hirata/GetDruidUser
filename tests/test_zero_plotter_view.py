@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 from src.queries.builder import Dialect, QueryParams, build_zp_track_query
+from src.domain.drive_state import GEN_LEGACY, state_labels
 from src.ui.views.zero_plotter import (
     SYSTEM_STATE_COLORS,
     jst_day_bounds,
@@ -50,6 +51,9 @@ def test_jst_day_bounds():
     assert end == datetime(2025, 12, 10, 0, 0, tzinfo=JST)
 
 
+_LEGACY_LABELS = state_labels(None, GEN_LEGACY)  # 旧世代 (4=kAutonomousDriving) のデータでテスト
+
+
 def _track_df():
     return pd.DataFrame(
         {
@@ -66,7 +70,7 @@ def _track_df():
 
 
 def test_zp_track_fig_colors_match_zero_plotter():
-    fig = zp_track_fig(_track_df())
+    fig = zp_track_fig(_track_df(), labels=_LEGACY_LABELS)
     assert fig is not None
     by_name = {t.name: t for t in fig.data}
     # zero-plotter の COLOR_MAP_SYSTEM_STATE と同一色
@@ -77,7 +81,7 @@ def test_zp_track_fig_colors_match_zero_plotter():
 
 
 def test_zp_track_fig_customdata_raw_and_jst():
-    fig = zp_track_fig(_track_df())
+    fig = zp_track_fig(_track_df(), labels=_LEGACY_LABELS)
     auto = next(t for t in fig.data if t.name == "kAutonomousDriving")
     cd = auto.customdata[0]
     assert cd[0] == "2025-12-09T01:00:00Z"  # 除外選択イベント用の生値
@@ -98,7 +102,7 @@ def test_zp_track_fig_without_state_column_falls_back_to_null():
 
 def test_zp_track_fig_shows_t2kp_in_hover():
     df = _track_df().assign(t2kp=[12.345, 67.0, None])
-    fig = zp_track_fig(df)
+    fig = zp_track_fig(df, labels=_LEGACY_LABELS)
     auto = next(t for t in fig.data if t.name == "kAutonomousDriving")
     # customdata[2] が t2kp（整形済み文字列）、hovertemplate に t2kp 行
     assert auto.customdata[0][2] == "12.345"
@@ -106,6 +110,6 @@ def test_zp_track_fig_shows_t2kp_in_hover():
 
 
 def test_zp_track_fig_without_t2kp_column_shows_dash():
-    fig = zp_track_fig(_track_df())  # t2kp 列なし
+    fig = zp_track_fig(_track_df(), labels=_LEGACY_LABELS)  # t2kp 列なし
     auto = next(t for t in fig.data if t.name == "kAutonomousDriving")
     assert auto.customdata[0][2] == "-"

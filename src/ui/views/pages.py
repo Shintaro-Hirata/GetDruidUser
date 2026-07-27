@@ -460,6 +460,14 @@ def render_period_tab(
     if meta_str:
         st.caption(f"運行情報（zero-plotter）: {meta_str}")
 
+    # どの enum 世代で自動運転を判定したかを常に明示する
+    # (202605a で kAutonomousDriving が 4→16 に変わったため、誤世代なら一目で分かるように)
+    if state.results is not None:
+        from src.domain.drive_state import auto_note, auto_state_value
+        _av = auto_state_value(period.range.start,
+                               getattr(state.results.config, "system_state_gen", "auto"))
+        st.caption(f"自動運転判定: {auto_note(_av)}")
+
     if not period.chunks:
         st.info("この期間の結果がありません（未実行 or 取得失敗）")
         return
@@ -659,7 +667,11 @@ def render_zero_plotter_tab(
                     "（車両ID/期間/TZ 解釈を確認してください）。"
                 )
 
-    fig = zp_track_fig(zp_df, height=sb.map_height, truck_df=truck_df, truck_mode=sb.truck_mode)
+    from src.domain.drive_state import state_labels
+    zp_labels = state_labels(period.range.start,
+                             getattr(results.config, "system_state_gen", "auto"))
+    fig = zp_track_fig(zp_df, height=sb.map_height, truck_df=truck_df,
+                       truck_mode=sb.truck_mode, labels=zp_labels)
     _show_fig_or_empty(fig, key=f"plot_{key_prefix}_zp", width=sb.map_width, state=state)
     if sb.truck_enable and truck_df is not None and not truck_df.empty:
         st.caption(f"Truck 点数: {len(truck_df)}")

@@ -160,6 +160,13 @@ def extract_session_values(d: dict) -> dict[str, Any]:
                 out[f"thr_{key}"] = v
     if qcond.get("dist_mode") in ("latlon", "speed"):
         out["dist_mode"] = qcond["dist_mode"]
+    # SystemState enum 世代 (キーで保存 → サイドバーの表示ラベルへ引き直す)
+    gen = qcond.get("system_state_gen")
+    if gen in ("auto", "202605a", "legacy"):
+        from src.domain.drive_state import GENERATION_OPTIONS
+        label = next((lb for lb, key in GENERATION_OPTIONS.items() if key == gen), None)
+        if label:
+            out["system_state_gen_label"] = label
 
     tables = fetch.get("取得テーブル") if isinstance(fetch.get("取得テーブル"), dict) else {}
     for json_key, ss_key in (

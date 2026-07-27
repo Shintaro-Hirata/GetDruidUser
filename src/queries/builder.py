@@ -101,6 +101,9 @@ class QueryParams:
     excludes: Sequence[ExcludeRange] = ()
     tables: TableConfig = DEFAULT_TABLES
     dialect: Dialect = Dialect()
+    # 自動運転 (kAutonomousDriving) がこの録画世代で取る数値。
+    # enum 世代の解決は src/domain/drive_state.py に集約 (202605a で 4 → 16 に変更)。
+    auto_state_value: int = 4
 
 
 # ============================================================
@@ -303,7 +306,7 @@ filtered AS (
   FROM sec_pick p
   JOIN state_per_sec s
     ON p.sec_time = s.sec_time
-  WHERE s.system_state = 4
+  WHERE s.system_state = {p.auto_state_value}
 ),
 
 ranked AS (
@@ -455,7 +458,7 @@ filtered AS (
   FROM sec_pick p
   JOIN state_per_sec s
     ON p.sec_time = s.sec_time
-  WHERE s.system_state = 4
+  WHERE s.system_state = {p.auto_state_value}
 ),
 
 ranked AS (

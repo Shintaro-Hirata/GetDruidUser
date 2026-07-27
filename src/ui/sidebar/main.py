@@ -363,6 +363,19 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         with st.expander("開発用（任意）"):
             tables = render_table_config(settings, str(backend), bq_dataset)
 
+            # 202605a で kAutonomousDriving の enum 番号が 4→16 に変わった。
+            # 既定は運行日からの自動判定。境界期の録画などで手動指定したいとき用。
+            from src.domain.drive_state import GENERATION_OPTIONS
+            _gen_label = st.selectbox(
+                "SystemState enum 世代（自動運転判定）",
+                list(GENERATION_OPTIONS),
+                key="system_state_gen_label",
+                help="自動運転 (kAutonomousDriving) の判定に使う enum 世代。"
+                     "202605a 以降は 16、それ以前は 4。既定は各期間の運行日から自動判定"
+                     "（2026-05-01 を境界とする）。反映には実行が必要。",
+            )
+            system_state_gen = GENERATION_OPTIONS[_gen_label]
+
             raise_on_error = st.checkbox(
                 "例外が出たら止める（握りつぶさずにraise）",
                 value=False,
@@ -383,6 +396,7 @@ def render_sidebar(settings: Settings, state: AppState) -> SidebarValues:
         backend=str(backend),
         bq_dataset=bq_dataset,
         raise_on_error=bool(raise_on_error),
+        system_state_gen=str(system_state_gen),
         run=bool(run),
         scatter_xlim=range_or_none(x_min, x_max),
         scatter_ylims={

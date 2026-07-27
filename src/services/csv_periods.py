@@ -16,6 +16,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from src.domain.drive_state import auto_mask_for_values, auto_state_value
 from src.domain.models import CustomField, ExcludeRange, RunConfig, TimeRange
 from src.domain.results import ChunkData, PeriodResult, add_ratio, merge_auto_manual_hist
 from src.domain.x_axis import aware_utc
@@ -26,7 +27,8 @@ RESERVED_COLUMNS = {"time_jst", "t_sec", "t_ns", "topic", "file"}
 # 状態 CSV の判別（ファイル名に含まれる文字列）と state 列の推定に使う
 STATE_FILE_HINT = "system_state_manager_state"
 STATE_COLUMN_HINT = "system_state"
-AUTO_DRIVE_STATE = 4
+# 自動運転値は enum 世代で変わる (202605a で 4→16)。判定は drive_state.py に集約。
+AUTO_DRIVE_STATE = 4  # 旧世代の値 (後方互換のため残置。新規コードは drive_state を使う)
 
 
 @dataclass(frozen=True)
@@ -83,25 +85,33 @@ def load_state_series(data: bytes | str) -> pd.DataFrame:
         col = guess_value_column(df, STATE_COLUMN_HINT)
     if col is None:
         raise ValueError("state CSV から system_state 列を特定できません")
-    out = pd.DataFrame({
-        "t_ns": df["t_ns"],
-        "system_state": pd.to_numeric(df[col], errors="coerce"),
-    })
-    return out.dropna(subset=["system_state"]).sort_values("t_ns").reset_index(drop=True)
+    # 数値 (enum番号) と文字列 (enum名 kAutonomousDriving 等) の両方を保持する。
+    # 文字列の state は世代によらずラベルで直接判定できる (drive_state.auto_mask_for_values)。
+    raw = df[col]
+    num = pd.to_numeric(raw, errors="coerce")
+    state_vals = num.where(num.notna(), raw.astype(str).str.strip())
+    out = pd.DataFrame({"t_ns": df["t_ns"], "system_state": state_vals})
+    keep = num.notna() | raw.astype(str).str.strip().str.startswith("k")
+    return out[keep].sort_values("t_ns").reset_index(drop=True)
 
 
-def attach_auto_mask(df: pd.DataFrame, state_df: pd.DataFrame | None) -> pd.Series:
-    """各行が自動運転 (system_state=4) かどうかの真偽列を返す。state 不明なら全 True。"""
+def attach_auto_mask(df: pd.DataFrame, state_df: pd.DataFrame | None,
+                     auto_value: int = AUTO_DRIVE_STATE) -> pd.Series:
+    """各行が自動運転 (kAutonomousDriving) かどうかの真偽列を返す。state 不明なら全 True。
+
+    auto_value は録画世代で解決した kAutonomousDriving の数値 (drive_state.auto_state_value)。
+    state 値が文字列 (enum名) の場合は値によらずラベルで判定する。
+    """
     if state_df is None or state_df.empty:
         return pd.Series(True, index=df.index)
     merged = pd.merge_asof(
         df[["t_ns"]].astype("int64"),
-        state_df.astype({"t_ns": "int64"}),
+        state_df.assign(t_ns=state_df["t_ns"].astype("int64")),
         on="t_ns",
         direction="nearest",
         tolerance=1_000_000_000,  # 1秒以内の state を採用
     )
-    return (merged["system_state"] == AUTO_DRIVE_STATE).set_axis(df.index)
+    return auto_mask_for_values(merged["system_state"], auto_value).set_axis(df.index)
 
 
 def apply_excludes(df: pd.DataFrame, excludes: Iterable[ExcludeRange]) -> pd.DataFrame:
@@ -254,7 +264,10 @@ def build_csv_periods(entries: Iterable[CsvPeriodEntry], files: dict[str, bytes]
                 continue
 
             raw = pd.to_numeric(df[col], errors="coerce")
-            auto_mask = attach_auto_mask(df, state_df)
+            auto_mask = attach_auto_mask(
+                df, state_df,
+                auto_state_value(df["sec_time"].min().to_pydatetime(),
+                                 config.system_state_gen))
 
             if spec is not None:  # Q1 / Q2
                 values = raw * float(e.scale) + float(e.offset)

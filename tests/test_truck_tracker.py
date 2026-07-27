@@ -4,6 +4,7 @@ import io
 import pandas as pd
 
 from src.services.truck_tracker import load_truck_log, parse_line, vehicle_number
+from src.domain.drive_state import GEN_LEGACY, state_labels
 from src.ui.views.zero_plotter import zp_track_fig
 
 # gnss_receiver.py / flask_mqtt_server.py が実際に書き出す形式: "<datetime>: <python-dict-repr>"
@@ -81,6 +82,9 @@ def test_load_truck_log_empty_source():
 
 # ---- Zero-Plotter 地図への Truck 重畳/置換 ----
 
+_LEGACY_LABELS = state_labels(None, GEN_LEGACY)  # 旧世代 (4=kAutonomousDriving) のデータ
+
+
 def _zp_df():
     return pd.DataFrame(
         {
@@ -97,7 +101,7 @@ def _truck_df():
 
 
 def test_zp_fig_overlay_adds_truck_trace():
-    fig = zp_track_fig(_zp_df(), truck_df=_truck_df(), truck_mode="overlay")
+    fig = zp_track_fig(_zp_df(), labels=_LEGACY_LABELS, truck_df=_truck_df(), truck_mode="overlay")
     assert fig is not None
     names = [t.name for t in fig.data]
     assert "Truck Tracker (GNSS/INS)" in names
@@ -106,13 +110,13 @@ def test_zp_fig_overlay_adds_truck_trace():
 
 
 def test_zp_fig_replace_shows_truck_only():
-    fig = zp_track_fig(_zp_df(), truck_df=_truck_df(), truck_mode="replace")
+    fig = zp_track_fig(_zp_df(), labels=_LEGACY_LABELS, truck_df=_truck_df(), truck_mode="replace")
     names = [t.name for t in fig.data]
     assert names == ["Truck Tracker (GNSS/INS)"]
 
 
 def test_zp_fig_replace_without_truck_falls_back_to_zp():
-    fig = zp_track_fig(_zp_df(), truck_df=None, truck_mode="replace")
+    fig = zp_track_fig(_zp_df(), labels=_LEGACY_LABELS, truck_df=None, truck_mode="replace")
     names = [t.name for t in fig.data]
     assert "kAutonomousDriving" in names and "Truck Tracker (GNSS/INS)" not in names
 

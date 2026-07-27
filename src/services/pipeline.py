@@ -14,6 +14,7 @@ import pandas as pd
 from src.backends.base import QueryBackend
 from src.config import MIN_SPLIT_MINUTES
 from src.domain.models import RunConfig, TimeRange
+from src.domain.drive_state import auto_state_value
 from src.domain.results import (
     ChunkData,
     PeriodResult,
@@ -111,6 +112,7 @@ def _query_params(config: RunConfig, s: datetime, e: datetime) -> QueryParams:
         excludes=config.excludes,
         tables=config.tables,
         dialect=Dialect(kind=config.backend, bq_prefix=config.bq_table_prefix),
+        auto_state_value=auto_state_value(s, config.system_state_gen),
     )
 
 
@@ -119,10 +121,12 @@ def _build_auto_manual_hist(
     builder_factory: Callable[[str], Callable[[datetime, datetime], str]],
     cs: datetime,
     ce: datetime,
+    auto_value: int,
 ) -> pd.DataFrame:
     """自動運転/手動運転に分けてヒストグラムを取得・マージする（共通処理）。"""
     parts: dict[str, pd.DataFrame] = {}
-    for mode, cond in (("auto", "s.system_state = 4"), ("manual", "s.system_state <> 4")):
+    for mode, cond in (("auto", f"s.system_state = {auto_value}"),
+                       ("manual", f"s.system_state <> {auto_value}")):
         dfs = _run_sql_adaptive_split(
             backend=backend,
             query_builder=builder_factory(cond),
@@ -198,7 +202,8 @@ def fetch_chunk(
             return build_hist_query(_query_params(config, s, e), state_condition=cond)
         return builder
 
-    chunk.hist_df = _build_auto_manual_hist(backend, hist_builder_factory, cs, ce)
+    chunk.hist_df = _build_auto_manual_hist(backend, hist_builder_factory, cs, ce,
+                                            auto_state_value(cs, config.system_state_gen))
 
     # ---- カスタムフィールド（任意テーブル×列）----
     for cf in config.custom_fields:
@@ -227,7 +232,8 @@ def fetch_chunk(
                 return build_custom_hist_query(_cf, _query_params(config, s, e), state_condition=cond)
             return builder
 
-        chunk.custom_hist_dfs[cf.key] = _build_auto_manual_hist(backend, cf_hist_factory, cs, ce)
+        chunk.custom_hist_dfs[cf.key] = _build_auto_manual_hist(
+            backend, cf_hist_factory, cs, ce, auto_state_value(cs, config.system_state_gen))
 
     return chunk
 
