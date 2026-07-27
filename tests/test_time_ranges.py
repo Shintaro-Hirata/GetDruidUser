@@ -1,0 +1,134 @@
+# tests/test_time_ranges.py
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from src.domain.models import TimeRange
+from src.domain.time_ranges import parse_ranges, split_range
+
+JST = timezone(timedelta(hours=9))
+
+
+def test_parse_ranges_basic():
+    text = "2025-12-09T01:57:00+09:00, 2025-12-09T05:48:53+09:00, サンプル1"
+    out = parse_ranges(text)
+    assert len(out) == 1
+    r = out[0]
+    assert r.label == "サンプル1"
+    assert r.start == datetime(2025, 12, 9, 1, 57, 0, tzinfo=JST)
+    assert r.end == datetime(2025, 12, 9, 5, 48, 53, tzinfo=JST)
+
+
+def test_parse_ranges_without_label_and_fullwidth_comma():
+    text = "2025-12-09T01:00:00+09:00，2025-12-09T02:00:00+09:00"
+    out = parse_ranges(text)
+    assert len(out) == 1
+    assert out[0].label == ""
+
+
+def test_parse_ranges_multiple_lines_skip_empty():
+    text = (
+        "2025-12-09T01:00:00+09:00, 2025-12-09T02:00:00+09:00, A\n"
+        "\n"
+        "2025-12-10T01:00:00+09:00, 2025-12-10T02:00:00+09:00, B\n"
+    )
+    out = parse_ranges(text)
+    assert [r.label for r in out] == ["A", "B"]
+
+
+def test_parse_ranges_rejects_reversed():
+    with pytest.raises(ValueError):
+        parse_ranges("2025-12-09T02:00:00+09:00, 2025-12-09T01:00:00+09:00")
+
+
+def test_parse_ranges_rejects_empty():
+    with pytest.raises(ValueError):
+        parse_ranges("\n\n")
+
+
+def test_split_range_no_split_when_zero():
+    s = datetime(2025, 12, 9, 1, 0)
+    e = datetime(2025, 12, 9, 3, 0)
+    assert split_range(s, e, 0) == [(s, e)]
+
+
+def test_split_range_exact_chunks():
+    s = datetime(2025, 12, 9, 1, 0)
+    e = datetime(2025, 12, 9, 3, 0)
+    chunks = split_range(s, e, 60)
+    assert chunks == [
+        (s, s + timedelta(hours=1)),
+        (s + timedelta(hours=1), e),
+    ]
+
+
+def test_split_range_last_chunk_clipped():
+    s = datetime(2025, 12, 9, 1, 0)
+    e = datetime(2025, 12, 9, 2, 30)
+    chunks = split_range(s, e, 60)
+    assert chunks[-1] == (s + timedelta(hours=1), e)
+    assert len(chunks) == 2
+
+
+def test_time_range_is_frozen_dataclass():
+    r = TimeRange(start=datetime(2025, 1, 1), end=datetime(2025, 1, 2), label="x")
+    with pytest.raises(Exception):
+        r.label = "y"  # type: ignore[misc]
+
+
+def test_parse_ranges_accepts_space_separator():
+    # 日付と時刻の間が T でなく空白でも受け付ける
+    text = "2026-06-01 19:30:42.000+09:00, 2026-06-01 21:00:00+09:00, 夜勤"
+    out = parse_ranges(text)
+    assert out[0].label == "夜勤"
+    assert out[0].start.hour == 19 and out[0].start.minute == 30
+
+
+def test_parse_exclude_ranges_accepts_space_separator():
+    from src.domain.time_ranges import parse_exclude_ranges_text
+
+    out = parse_exclude_ranges_text(
+        "2026-06-01 19:30:42+09:00, 2026-06-01 19:40:00+09:00"
+    )
+    assert len(out) == 1
+    assert out[0].start.minute == 30
+
+    # " - " 区切りでも空白入り日時を受け付ける
+    out2 = parse_exclude_ranges_text(
+        "2026-06-01 19:30:42+09:00 - 2026-06-01 19:40:00+09:00"
+    )
+    assert out2 == out
+
+
+def test_parse_ranges_slash_separator_no_label():
+    out = parse_ranges("2026-06-04 19:03:38.000+09:00/2026-06-05 05:42:45.000+09:00")
+    assert len(out) == 1
+    assert out[0].start.hour == 19 and out[0].end.hour == 5
+    assert out[0].label == ""
+
+
+def test_parse_ranges_slash_times_with_comma_label():
+    out = parse_ranges("2026-06-04T19:03:38+09:00/2026-06-05T05:42:45+09:00, 6/4夜勤")
+    assert out[0].label == "6/4夜勤"  # ラベル内の '/' は区切りにしない
+    assert out[0].start.day == 4 and out[0].end.day == 5
+
+
+def test_parse_ranges_comma_times_with_slash_in_label():
+    out = parse_ranges("2026-06-04T19:00:00+09:00, 2026-06-05T05:00:00+09:00, 6/7")
+    assert out[0].label == "6/7"
+
+
+def test_parse_ranges_slash_times_three_parts_errors():
+    # 開始/終了/余分 はラベルにスラッシュを使ったとみなさず明確にエラー
+    with pytest.raises(ValueError):
+        parse_ranges("2026-06-04T19:00:00+09:00/2026-06-05T05:00:00+09:00/x")
+
+
+def test_parse_exclude_ranges_slash_separator():
+    from src.domain.time_ranges import parse_exclude_ranges_text
+
+    out = parse_exclude_ranges_text(
+        "2026-06-04 19:03:38+09:00/2026-06-05 05:42:45+09:00"
+    )
+    assert len(out) == 1
+    assert out[0].start.day == 4 and out[0].end.day == 5
