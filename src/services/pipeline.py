@@ -14,7 +14,7 @@ import pandas as pd
 from src.backends.base import QueryBackend
 from src.config import MIN_SPLIT_MINUTES
 from src.domain.models import RunConfig, TimeRange
-from src.domain.drive_state import auto_state_value
+from src.domain.drive_state import auto_note, auto_state_value, detect_auto_value
 from src.domain.results import (
     ChunkData,
     PeriodResult,
@@ -26,6 +26,7 @@ from src.domain.results import (
 )
 from src.domain.time_ranges import split_range
 from src.queries.builder import (
+    build_state_series_query,
     Dialect,
     QueryParams,
     build_columns_query,
@@ -104,7 +105,8 @@ def _run_sql_adaptive_split(
 
 
 
-def _query_params(config: RunConfig, s: datetime, e: datetime) -> QueryParams:
+def _query_params(config: RunConfig, s: datetime, e: datetime,
+                  auto_value: int | None = None) -> QueryParams:
     return QueryParams(
         vehicle_id=config.vehicle_id,
         start_time=s.isoformat(),
@@ -112,7 +114,8 @@ def _query_params(config: RunConfig, s: datetime, e: datetime) -> QueryParams:
         excludes=config.excludes,
         tables=config.tables,
         dialect=Dialect(kind=config.backend, bq_prefix=config.bq_table_prefix),
-        auto_state_value=auto_state_value(s, config.system_state_gen),
+        auto_state_value=(auto_value if auto_value is not None
+                          else auto_state_value(s, config.system_state_gen)),
     )
 
 
@@ -181,12 +184,30 @@ def fetch_chunk(
     chunk = ChunkData(start=cs, end=ce)
     latlon_by_table = latlon_by_table or {}
 
+    # ---- 自動運転判定の enum 世代を「この録画の state 実データ」から確定する ----
+    # 202605a で kAutonomousDriving が 4→16 に変わったため、日付だけの推定より
+    # 録画自身の値分布 (5 以上があれば新 enum) を優先する。クエリは state テーブルの
+    # 2 列 × このチャンク期間のみで、既存クエリ群より小さい (BQ 課金は最小単位程度)。
+    state_series = None
+    try:
+        sdf = backend.sql(build_state_series_query(_query_params(config, cs, ce)))
+        if sdf is not None and not sdf.empty and "system_state" in sdf.columns:
+            state_series = pd.to_numeric(sdf["system_state"], errors="coerce").dropna()
+    except Exception:
+        state_series = None  # 取得失敗時は運行日ベースの判定にフォールバック
+    auto_val, basis = detect_auto_value(state_series, cs, config.system_state_gen)
+    n_auto = int((state_series == auto_val).sum()) if state_series is not None else None
+    n_total = int(len(state_series)) if state_series is not None else None
+    chunk.state_note = f"{auto_note(auto_val)}・根拠: {basis}"
+    if n_total is not None:
+        chunk.state_note += f" / state秒数: 自動 {n_auto}・その他 {n_total - n_auto}"
+
     # ---- メトリクス散布図（METRICS をループ）----
     for spec in METRICS:
         def builder(s: datetime, e: datetime, _spec=spec) -> str:
             return build_metric_query(
                 _spec,
-                _query_params(config, s, e),
+                _query_params(config, s, e, auto_value=auto_val),
                 threshold=config.threshold(_spec.key, _spec.default_threshold),
                 dist_mode=config.dist_mode,
             )
@@ -199,11 +220,11 @@ def fetch_chunk(
     # ---- 横Gヒストグラム（自動運転 / 手動運転）----
     def hist_builder_factory(cond: str) -> Callable[[datetime, datetime], str]:
         def builder(s: datetime, e: datetime) -> str:
-            return build_hist_query(_query_params(config, s, e), state_condition=cond)
+            return build_hist_query(_query_params(config, s, e, auto_value=auto_val),
+                                    state_condition=cond)
         return builder
 
-    chunk.hist_df = _build_auto_manual_hist(backend, hist_builder_factory, cs, ce,
-                                            auto_state_value(cs, config.system_state_gen))
+    chunk.hist_df = _build_auto_manual_hist(backend, hist_builder_factory, cs, ce, auto_val)
 
     # ---- カスタムフィールド（任意テーブル×列）----
     for cf in config.custom_fields:
@@ -229,11 +250,12 @@ def fetch_chunk(
 
         def cf_hist_factory(cond: str, _cf=cf) -> Callable[[datetime, datetime], str]:
             def builder(s: datetime, e: datetime) -> str:
-                return build_custom_hist_query(_cf, _query_params(config, s, e), state_condition=cond)
+                return build_custom_hist_query(
+                    _cf, _query_params(config, s, e, auto_value=auto_val), state_condition=cond)
             return builder
 
         chunk.custom_hist_dfs[cf.key] = _build_auto_manual_hist(
-            backend, cf_hist_factory, cs, ce, auto_state_value(cs, config.system_state_gen))
+            backend, cf_hist_factory, cs, ce, auto_val)
 
     return chunk
 

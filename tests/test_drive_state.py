@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from src.domain.drive_state import (
+    detect_auto_value,
     AUTO_LABEL,
     AUTO_VALUE_202605A,
     AUTO_VALUE_LEGACY,
@@ -78,3 +79,19 @@ def test_sql_uses_generation_resolved_value():
     p4 = QueryParams(vehicle_id="giga09", start_time="2026-01-01T12:00:00+09:00",
                      end_time="2026-01-01T12:05:00+09:00", dialect=Dialect(kind="bq"))
     assert "s.system_state = 4" in build_metric_query(LATERAL_ERROR, p4, threshold=0.2)
+
+
+def test_detect_auto_value_data_wins_over_date():
+    old_day = datetime(2025, 12, 9, tzinfo=JST)  # カットオーバー前の日付
+    # 値 5 以上を含む → 旧 enum ではあり得ないので日付に関わらず新 enum
+    v, basis = detect_auto_value(pd.Series([1, 3, 16]), old_day)
+    assert v == 16 and "state" in basis
+    # 全て 0..4 → 判別不能なので運行日で判定 (旧日付 → 4)
+    v2, _ = detect_auto_value(pd.Series([0, 2, 4]), old_day)
+    assert v2 == 4
+    # state 無し → 運行日で判定
+    v3, _ = detect_auto_value(None, datetime(2026, 7, 1, tzinfo=JST))
+    assert v3 == 16
+    # 明示指定は実データより優先
+    v4, basis4 = detect_auto_value(pd.Series([16]), old_day, GEN_LEGACY)
+    assert v4 == 4 and basis4 == "明示指定"

@@ -24,6 +24,8 @@ class ChunkData:
     # カスタムフィールド（CustomField.key -> df）。散布図/地図/表用と分布ヒストグラム用。
     custom_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)
     custom_hist_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)
+    # 自動運転判定の内訳表示 (例 "kAutonomousDriving=16（…）・根拠: stateデータ / state秒数: …")
+    state_note: str = ""
     error: str | None = None
 
     @property

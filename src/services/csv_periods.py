@@ -16,7 +16,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from src.domain.drive_state import auto_mask_for_values, auto_state_value
+from src.domain.drive_state import auto_mask_for_values, detect_auto_value
 from src.domain.models import CustomField, ExcludeRange, RunConfig, TimeRange
 from src.domain.results import ChunkData, PeriodResult, add_ratio, merge_auto_manual_hist
 from src.domain.x_axis import aware_utc
@@ -266,8 +266,10 @@ def build_csv_periods(entries: Iterable[CsvPeriodEntry], files: dict[str, bytes]
             raw = pd.to_numeric(df[col], errors="coerce")
             auto_mask = attach_auto_mask(
                 df, state_df,
-                auto_state_value(df["sec_time"].min().to_pydatetime(),
-                                 config.system_state_gen))
+                detect_auto_value(
+                    state_df["system_state"] if state_df is not None else None,
+                    df["sec_time"].min().to_pydatetime(),
+                    config.system_state_gen)[0])
 
             if spec is not None:  # Q1 / Q2
                 values = raw * float(e.scale) + float(e.offset)

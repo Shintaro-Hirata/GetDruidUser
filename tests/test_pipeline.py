@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.domain.models import ExcludeRange, RunConfig, TimeRange
 from src.export.excel import results_to_sheets
-from src.services.pipeline import run_pipeline
+from src.services.pipeline import fetch_chunk, run_pipeline
 
 JST = timezone(timedelta(hours=9))
 
@@ -389,3 +389,32 @@ def test_results_to_sheets_q3_rebinned_to_display_bin():
     assert list(q3["bin_start"]) == [0.0, 0.2]
     assert list(q3["cnt_auto"]) == [4.0, 4.0]
     assert q3["ratio_auto"].sum() == 1.0
+
+
+class NewEnumStateStubBackend(StubBackend):
+    """state 系列クエリに新 enum (16 を含む) の値を返すスタブ"""
+
+    def sql(self, query: str, context=None) -> pd.DataFrame:
+        # state 系列単体クエリ (metric クエリは同じ CTE を含むが JOIN があるので除外)
+        if "AS system_state" in query and "MAX" in query and "JOIN" not in query:
+            self.queries.append(query)
+            return pd.DataFrame({
+                "sec_time": ["2025-12-09T01:00:00Z", "2025-12-09T01:00:01Z", "2025-12-09T01:00:02Z"],
+                "system_state": [16, 1, 16],
+            })
+        return super().sql(query, context)
+
+
+def test_fetch_chunk_detects_generation_from_state_data():
+    # 運行日はカットオーバー前 (日付判定なら 4) だが、state 実データに 16 がある
+    # → 新 enum と確定し、全クエリの自動運転条件が 16 になる
+    backend = NewEnumStateStubBackend()
+    config = _config()
+    rng = _range()
+    chunk = fetch_chunk(backend=backend, config=config, cs=rng.start, ce=rng.end)
+    joined = "\n".join(backend.queries)
+    assert "s.system_state = 16" in joined
+    assert "s.system_state <> 16" in joined
+    assert "s.system_state = 4" not in joined
+    assert "stateデータ" in chunk.state_note
+    assert "自動 2" in chunk.state_note  # 16 が 2 秒
