@@ -138,6 +138,8 @@ def _apply_rows(rows: list[tuple[OverrideEntry, str, str]], files: dict[str, byt
     backend = None
     state_cache: dict[str, pd.DataFrame | None] = {}
     pos_cache: dict[str, pd.DataFrame | None] = {}
+    # 同じ CSV から複数指標を置き換えるとき、パースを 1 回で済ませる
+    df_cache: dict[str, pd.DataFrame | None] = {}
 
     for entry, state_file, drive_mode in rows:
         data = files.get(entry.file_name)
@@ -145,10 +147,14 @@ def _apply_rows(rows: list[tuple[OverrideEntry, str, str]], files: dict[str, byt
             warnings.append(f"{entry.file_name}: CSV がありません。パス指定を確認するか、"
                             "同名のファイルをアップロードしてください。")
             continue
-        try:
-            df = read_value_csv(data)
-        except Exception as ex:
-            warnings.append(f"{entry.file_name}: CSV 読み込み失敗: {ex}")
+        if entry.file_name not in df_cache:
+            try:
+                df_cache[entry.file_name] = read_value_csv(data)
+            except Exception as ex:
+                df_cache[entry.file_name] = None
+                warnings.append(f"{entry.file_name}: CSV 読み込み失敗: {ex}")
+        df = df_cache[entry.file_name]
+        if df is None:
             continue
         target_p = choose_period(df, periods, entry.period_label)
         if target_p is None:
@@ -207,9 +213,11 @@ def render_override_panel(
 
     with st.expander("📥 CSV で指標を置き換え（mcap 由来の値で穴埋め）"):
         st.caption(
-            "GetMcapToCsv の出力 CSV（そのまま）か、2列形式（1列目=時間、2列目=値）を"
+            "GetMcapToCsv の出力 CSV（そのまま）か、汎用形式（1列目=時間、2列目以降=値）を"
             "アップロードするかサーバ上のパスで指定し、置き換える指標を選んで「適用」を"
-            "押してください。適用先の期間は CSV の時刻から自動判定します（変更可）。"
+            "押してください。1つの CSV から複数の指標を同時に置き換えられます"
+            "（「指標の数」を増やし、列と指標の対応を行ごとに指定）。"
+            "適用先の期間は CSV の時刻から自動判定します（変更可）。"
             "置き換えは全タブ（散布図/地図/表/ヒストグラム/比較）に反映されます。"
             "自動運転区間は取得元 (BQ/Druid) の state を流用し、無い場合は state CSV "
             f"({STATE_FILE_HINT}) を一緒にアップロードすると絞れます。"
@@ -245,22 +253,14 @@ def render_override_panel(
 
         for i, name in enumerate(value_files):
             st.markdown(f"**{name}**")
-            c1, c2, c3, c4, c5 = st.columns([2, 2, 1, 1, 2])
-            with c1:
-                tgt_label = st.selectbox("置き換える指標", list(target_opts),
-                                         key=f"{key_prefix}_tgt_{i}")
-            with c2:
-                cands = _column_candidates(files[name])
-                col = st.selectbox("値列", cands or ["(列が見つかりません)"],
-                                   key=f"{key_prefix}_col_{i}")
-            with c3:
-                scale = st.number_input("scale", value=1.0, format="%.6g",
-                                        key=f"{key_prefix}_sc_{i}",
-                                        help="表示値 = 取得値×scale+offset（単位換算・符号反転用）")
-            with c4:
-                offset = st.number_input("offset", value=0.0, format="%.6g",
-                                         key=f"{key_prefix}_of_{i}")
-            with c5:
+            hc1, hc2 = st.columns([1, 2])
+            with hc1:
+                n_rows = st.number_input(
+                    "この CSV から置き換える指標の数",
+                    min_value=1, max_value=max(1, len(target_opts)), value=1, step=1,
+                    key=f"{key_prefix}_n_{i}",
+                    help="増やすと、同じ CSV の別の列を別の指標へ同時に置き換えられます。")
+            with hc2:
                 if period is not None:
                     st.text_input("適用先期間", value=period.label, disabled=True,
                                   key=f"{key_prefix}_pd_{i}")
@@ -269,12 +269,32 @@ def render_override_panel(
                     sel = st.selectbox("適用先期間", [_AUTO_LABEL] + period_labels,
                                        key=f"{key_prefix}_pd_{i}")
                     pd_label = "" if sel == _AUTO_LABEL else sel
-            rows.append((OverrideEntry(
-                file_name=name, target=target_opts[tgt_label],
-                column="" if not cands else str(col),
-                scale=float(scale), offset=float(offset),
-                period_label=pd_label,
-            ), state_files[0] if state_files else ""))
+
+            cands = _column_candidates(files[name])
+            for j in range(int(n_rows)):
+                c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
+                with c1:
+                    tgt_label = st.selectbox(
+                        "置き換える指標", list(target_opts),
+                        index=min(j, len(target_opts) - 1),
+                        key=f"{key_prefix}_tgt_{i}_{j}")
+                with c2:
+                    col = st.selectbox("値列", cands or ["(列が見つかりません)"],
+                                       index=min(j, len(cands) - 1) if cands else 0,
+                                       key=f"{key_prefix}_col_{i}_{j}")
+                with c3:
+                    scale = st.number_input("scale", value=1.0, format="%.6g",
+                                            key=f"{key_prefix}_sc_{i}_{j}",
+                                            help="表示値 = 取得値×scale+offset（単位換算・符号反転用）")
+                with c4:
+                    offset = st.number_input("offset", value=0.0, format="%.6g",
+                                             key=f"{key_prefix}_of_{i}_{j}")
+                rows.append((OverrideEntry(
+                    file_name=name, target=target_opts[tgt_label],
+                    column="" if not cands else str(col),
+                    scale=float(scale), offset=float(offset),
+                    period_label=pd_label,
+                ), state_files[0] if state_files else ""))
 
         drive_label = st.radio(
             "運転モード（自動/手動の判定方法）",

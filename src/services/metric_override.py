@@ -89,7 +89,8 @@ def read_value_csv(data: bytes) -> pd.DataFrame:
     """置き換え用 CSV を読む。
 
     - GetMcapToCsv の出力 (t_ns 列あり) はそのまま (基本形式)
-    - それ以外は「1列目=時間、2列目=値」の2列形式とみなす
+    - それ以外は「1列目=時間、2列目以降=値」の汎用形式とみなす
+      (値列は複数可。1つの CSV から複数の指標を置き換えられる)
     戻り値はどちらも sec_time (UTC 秒精度) と t_ns を持つ。
     """
     head = pd.read_csv(io.BytesIO(data), encoding="utf-8-sig", nrows=1)
@@ -98,16 +99,15 @@ def read_value_csv(data: bytes) -> pd.DataFrame:
 
     df = pd.read_csv(io.BytesIO(data), encoding="utf-8-sig")
     if df.shape[1] < 2:
-        raise ValueError("2列形式 (時間, 値) には最低2列必要です")
+        raise ValueError("汎用形式 (1列目=時間、2列目以降=値) には最低2列必要です")
     ts = _parse_time_column(df.iloc[:, 0]).dt.as_unit("ns")  # int64 化を ns に固定
     keep = ts.notna()
     if not keep.any():
         raise ValueError("時間列 (1列目) を解釈できません")
-    out = pd.DataFrame({
-        "t_ns": ts[keep].astype("int64"),
-        str(df.columns[1]): pd.to_numeric(df.iloc[:, 1], errors="coerce")[keep],
-        "sec_time": ts[keep].dt.floor("s"),
-    })
+    out = pd.DataFrame({"t_ns": ts[keep].astype("int64")})
+    for c in df.columns[1:]:
+        out[str(c)] = pd.to_numeric(df[c], errors="coerce")[keep]
+    out["sec_time"] = ts[keep].dt.floor("s")
     return out.sort_values("t_ns").reset_index(drop=True)
 
 

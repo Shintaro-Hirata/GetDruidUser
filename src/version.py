@@ -7,7 +7,7 @@
 #   MAJOR.MINOR.PATCH（互換を壊す変更で MAJOR、機能追加で MINOR、修正で PATCH）。
 from __future__ import annotations
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 
 def app_version() -> str:

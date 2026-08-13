@@ -35,6 +35,16 @@ def _mcap_csv(n=120, col="debug_for_mcap.lateral_error") -> bytes:
     return "\n".join(rows).encode("utf-8")
 
 
+def _mcap_csv_multi(n=120) -> bytes:
+    """値列を2つ持つ GetMcapToCsv 形式 CSV（1つの CSV から複数指標の置き換え用）"""
+    t0_ns = int(pd.Timestamp(T0).value)
+    rows = ["time_jst,t_sec,t_ns,debug_for_mcap.lateral_error,pose.acceleration_vrf.y"]
+    for i in range(n):
+        t_ns = t0_ns + i * 500_000_000
+        rows.append(f"x,{i * 0.5},{t_ns},{(i % 40) * 0.1:.3f},{(i % 20) * 0.05:.3f}")
+    return "\n".join(rows).encode("utf-8")
+
+
 def _two_col_csv() -> bytes:
     rows = ["time,value"]
     for i in range(60):
@@ -75,6 +85,57 @@ def test_read_value_csv_two_col_epoch_seconds():
     body = "t,v\n" + "\n".join(f"{t0 + i},{i}" for i in range(10))
     df = read_value_csv(body.encode())
     assert df["sec_time"].iloc[0] == pd.Timestamp(T0)
+
+
+def test_read_value_csv_generic_multi_value_columns():
+    # 汎用形式は 2 列目以降の全列を値列として保持する（複数指標の置き換え用）
+    t0 = pd.Timestamp(T0).timestamp()
+    body = "t,a,b\n" + "\n".join(f"{t0 + i},{i * 0.1},{i * 0.2}" for i in range(10))
+    df = read_value_csv(body.encode())
+    assert {"t_ns", "sec_time", "a", "b"}.issubset(df.columns)
+    assert df["a"].iloc[1] == pytest.approx(0.1)
+    assert df["b"].iloc[1] == pytest.approx(0.2)
+
+
+def test_one_csv_replaces_multiple_targets():
+    # 1つの CSV から複数の指標（q1 と クエリ3 ヒスト）を同じ期間へ置き換えられる
+    period = _period()
+    config = _config()
+    df = read_value_csv(_mcap_csv_multi())
+    e1 = OverrideEntry(file_name="a.csv", target="q1",
+                       column="debug_for_mcap.lateral_error")
+    e2 = OverrideEntry(file_name="a.csv", target=TARGET_Q3,
+                       column="pose.acceleration_vrf.y")
+    apply_override(period, e1, df, config, state_df=None,
+                   positions=None, drive_mode="auto")
+    apply_override(period, e2, df, config, state_df=None,
+                   positions=None, drive_mode="auto")
+    assert "metric:q1" in period.overrides
+    assert "hist" in period.overrides
+    assert not period.combined_metric_df("q1").empty
+    assert period.combined_hist_df()["cnt_auto"].sum() > 0
+
+
+def test_apply_rows_multiple_targets_from_one_csv():
+    # UI 経路 (_apply_rows) でも 1 CSV → 複数指標が適用され、レシピも指標ごとに残る
+    from types import SimpleNamespace
+    from src.ui.views.override_panel import _apply_rows
+
+    period = _period()
+    config = _config()
+    files = {"a.csv": _mcap_csv_multi()}
+    sb = SimpleNamespace(truck_sources=(), truck_tz="Asia/Tokyo", truck_filter_vehicle=False)
+    state = SimpleNamespace(ovr_recipes=[])
+    rows = [
+        (OverrideEntry(file_name="a.csv", target="q1",
+                       column="debug_for_mcap.lateral_error"), "", "auto"),
+        (OverrideEntry(file_name="a.csv", target=TARGET_Q3,
+                       column="pose.acceleration_vrf.y"), "", "auto"),
+    ]
+    applied, warns = _apply_rows(rows, files, {}, [period], sb, config, state)
+    assert applied == 2
+    assert "metric:q1" in period.overrides and "hist" in period.overrides
+    assert len(state.ovr_recipes) == 2  # 期間×対象ごとに1件
 
 
 def test_choose_period_by_overlap():
